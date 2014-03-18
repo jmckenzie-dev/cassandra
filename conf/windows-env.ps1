@@ -22,7 +22,6 @@ Function SetCassandraHome()
         $cwd = [System.IO.Directory]::GetCurrentDirectory()
         $cwd = Split-Path $cwd -parent
         $env:CASSANDRA_HOME = $cwd -replace "\\", "/"
-        echo "Setting cassandra home to $env:CASSANDRA_HOME"
     }
 }
 

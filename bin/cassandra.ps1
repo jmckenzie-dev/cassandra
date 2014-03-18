@@ -16,8 +16,13 @@
 param (
     [switch]$install,
     [switch]$uninstall,
-    [switch]$help
- )
+    [switch]$help,
+    # single switch args
+    [switch]$f,
+    [string]$p,
+    [string]$H,
+    [string]$E
+)
 
 #-----------------------------------------------------------------------------
 Function ValidateArguments
@@ -36,16 +41,65 @@ Function ValidateArguments
 Function PrintUsage
 {
     echo @"
-usage: cassandra.ps1 [-install | -uninstall] [-help]
+usage: cassandra.ps1 [-f] [-h] [-p pidfile] [-H dumpfile] [-E errorfile] [-install | -uninstall] [-help]
+    -f              Run cassandra in foreground
     -install        install cassandra as a service
     -uninstall      remove cassandra service
+    -H              change JVM HeapDumpPath
+    -E              change JVM ErrorFile
     -help           print this message
 
-    NOTE: no arguments will run cassandra in the background
-    NOTE: cassandra as a service requires Commons Daemon Service Runner
+    NOTE: installing cassandra as a service requires Commons Daemon Service Runner
         available at http://commons.apache.org/proper/commons-daemon/"
 "@
     exit
+}
+
+#-----------------------------------------------------------------------------
+# Note: throughout these scripts we're replacing \ with /.  This allows clean
+# operation on both command-prompt and cygwin-based environments.
+Function Main
+{
+    ValidateArguments
+
+    # Order of preference on grabbing environment settings:
+    #   CASSANDRA_CONF
+    #   CASSANDRA_HOME
+    #   Relative to current working directory
+    if (Test-Path Env:\CASSANDRA_CONF)
+    {
+        $file = "$env:CASSANDRA_CONF/windows-env.ps1"
+    }
+    elseif (Test-Path Env:\CASSANDRA_HOME)
+    {
+        $file = "$env:CASSANDRA_HOME/conf/windows-env.ps1"
+    }
+    else
+    {
+        $file = [System.IO.Directory]::GetCurrentDirectory() + "/../conf/windows-env.ps1"
+    }
+    $file = $file -replace "\\", "/"
+
+    if (Test-Path $file)
+    {
+        . $file
+    }
+    else
+    {
+        echo "Error with environment file resolution.  Path: $file not found."
+        exit
+    }
+
+    SetCassandraEnvironment
+
+    if ($install -or $uninstall)
+    {
+        HandleInstallation
+    }
+    else
+    {
+        RunCassandra($f)
+    }
 }
 
 #-----------------------------------------------------------------------------
@@ -91,7 +145,7 @@ $PRUNSRV //US//%SERVICE_JVM%
 }
 
 #-----------------------------------------------------------------------------
-Function RunCassandra
+Function RunCassandra([string]$foreground)
 {
     echo "Starting cassandra server"
     $cmd = @"
@@ -104,29 +158,28 @@ $env:JAVA_HOME/bin/java
 "$env:CASSANDRA_MAIN"
 "@
 
-    $proc = Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -PassThru -WindowStyle Hidden
+    if ($foreground)
+    {
+        Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -NoNewWindow
+    }
+    else
+    {
+        $proc = Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -PassThru -WindowStyle Hidden
 
-    # store the pid
-    echo $proc.Id > $env:CASSANDRA_HOME/cassandra.pid
+        # store the pid
+        echo $proc.Id > $env:CASSANDRA_HOME/cassandra.pid
 
-    $cassPid = $proc.Id
-    echo "Started cassandra successfully with pid: $cassPid"
+        $cassPid = $proc.Id
+        if ($cassPid -eq "")
+        {
+            echo "Error starting cassandra."
+        }
+        else
+        {
+            echo "Started cassandra successfully with pid: $cassPid"
+        }
+    }
 }
 
 #-----------------------------------------------------------------------------
-# Main
-$file = [System.IO.Directory]::GetCurrentDirectory() + "/windows-env.ps1"
-. $file
-
-ValidateArguments
-
-SetCassandraEnvironment
-
-if ($install -or $uninstall)
-{
-    HandleInstallation
-}
-else
-{
-    RunCassandra
-}
+Main

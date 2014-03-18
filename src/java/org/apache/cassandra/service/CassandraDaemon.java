@@ -455,6 +455,7 @@ public class CassandraDaemon
 
             if (pidFile != null)
             {
+                logger.error("NOTE: Registering deleteOnExit for pidfile: " + pidFile);
                 new File(pidFile).deleteOnExit();
             }
 
