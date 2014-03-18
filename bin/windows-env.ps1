@@ -1,11 +1,28 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 #-----------------------------------------------------------------------------
 Function SetCassandraHome()
 {
     if (! $env:CASSANDRA_HOME)
     {
         $cwd = [System.IO.Directory]::GetCurrentDirectory()
-        $cwd = $cwd -replace "\\", "/"
-        $env:CASSANDRA_HOME = Split-Path $cwd -parent
+        $cwd = Split-Path $cwd -parent
+        $env:CASSANDRA_HOME = $cwd -replace "\\", "/"
+        echo "Setting cassandra home to $env:CASSANDRA_HOME"
     }
 }
 
@@ -14,7 +31,7 @@ Function SetCassandraMain()
 {
     if (! $env:CASSANDRA_MAIN)
     {
-        $env:CASSANDRA_MAIN=org.apache.cassandra.service.CassandraDaemon
+        $env:CASSANDRA_MAIN="org.apache.cassandra.service.CassandraDaemon"
     }
 }
 
@@ -24,7 +41,7 @@ Function SetJavaOpts
     # kep multi-line for ease of use
     $rawOpts=@"
  -ea
- -javaagent:"$env:CASSANDRA_HOME/lib/jamm-0.2.5.jar"
+ -javaagent:"$env:CASSANDRA_HOME/lib/jamm-0.2.6.jar"
  -Xms2G
  -Xmx2G
  -XX:+HeapDumpOnOutOfMemoryError
@@ -51,12 +68,11 @@ Function BuildClassPath
     foreach ($file in Get-ChildItem "$env:CASSANDRA_HOME/lib/*.jar")
     {
         $file = $file -replace "\\", "/"
-        $cp = $cp + ";" + "$env:CASSANDRA_HOME/lib/$file"
+        $cp = $cp + ";" + "$file"
     }
 
     # Add build/classes/main so it works in development
     $cp = $cp + ";" + "$env:CASSANDRA_HOME/build/classes/main;$env:CASSANDRA_HOME/build/classes/thrift"
-
     $env:CLASSPATH=$cp
 }
 

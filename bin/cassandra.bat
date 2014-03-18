@@ -17,99 +17,38 @@
 @echo off
 if "%OS%" == "Windows_NT" setlocal
 
-set ARG=%1
-set INSTALL="INSTALL"
-set UNINSTALL="UNINSTALL"
+REM Blind pass all arguments through here to either cassandra.ps1 or cassandra.bat
+for %%i in (%*) do call :appendArg %%i
+goto :okArgs
 
-pushd %~dp0..
-if NOT DEFINED CASSANDRA_HOME set CASSANDRA_HOME=%CD%
-popd
-
-if NOT DEFINED CASSANDRA_MAIN set CASSANDRA_MAIN=org.apache.cassandra.service.CassandraDaemon
-if NOT DEFINED JAVA_HOME goto :err
-
-REM ***** JAVA options *****
-set JAVA_OPTS=-ea^
- -javaagent:"%CASSANDRA_HOME%\lib\jamm-0.2.6.jar"^
- -Xms1G^
- -Xmx1G^
- -XX:+HeapDumpOnOutOfMemoryError^
- -XX:+UseParNewGC^
- -XX:+UseConcMarkSweepGC^
- -XX:+CMSParallelRemarkEnabled^
- -XX:SurvivorRatio=8^
- -XX:MaxTenuringThreshold=1^
- -XX:CMSInitiatingOccupancyFraction=75^
- -XX:+UseCMSInitiatingOccupancyOnly^
- -Dcom.sun.management.jmxremote.port=7199^
- -Dcom.sun.management.jmxremote.ssl=false^
- -Dcom.sun.management.jmxremote.authenticate=false^
- -Dlogback.configurationFile=logback.xml
-
-REM ***** CLASSPATH library setting *****
-
-REM Ensure that any user defined CLASSPATH variables are not used on startup
-set CLASSPATH="%CASSANDRA_HOME%\conf"
-
-REM For each jar in the CASSANDRA_HOME lib directory call append to build the CLASSPATH variable.
-for %%i in ("%CASSANDRA_HOME%\lib\*.jar") do call :append "%%i"
-goto okClasspath
-
-:append
-set CLASSPATH=%CLASSPATH%;%1
+REM -----------------------------------------------------------------------------
+:appendArg
+set ARGS=%ARGS% %1
 goto :eof
 
-:okClasspath
-REM Include the build\classes\main directory so it works in development
-set CASSANDRA_CLASSPATH=%CLASSPATH%;"%CASSANDRA_HOME%\build\classes\main";"%CASSANDRA_HOME%\build\classes\thrift"
-set CASSANDRA_PARAMS=-Dcassandra -Dcassandra-foreground=yes
-if /i "%ARG%" == "INSTALL" goto doInstallOperation
-if /i "%ARG%" == "UNINSTALL" goto doInstallOperation
-goto runDaemon
+REM -----------------------------------------------------------------------------
+:okArgs
+REM See if we have the capabilities of running the powershell scripts
+for /F "delims=" %%i in ('powershell Get-ExecutionPolicy') do set PERMISSION=%%i
+if "%PERMISSION%" == "Unrestricted" goto runPowerShell
+goto runLegacy
 
-
-:runDaemon
-echo Starting Cassandra Server
-"%JAVA_HOME%\bin\java" %JAVA_OPTS% %CASSANDRA_PARAMS% -cp %CASSANDRA_CLASSPATH% "%CASSANDRA_MAIN%"
+REM -----------------------------------------------------------------------------
+:runPowerShell
+echo Detected powershell execution permissions.  Running with enhanced startup scripts.
+powershell /file cassandra.ps1 %ARGS%
 goto finally
 
-:doInstallOperation
-set SERVICE_JVM="cassandra"
-rem location of Prunsrv
-set PATH_PRUNSRV=%CASSANDRA_HOME%\bin\daemon\
-set PR_LOGPATH=%PATH_PRUNSRV%
+REM -----------------------------------------------------------------------------
+:runLegacy
+echo WARNING! Powershell script execution unavailable.
+echo    Please use 'powershell Set-ExecutionPolicy Unrestricted'
+echo    on this user-account to run cassandra with fully featured
+echo    functionality on this platform.
 
-rem fix up java ops replace ' -' with ' ;-'
-set JAVA_OPTS_DELM=%JAVA_OPTS: -=;-%
-
-rem Allow prunsrv to be overridden
-if "%PRUNSRV%" == "" set PRUNSRV=%PATH_PRUNSRV%prunsrv
-
-echo trying to delete service if it has been created already
-"%PRUNSRV%" //DS//%SERVICE_JVM%
-rem quit if we're just going to uninstall
-if /i "%ARG%" == "UNINSTALL" goto finally
-
-echo.
-echo Installing %SERVICE_JVM%. If you get registry warnings, re-run as an Administrator
-"%PRUNSRV%" //IS//%SERVICE_JVM%
-echo Setting the parameters for %SERVICE_JVM%
-rem set PR_CLASSPATH=%CASSANDRA_CLASSPATH%
-"%PRUNSRV%" //US//%SERVICE_JVM% ^
- --Jvm=auto --StdOutput auto --StdError auto ^
- --Classpath=%CASSANDRA_CLASSPATH% ^
- --StartMode=jvm --StartClass=%CASSANDRA_MAIN% --StartMethod=main ^
- --StopMode=jvm --StopClass=%CASSANDRA_MAIN%  --StopMethod=stop ^
- ++JvmOptions=%JAVA_OPTS_DELM% ++JvmOptions=-DCassandra ^
- --PidFile pid.txt
- 
-echo Installation of %SERVICE_JVM% is complete
+echo Starting with legacy cassandra.bat
+cassandra_legacy.bat %ARGS%
 goto finally
-
-:err
-echo JAVA_HOME environment variable must be set!
-pause
 
 :finally
-
 ENDLOCAL
