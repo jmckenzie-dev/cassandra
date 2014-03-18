@@ -20,6 +20,7 @@ package org.apache.cassandra.io.util;
 import java.io.*;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -43,9 +44,12 @@ public class MmappedSegmentedFile extends SegmentedFile
      */
     private final Segment[] segments;
 
+    private final String fileName;
+
     public MmappedSegmentedFile(String path, long length, Segment[] segments)
     {
         super(path, length);
+        fileName = path;
         this.segments = segments;
     }
 
@@ -78,6 +82,7 @@ public class MmappedSegmentedFile extends SegmentedFile
 
         // not mmap'd: open a braf covering the segment
         // FIXME: brafs are unbounded, so this segment will cover the rest of the file, rather than just the row
+        logger.error("MMAP OPEN: " + path);
         RandomAccessReader file = RandomAccessReader.open(new File(path));
         file.seek(position);
         return file;
@@ -86,7 +91,10 @@ public class MmappedSegmentedFile extends SegmentedFile
     public void cleanup()
     {
         if (!FileUtils.isCleanerAvailable())
+        {
+            logger.error("BAD! MmappedSegmentedFile - cleaner isn't available for path: " + fileName);
             return;
+        }
 
         /*
          * Try forcing the unmapping of segments using undocumented unsafe sun APIs.
@@ -101,12 +109,13 @@ public class MmappedSegmentedFile extends SegmentedFile
                     continue;
                 FileUtils.clean(segment.right);
             }
-            logger.debug("All segments have been unmapped successfully");
+            logger.info("MMAP CLEAN: " + fileName);
+            logger.info("GOOD! All segments have been unmapped successfully for path: " + fileName);
         }
         catch (Exception e)
         {
             // This is not supposed to happen
-            logger.error("Error while unmapping segments", e);
+            logger.error("BAD! Error while unmapping segments", e);
         }
     }
 
@@ -176,6 +185,7 @@ public class MmappedSegmentedFile extends SegmentedFile
 
             try
             {
+                logger.error("RAF OPEN (createSegments): " + path);
                 raf = new RandomAccessFile(path, "r");
             }
             catch (FileNotFoundException e)
@@ -195,13 +205,22 @@ public class MmappedSegmentedFile extends SegmentedFile
                     segments[i] = new Segment(start, segment);
                 }
             }
-            catch (IOException e)
+            catch (Exception e)
             {
                 throw new FSReadError(e, path);
             }
             finally
             {
-                FileUtils.closeQuietly(raf);
+                // FileUtils.closeQuietly(raf);
+                try
+                {
+                    raf.close();
+                    logger.info("RAF CLOSE (createSegments): " + path);
+                }
+                catch (IOException e)
+                {
+                    logger.error("RAF CLOSE FAILURE (createSegments): " + path);
+                }
             }
             return segments;
         }
