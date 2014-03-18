@@ -32,6 +32,9 @@ import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CLibrary;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Adds buffering, mark, and fsyncing to OutputStream.  We always fsync on close; we may also
  * fsync incrementally if Config.trickle_fsync is enabled.
@@ -67,10 +70,13 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
 
     public final DataOutputPlus stream;
 
+    private static final Logger logger = LoggerFactory.getLogger(SequentialWriter.class);
+
     public SequentialWriter(File file, int bufferSize, boolean skipIOCache)
     {
         try
         {
+            logger.error("RAF OPEN (SequentialWriter): " + file.getAbsolutePath());
             out = new RandomAccessFile(file, "rw");
         }
         catch (FileNotFoundException e)
@@ -464,6 +470,7 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
         try
         {
             out.close();
+            logger.error("RAF CLOSED (SequentialWriter): " + filePath);
         }
         catch (IOException e)
         {

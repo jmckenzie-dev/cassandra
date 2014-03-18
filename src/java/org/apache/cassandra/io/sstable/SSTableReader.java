@@ -19,6 +19,9 @@ package org.apache.cassandra.io.sstable;
 
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -1091,6 +1094,7 @@ public class SSTableReader extends SSTable implements Closeable
         if (!FBUtilities.isUnix())
             return;
 
+        logger.error("RAF OPEN (SSTableReader.preheat): " + getFilename());
         RandomAccessFile f = new RandomAccessFile(getFilename(), "r");
 
         try
@@ -1109,6 +1113,7 @@ public class SSTableReader extends SSTable implements Closeable
         finally
         {
             FileUtils.closeQuietly(f);
+            logger.error("RAF CLOSE (SSTableReader.preheat): " + getFilename());
         }
     }
 
@@ -1745,6 +1750,7 @@ public class SSTableReader extends SSTable implements Closeable
 
         try
         {
+            logger.error("RAF OPEN (SSTableReader.dropPageCache): " + filePath);
             file = new RandomAccessFile(filePath, "r");
 
             int fd = CLibrary.getfd(file.getFD());
@@ -1764,6 +1770,7 @@ public class SSTableReader extends SSTable implements Closeable
         finally
         {
             FileUtils.closeQuietly(file);
+            logger.error("RAF CLOSE (SSTableReader.dropPageCache): " + filePath);
         }
     }
 
