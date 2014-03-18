@@ -547,34 +547,6 @@ public class BufferedRandomAccessFileTest
             }
         }, IllegalArgumentException.class);
 
-        // Any write() call should fail
-        expectException(new Callable<Object>()
-        {
-            public Object call() throws IOException
-            {
-                copy.write(1);
-                return null;
-            }
-        }, UnsupportedOperationException.class);
-
-        expectException(new Callable<Object>()
-        {
-            public Object call() throws IOException
-            {
-                copy.write(new byte[1]);
-                return null;
-            }
-        }, UnsupportedOperationException.class);
-
-        expectException(new Callable<Object>()
-        {
-            public Object call() throws IOException
-            {
-                copy.write(new byte[3], 0, 2);
-                return null;
-            }
-        }, UnsupportedOperationException.class);
-
         copy.seek(0);
         copy.skipBytes(5);
 

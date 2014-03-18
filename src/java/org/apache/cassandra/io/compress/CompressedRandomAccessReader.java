@@ -115,7 +115,7 @@ public class CompressedRandomAccessReader extends RandomAccessReader
         compressed.flip();
         try
         {
-            validBufferBytes = metadata.compressor().uncompress(compressed.array(), 0, chunk.length, buffer, 0);
+            validBufferBytes = metadata.compressor().uncompress(compressed.array(), 0, chunk.length, buffer.array(), 0);
         }
         catch (IOException e)
         {
@@ -131,7 +131,7 @@ public class CompressedRandomAccessReader extends RandomAccessReader
             }
             else
             {
-                checksum.update(buffer, 0, validBufferBytes);
+                checksum.update(buffer.array(), 0, validBufferBytes);
             }
 
             if (checksum(chunk) != (int) checksum.getValue())
@@ -142,7 +142,7 @@ public class CompressedRandomAccessReader extends RandomAccessReader
         }
 
         // buffer offset is always aligned
-        bufferOffset = current & ~(buffer.length - 1);
+        bufferOffset = current & ~(buffer.array().length - 1);
     }
 
     private int checksum(CompressionMetadata.Chunk chunk) throws IOException

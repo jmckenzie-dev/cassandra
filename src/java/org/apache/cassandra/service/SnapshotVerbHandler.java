@@ -36,10 +36,14 @@ public class SnapshotVerbHandler implements IVerbHandler<SnapshotCommand>
         SnapshotCommand command = message.payload;
         if (command.clear_snapshot)
         {
-            Keyspace.clearSnapshot(command.snapshot_name, command.keyspace);
+            logger.info("REPAIR clearing snapshot for command: " + command.snapshot_name);
+            Keyspace.open(command.keyspace).clearSnapshot(command.snapshot_name);
         }
         else
+        {
+            logger.info("REPAIR creating snapshot for ks: " + command.keyspace + " cf: " + command.column_family + " and snapshot_name: " + command.snapshot_name);
             Keyspace.open(command.keyspace).getColumnFamilyStore(command.column_family).snapshot(command.snapshot_name);
+        }
         logger.debug("Enqueuing response to snapshot request {} to {}", command.snapshot_name, message.from);
         MessagingService.instance().sendReply(new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE), id, message.from);
     }

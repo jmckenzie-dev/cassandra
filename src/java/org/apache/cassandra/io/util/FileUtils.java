@@ -120,6 +120,7 @@ public class FileUtils
             logger.debug("Deleting {}", file.getName());
         try
         {
+            logger.info("DELETE: deleting file: " + file.toPath());
             Files.delete(file.toPath());
         }
         catch (IOException e)
@@ -188,6 +189,7 @@ public class FileUtils
 
         try
         {
+            logger.error("RAF OPEN (FileUtils.truncate): " + path);
             file = new RandomAccessFile(path, "rw");
         }
         catch (FileNotFoundException e)
@@ -206,6 +208,7 @@ public class FileUtils
         finally
         {
             closeQuietly(file);
+            logger.error("RAF CLOSED (FileUtils.truncate): " + path);
         }
     }
 

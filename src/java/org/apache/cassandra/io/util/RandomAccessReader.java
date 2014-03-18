@@ -20,13 +20,20 @@ package org.apache.cassandra.io.util;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 
 import com.google.common.annotations.VisibleForTesting;
 
 import org.apache.cassandra.io.FSReadError;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class RandomAccessReader extends RandomAccessFile implements FileDataInput
+public class RandomAccessReader extends BufferReader implements FileDataInput
 {
+    private static final Logger logger = LoggerFactory.getLogger(RandomAccessReader.class);
+
     public static final long CACHE_FLUSH_INTERVAL_IN_BYTES = (long) Math.pow(2, 27); // 128mb
 
     // default buffer size, 64Kb
@@ -34,9 +41,10 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
 
     // absolute filesystem path to the file
     private final String filePath;
+    private final File file;
 
     // buffer which will cache file blocks
-    protected byte[] buffer;
+    protected ByteBuffer buffer;
 
     // `current` as current position in file
     // `bufferOffset` is the offset of the beginning of the buffer
@@ -46,8 +54,8 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
     //  this will be LESS than buffer capacity if buffer is not full!
     protected int validBufferBytes = 0;
 
-    // channel liked with the file, used to retrieve data and force updates.
-    protected final FileChannel channel;
+    // channel linked with the file, used to retrieve data and force updates.
+    protected final SeekableByteChannel channel;
 
     private final long fileLength;
 
@@ -55,23 +63,33 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
 
     protected RandomAccessReader(File file, int bufferSize, PoolingSegmentedFile owner) throws FileNotFoundException
     {
-        super(file, "r");
-
         this.owner = owner;
+        this.file = file;
 
-        channel = super.getChannel();
         filePath = file.getAbsolutePath();
+
+        DBG("New RAR with file path: " + filePath);
+        try
+        {
+            logger.error("RAR OPEN: " + file.toPath());
+            channel = Files.newByteChannel(file.toPath(), StandardOpenOption.READ);
+            logger.error("Attempting to delete file we just got a SeekableByteChannel to.");
+        }
+        catch (IOException e)
+        {
+            throw new FileNotFoundException(filePath);
+        }
 
         // allocating required size of the buffer
         if (bufferSize <= 0)
             throw new IllegalArgumentException("bufferSize must be positive");
-
-        buffer = new byte[bufferSize];
+        buffer = ByteBuffer.allocate(bufferSize);
 
         // we can cache file length in read-only mode
         try
         {
             fileLength = channel.size();
+            DBG("fileLength: " + fileLength);
         }
         catch (IOException e)
         {
@@ -97,7 +115,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
         {
             return new RandomAccessReader(file, bufferSize, owner);
         }
-        catch (FileNotFoundException e)
+        catch (IOException e)
         {
             throw new RuntimeException(e);
         }
@@ -107,6 +125,12 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
     static RandomAccessReader open(SequentialWriter writer)
     {
         return open(new File(writer.getPath()), DEFAULT_BUFFER_SIZE, null);
+    }
+
+    // channel extends FileChannel, impl SeekableByteChannel.  Safe to cast.
+    public FileChannel getChannel()
+    {
+        return (FileChannel)channel;
     }
 
     /**
@@ -125,9 +149,10 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
 
             int read = 0;
 
-            while (read < buffer.length)
+            while (read < buffer.array().length)
             {
-                int n = super.read(buffer, read, buffer.length - read);
+                int n = channel.read(buffer);
+
                 if (n < 0)
                     break;
                 read += n;
@@ -154,7 +179,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
 
     public int getTotalBufferSize()
     {
-        return buffer.length;
+        return buffer.array().length;
     }
 
     public void reset()
@@ -211,6 +236,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
     {
         bufferOffset = current;
         validBufferBytes = 0;
+        buffer.clear();
     }
 
     @Override
@@ -237,7 +263,8 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
 
         try
         {
-            super.close();
+            logger.error("RAR CLOSE: " + file.toPath());
+            channel.close();
         }
         catch (IOException e)
         {
@@ -267,6 +294,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
     @Override
     public void seek(long newPosition)
     {
+        DBG("seek(long " + newPosition + ") enter");
         if (newPosition < 0)
             throw new IllegalArgumentException("new position should not be negative");
 
@@ -278,38 +306,38 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
 
         if (newPosition > (bufferOffset + validBufferBytes) || newPosition < bufferOffset)
             reBuffer();
+        DBG("seek(long " + newPosition + ") leave");
     }
 
-    @Override
     // -1 will be returned if there is nothing to read; higher-level methods like readInt
     // or readFully (from RandomAccessFile) will throw EOFException but this should not
     public int read()
     {
+        DBG("read()");
         if (buffer == null)
             throw new AssertionError("Attempted to read from closed RAR");
 
         if (isEOF())
             return -1; // required by RandomAccessFile
 
-        if (current >= bufferOffset + buffer.length || validBufferBytes == -1)
+        if (current >= bufferOffset + buffer.array().length || validBufferBytes == -1)
             reBuffer();
 
         assert current >= bufferOffset && current < bufferOffset + validBufferBytes;
 
-        return ((int) buffer[(int) (current++ - bufferOffset)]) & 0xff;
+        return ((int) buffer.array()[(int) (current++ - bufferOffset)]) & 0xff;
     }
 
-    @Override
     public int read(byte[] buffer)
     {
         return read(buffer, 0, buffer.length);
     }
 
-    @Override
     // -1 will be returned if there is nothing to read; higher-level methods like readInt
     // or readFully (from RandomAccessFile) will throw EOFException but this should not
     public int read(byte[] buff, int offset, int length)
     {
+        DBG("read(byte[] buff, int offset, int length");
         if (buffer == null)
             throw new AssertionError("Attempted to read from closed RAR");
 
@@ -319,7 +347,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
         if (isEOF())
             return -1;
 
-        if (current >= bufferOffset + buffer.length || validBufferBytes == -1)
+        if (current >= bufferOffset + buffer.array().length || validBufferBytes == -1)
             reBuffer();
 
         assert current >= bufferOffset && current < bufferOffset + validBufferBytes
@@ -331,20 +359,24 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
 
         int toCopy = Math.min(length, validBufferBytes - bufferCursor());
 
-        System.arraycopy(buffer, bufferCursor(), buff, offset, toCopy);
+        DBG("ArrayCopy.");
+        System.arraycopy(buffer.array(), bufferCursor(), buff, offset, toCopy);
         current += toCopy;
+        DBG("After ArrayCopy");
 
         return toCopy;
     }
 
     public ByteBuffer readBytes(int length) throws EOFException
     {
+        DBG("readBytes(int " + length);
         assert length >= 0 : "buffer length should not be negative: " + length;
 
         byte[] buff = new byte[length];
 
         try
         {
+            DBG("Reading fully");
             readFully(buff); // reading data buffer
         }
         catch (EOFException e)
@@ -370,21 +402,21 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
         return current;
     }
 
-    @Override
-    public void write(int value)
     {
-        throw new UnsupportedOperationException();
+        return current;
     }
 
-    @Override
-    public void write(byte[] buffer)
+    public void setLength(long newLength) throws IOException
     {
-        throw new UnsupportedOperationException();
+        channel.truncate(newLength);
     }
 
-    @Override
-    public void write(byte[] buffer, int offset, int length)
+    private void DBG(String input)
     {
-        throw new UnsupportedOperationException();
+        // logger.info("RAR -- " + file.getName() + " -- " + input);
+    }
+    private void STATE()
+    {
+        // logger.info("RAR -- " + file.getName() + " -- current: " + current + " bufferOffset: " + bufferOffset + " markedPointer: " + markedPointer);
     }
 }
