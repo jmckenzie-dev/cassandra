@@ -158,7 +158,7 @@ $env:JAVA_HOME/bin/java
 "$env:CASSANDRA_MAIN"
 "@
 
-    if ($foreground)
+    if ($foreground -ne "False")
     {
         Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -NoNewWindow
     }
