@@ -243,7 +243,6 @@ public class CompressionMetadata
         {
             try
             {
-                logger.error("RAF OPEN (CompressionMetadata.Writer): " + path);
                 return new Writer(path);
             }
             catch (FileNotFoundException e)
@@ -372,7 +371,6 @@ public class CompressionMetadata
             if (getChannel().isOpen()) // if RAF.closed were public we could just use that, but it's not
                 getChannel().force(true);
             super.close();
-            logger.error("RAF CLOSE (CompressionMetadata.Writer): " + filePath);
         }
     }
 
