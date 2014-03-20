@@ -119,6 +119,7 @@ public class Validator implements Runnable
                 }
             }
         }
+        logger.debug("Prepared AEService tree of size " + tree.size() + " for " + desc);
         ranges = tree.invalids();
     }
 

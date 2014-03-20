@@ -27,13 +27,9 @@ import java.nio.file.StandardOpenOption;
 import com.google.common.annotations.VisibleForTesting;
 
 import org.apache.cassandra.io.FSReadError;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class RandomAccessReader extends AbstractDataInput implements FileDataInput
 {
-    private static final Logger logger = LoggerFactory.getLogger(RandomAccessReader.class);
-
     public static final long CACHE_FLUSH_INTERVAL_IN_BYTES = (long) Math.pow(2, 27); // 128mb
 
     // default buffer size, 64Kb
@@ -41,7 +37,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     // absolute filesystem path to the file
     private final String filePath;
-    private final File file;
 
     // buffer which will cache file blocks
     protected ByteBuffer buffer;
@@ -64,7 +59,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     protected RandomAccessReader(File file, int bufferSize, PoolingSegmentedFile owner) throws FileNotFoundException
     {
         this.owner = owner;
-        this.file = file;
 
         filePath = file.getAbsolutePath();
 
@@ -320,11 +314,13 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         return ((int) buffer.array()[(int) (current++ - bufferOffset)]) & 0xff;
     }
 
+    @Override
     public int read(byte[] buffer)
     {
         return read(buffer, 0, buffer.length);
     }
 
+    @Override
     // -1 will be returned if there is nothing to read; higher-level methods like readInt
     // or readFully (from RandomAccessFile) will throw EOFException but this should not
     public int read(byte[] buff, int offset, int length)

@@ -25,7 +25,7 @@ import org.apache.cassandra.io.util.AbstractDataInputSmall;
 /**
  * Borrows idea from
  * https://developers.google.com/protocol-buffers/docs/encoding#varints
- * 
+ *
  * Should be used with EncodedDataOutputStream
  */
 public class EncodedDataInputStream extends AbstractDataInputSmall
