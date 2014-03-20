@@ -1094,7 +1094,6 @@ public class SSTableReader extends SSTable implements Closeable
         if (!FBUtilities.isUnix())
             return;
 
-        logger.error("RAF OPEN (SSTableReader.preheat): " + getFilename());
         RandomAccessFile f = new RandomAccessFile(getFilename(), "r");
 
         try
@@ -1113,7 +1112,6 @@ public class SSTableReader extends SSTable implements Closeable
         finally
         {
             FileUtils.closeQuietly(f);
-            logger.error("RAF CLOSE (SSTableReader.preheat): " + getFilename());
         }
     }
 
@@ -1750,7 +1748,6 @@ public class SSTableReader extends SSTable implements Closeable
 
         try
         {
-            logger.error("RAF OPEN (SSTableReader.dropPageCache): " + filePath);
             file = new RandomAccessFile(filePath, "r");
 
             int fd = CLibrary.getfd(file.getFD());
@@ -1770,7 +1767,6 @@ public class SSTableReader extends SSTable implements Closeable
         finally
         {
             FileUtils.closeQuietly(file);
-            logger.error("RAF CLOSE (SSTableReader.dropPageCache): " + filePath);
         }
     }
 
