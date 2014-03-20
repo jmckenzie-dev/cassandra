@@ -384,10 +384,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         return current;
     }
 
-    {
-        return current;
-    }
-
     public void setLength(long newLength) throws IOException
     {
         channel.truncate(newLength);
