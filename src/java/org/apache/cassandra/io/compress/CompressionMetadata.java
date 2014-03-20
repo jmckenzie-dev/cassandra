@@ -36,9 +36,6 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.Memory;
 import org.apache.cassandra.utils.Pair;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
  * Holds metadata about compressed file
  */
@@ -226,8 +223,6 @@ public class CompressionMetadata
 
     public static class Writer extends RandomAccessFile
     {
-        private static final Logger logger = LoggerFactory.getLogger(Writer.class);
-
         // place for uncompressed data length in the index file
         private long dataLengthOffset = -1;
         // path to the file
