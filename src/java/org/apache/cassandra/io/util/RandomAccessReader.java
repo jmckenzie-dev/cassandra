@@ -30,7 +30,7 @@ import org.apache.cassandra.io.FSReadError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class RandomAccessReader extends BufferReader implements FileDataInput
+public class RandomAccessReader extends AbstractDataInput implements FileDataInput
 {
     private static final Logger logger = LoggerFactory.getLogger(RandomAccessReader.class);
 
@@ -68,12 +68,9 @@ public class RandomAccessReader extends BufferReader implements FileDataInput
 
         filePath = file.getAbsolutePath();
 
-        DBG("New RAR with file path: " + filePath);
         try
         {
-            logger.error("RAR OPEN: " + file.toPath());
             channel = Files.newByteChannel(file.toPath(), StandardOpenOption.READ);
-            logger.error("Attempting to delete file we just got a SeekableByteChannel to.");
         }
         catch (IOException e)
         {
@@ -89,7 +86,6 @@ public class RandomAccessReader extends BufferReader implements FileDataInput
         try
         {
             fileLength = channel.size();
-            DBG("fileLength: " + fileLength);
         }
         catch (IOException e)
         {
@@ -263,7 +259,6 @@ public class RandomAccessReader extends BufferReader implements FileDataInput
 
         try
         {
-            logger.error("RAR CLOSE: " + file.toPath());
             channel.close();
         }
         catch (IOException e)
@@ -294,7 +289,6 @@ public class RandomAccessReader extends BufferReader implements FileDataInput
     @Override
     public void seek(long newPosition)
     {
-        DBG("seek(long " + newPosition + ") enter");
         if (newPosition < 0)
             throw new IllegalArgumentException("new position should not be negative");
 
@@ -306,14 +300,12 @@ public class RandomAccessReader extends BufferReader implements FileDataInput
 
         if (newPosition > (bufferOffset + validBufferBytes) || newPosition < bufferOffset)
             reBuffer();
-        DBG("seek(long " + newPosition + ") leave");
     }
 
     // -1 will be returned if there is nothing to read; higher-level methods like readInt
     // or readFully (from RandomAccessFile) will throw EOFException but this should not
     public int read()
     {
-        DBG("read()");
         if (buffer == null)
             throw new AssertionError("Attempted to read from closed RAR");
 
@@ -337,7 +329,6 @@ public class RandomAccessReader extends BufferReader implements FileDataInput
     // or readFully (from RandomAccessFile) will throw EOFException but this should not
     public int read(byte[] buff, int offset, int length)
     {
-        DBG("read(byte[] buff, int offset, int length");
         if (buffer == null)
             throw new AssertionError("Attempted to read from closed RAR");
 
@@ -359,24 +350,20 @@ public class RandomAccessReader extends BufferReader implements FileDataInput
 
         int toCopy = Math.min(length, validBufferBytes - bufferCursor());
 
-        DBG("ArrayCopy.");
         System.arraycopy(buffer.array(), bufferCursor(), buff, offset, toCopy);
         current += toCopy;
-        DBG("After ArrayCopy");
 
         return toCopy;
     }
 
     public ByteBuffer readBytes(int length) throws EOFException
     {
-        DBG("readBytes(int " + length);
         assert length >= 0 : "buffer length should not be negative: " + length;
 
         byte[] buff = new byte[length];
 
         try
         {
-            DBG("Reading fully");
             readFully(buff); // reading data buffer
         }
         catch (EOFException e)
@@ -391,7 +378,6 @@ public class RandomAccessReader extends BufferReader implements FileDataInput
         return ByteBuffer.wrap(buff);
     }
 
-    @Override
     public long length()
     {
         return fileLength;
@@ -411,12 +397,72 @@ public class RandomAccessReader extends BufferReader implements FileDataInput
         channel.truncate(newLength);
     }
 
-    private void DBG(String input)
+    protected void seekInternal(long position)
     {
-        // logger.info("RAR -- " + file.getName() + " -- " + input);
+        seek(position);
     }
-    private void STATE()
-    {
-        // logger.info("RAR -- " + file.getName() + " -- current: " + current + " bufferOffset: " + bufferOffset + " markedPointer: " + markedPointer);
+
+    /**
+    * Reads a line of text form the current position in this file. A line is
+    * represented by zero or more characters followed by {@code '\n'}, {@code
+    * '\r'}, {@code "\r\n"} or the end of file marker. The string does not
+    * include the line terminating sequence.
+    * <p>
+    * Blocks until a line terminating sequence has been read, the end of the
+    * file is reached or an exception is thrown.
+    *
+    * @return the contents of the line or {@code null} if no characters have
+    *         been read before the end of the file has been reached.
+    * @throws java.io.IOException
+    *             if this file is closed or another I/O error occurs.
+    */
+    public final String readLine() throws IOException {
+        StringBuilder line = new StringBuilder(80); // Typical line length
+        boolean foundTerminator = false;
+        long unreadPosition = 0;
+        while (true) {
+            int nextByte = read();
+            switch (nextByte) {
+                case -1:
+                    return line.length() != 0 ? line.toString() : null;
+                case (byte) '\r':
+                    if (foundTerminator) {
+                        seekInternal(unreadPosition);
+                        return line.toString();
+                    }
+                    foundTerminator = true;
+                    /* Have to be able to peek ahead one byte */
+                    unreadPosition = getPosition();
+                    break;
+                case (byte) '\n':
+                    return line.toString();
+                default:
+                    if (foundTerminator) {
+                        seekInternal(unreadPosition);
+                        return line.toString();
+                    }
+                    line.append((char) nextByte);
+            }
+        }
+    }
+
+    public int skipBytes(int n) throws IOException {
+        long pos;
+        long len;
+        long newpos;
+
+        if (n <= 0) {
+            return 0;
+        }
+        pos = getPosition();
+        len = length();
+        newpos = pos + n;
+        if (newpos > len) {
+            newpos = len;
+        }
+        seek(newpos);
+
+        /* return the actual number of bytes skipped */
+        return (int) (newpos - pos);
     }
 }

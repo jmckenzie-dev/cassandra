@@ -19,7 +19,7 @@ package org.apache.cassandra.io.util;
 
 import java.io.IOException;
 
-public class MemoryInputStream extends AbstractDataInput
+public class MemoryInputStream extends AbstractDataInputSmall
 {
     private final Memory mem;
     private int position = 0;

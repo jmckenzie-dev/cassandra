@@ -76,7 +76,6 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
     {
         try
         {
-            logger.error("RAF OPEN (SequentialWriter): " + file.getAbsolutePath());
             out = new RandomAccessFile(file, "rw");
         }
         catch (FileNotFoundException e)
@@ -470,7 +469,6 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
         try
         {
             out.close();
-            logger.error("RAF CLOSED (SequentialWriter): " + filePath);
         }
         catch (IOException e)
         {

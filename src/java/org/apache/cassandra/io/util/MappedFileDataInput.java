@@ -24,12 +24,8 @@ import java.nio.channels.FileChannel;
 
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-public class MappedFileDataInput extends AbstractDataInput implements FileDataInput
+public class MappedFileDataInput extends AbstractDataInputSmall implements FileDataInput
 {
-    private static final Logger logger = LoggerFactory.getLogger(MappedFileDataInput.class);
     private final MappedByteBuffer buffer;
     private final String filename;
     private final long segmentOffset;
@@ -37,7 +33,6 @@ public class MappedFileDataInput extends AbstractDataInput implements FileDataIn
 
     public MappedFileDataInput(FileInputStream stream, String filename, long segmentOffset, int position) throws IOException
     {
-        logger.error("MFDI OPEN: " + filename);
         FileChannel channel = stream.getChannel();
         buffer = channel.map(FileChannel.MapMode.READ_ONLY, position, channel.size());
         this.filename = filename;

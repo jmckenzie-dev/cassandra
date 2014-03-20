@@ -28,6 +28,7 @@ import java.util.NoSuchElementException;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.FSReadError;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
 /**
@@ -68,6 +69,11 @@ public abstract class SegmentedFile
      */
     public static Builder getBuilder(Config.DiskAccessMode mode)
     {
+        // Don't support mmap on Windows for readers - causes file-lock issues on hard-links for snapshots
+        if (!FBUtilities.isUnix()) {
+            return new BufferedPoolingSegmentedFile.Builder();
+        }
+
         return mode == Config.DiskAccessMode.mmap
                ? new MmappedSegmentedFile.Builder()
                : new BufferedPoolingSegmentedFile.Builder();
