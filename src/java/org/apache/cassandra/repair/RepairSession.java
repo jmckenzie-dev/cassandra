@@ -233,12 +233,12 @@ public class RepairSession extends WrappedRunnable implements IEndpointStateChan
     // we don't care about the return value but care about it throwing exception
     public void runMayThrow() throws Exception
     {
-        logger.info(String.format("REPAIR [repair #%s] new session: will sync %s on range %s for %s.%s", getId(), repairedNodes(), range, keyspace, Arrays.toString(cfnames)));
+        logger.info(String.format("[repair #%s] new session: will sync %s on range %s for %s.%s", getId(), repairedNodes(), range, keyspace, Arrays.toString(cfnames)));
 
         if (endpoints.isEmpty())
         {
             differencingDone.signalAll();
-            logger.info(String.format("REPAIR [repair #%s] No neighbors to repair with on range %s: session completed", getId(), range));
+            logger.info(String.format("[repair #%s] No neighbors to repair with on range %s: session completed", getId(), range));
             return;
         }
 
@@ -249,7 +249,7 @@ public class RepairSession extends WrappedRunnable implements IEndpointStateChan
             {
                 String message = String.format("Cannot proceed on repair because a neighbor (%s) is dead: session failed", endpoint);
                 differencingDone.signalAll();
-                logger.error(String.format("REPAIR [repair #%s] ", getId()) + message);
+                logger.error(String.format("[repair #%s] ", getId()) + message);
                 throw new IOException(message);
             }
         }
@@ -271,11 +271,11 @@ public class RepairSession extends WrappedRunnable implements IEndpointStateChan
             completed.await();
             if (exception == null)
             {
-                logger.info(String.format("REPAIR [repair #%s] session completed successfully", getId()));
+                logger.info(String.format("[repair #%s] session completed successfully", getId()));
             }
             else
             {
-                logger.error(String.format("REPAIR [repair #%s] session completed with the following error", getId()), exception);
+                logger.error(String.format("[repair #%s] session completed with the following error", getId()), exception);
                 throw exception;
             }
         }
@@ -311,7 +311,7 @@ public class RepairSession extends WrappedRunnable implements IEndpointStateChan
 
     void failedNode(InetAddress remote)
     {
-        String errorMsg = String.format("REPAIR Endpoint %s died", remote);
+        String errorMsg = String.format("Endpoint %s died", remote);
         exception = new IOException(errorMsg);
         // If a node failed, we stop everything (though there could still be some activity in the background)
         forceShutdown();
