@@ -119,7 +119,7 @@ public class Validator implements Runnable
                 }
             }
         }
-        logger.debug("Prepared AEService tree of size " + tree.size() + " for " + desc);
+        logger.debug("Prepared AEService tree of size {} for {}", tree.size(), desc);
         ranges = tree.invalids();
     }
 
@@ -239,7 +239,7 @@ public class Validator implements Runnable
      */
     public void fail()
     {
-        logger.error("Failed creating a merkle tree for " + desc + ", " + initiator + " (see log for details)");
+        logger.error("Failed creating a merkle tree for {}, {} (see log for details)", desc, initiator);
         // send fail message only to nodes >= version 2.0
         MessagingService.instance().sendOneWay(new ValidationComplete(desc).createMessage(), initiator);
     }
