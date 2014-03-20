@@ -142,7 +142,6 @@ public class CommitLogSegment
             }
 
             // Open the initial the segment file
-            logger.error("RAF OPEN (CommitLogSegment): " + logFile);
             logFileAccessor = new RandomAccessFile(logFile, "rw");
 
             if (isCreating)
@@ -394,7 +393,6 @@ public class CommitLogSegment
             if (FileUtils.isCleanerAvailable())
                 FileUtils.clean(buffer);
             logFileAccessor.close();
-            logger.error("RAF CLOSE (CommitLogSegment): " + logFile);
         }
         catch (IOException e)
         {
