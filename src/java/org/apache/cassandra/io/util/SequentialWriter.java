@@ -32,9 +32,6 @@ import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CLibrary;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
  * Adds buffering, mark, and fsyncing to OutputStream.  We always fsync on close; we may also
  * fsync incrementally if Config.trickle_fsync is enabled.
@@ -69,8 +66,6 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
     private int bytesSinceTrickleFsync = 0;
 
     public final DataOutputPlus stream;
-
-    private static final Logger logger = LoggerFactory.getLogger(SequentialWriter.class);
 
     public SequentialWriter(File file, int bufferSize, boolean skipIOCache)
     {

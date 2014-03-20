@@ -150,10 +150,9 @@ public class MappedFileDataInput extends AbstractDataInputSmall implements FileD
     }
 
     @Override
-    public final void readFully(byte[] bytes) throws IOException
+    public final void readFully(byte[] buffer) throws IOException
     {
-        ByteBufferUtil.arrayCopy(buffer, buffer.position() + position, bytes, 0, bytes.length);
-        position += bytes.length;
+        throw new UnsupportedOperationException("use readBytes instead");
     }
 
     @Override

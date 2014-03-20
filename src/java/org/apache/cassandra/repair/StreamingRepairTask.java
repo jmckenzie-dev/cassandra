@@ -65,7 +65,7 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
 
     private void initiateStreaming()
     {
-        logger.info(String.format("REPAIR [streaming task #%s] Performing streaming repair of %d ranges with %s", desc.sessionId, request.ranges.size(), request.dst));
+        logger.info(String.format("[streaming task #%s] Performing streaming repair of %d ranges with %s", desc.sessionId, request.ranges.size(), request.dst));
         StreamResultFuture op = new StreamPlan("Repair")
                                     .flushBeforeTransfer(true)
                                     // request ranges from the remote node
@@ -78,7 +78,7 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
 
     private void forwardToSource()
     {
-        logger.info(String.format("REPAIR [repair #%s] Forwarding streaming repair of %d ranges to %s (to be streamed with %s)", desc.sessionId, request.ranges.size(), request.src, request.dst));
+        logger.info(String.format("[repair #%s] Forwarding streaming repair of %d ranges to %s (to be streamed with %s)", desc.sessionId, request.ranges.size(), request.src, request.dst));
         MessagingService.instance().sendOneWay(request.createMessage(), request.src);
     }
 
@@ -93,7 +93,7 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
      */
     public void onSuccess(StreamState state)
     {
-        logger.info(String.format("REPAIR [repair #%s] streaming task succeed, returning response to %s", desc.sessionId, request.initiator));
+        logger.info(String.format("[repair #%s] streaming task succeed, returning response to %s", desc.sessionId, request.initiator));
         MessagingService.instance().sendOneWay(new SyncComplete(desc, request.src, request.dst, true).createMessage(), request.initiator);
     }
 
@@ -102,7 +102,6 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
      */
     public void onFailure(Throwable t)
     {
-        logger.info(String.format("REPAIR [repair #%s] streaming task failure, returning response to %s", desc.sessionId, request.initiator));
         MessagingService.instance().sendOneWay(new SyncComplete(desc, request.src, request.dst, false).createMessage(), request.initiator);
     }
 }
