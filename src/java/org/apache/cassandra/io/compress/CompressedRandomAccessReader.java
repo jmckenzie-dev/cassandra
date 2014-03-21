@@ -98,6 +98,12 @@ public class CompressedRandomAccessReader extends RandomAccessReader
 
     private void decompressChunk(CompressionMetadata.Chunk chunk) throws IOException
     {
+        STATE("ENTER decompressChunk");
+
+        // Increment up by one block as we deserialize in chunks.
+        bufferOffset = current() & ~(buffer.array().length - 1);
+        // bufferOffset = current() & ~(buffer.array().length - 1);
+
         if (channel.position() != chunk.offset)
             channel.position(chunk.offset);
 
@@ -113,10 +119,17 @@ public class CompressedRandomAccessReader extends RandomAccessReader
         // technically flip() is unnecessary since all the remaining work uses the raw array, but if that changes
         // in the future this will save a lot of hair-pulling
         compressed.flip();
+        buffer.clear();
         int decompressedBytes = 0;
         try
         {
+            DBG("attempting to decompress: " + chunk.length);
             decompressedBytes = metadata.compressor().uncompress(compressed.array(), 0, chunk.length, buffer.array(), 0);
+            buffer.position(decompressedBytes);
+            buffer.flip();
+            initialized = true;
+            DBG("Successfully decompressed " + decompressedBytes + " bytes.");
+            STATE("AFTER decompressChunk");
         }
         catch (IOException e)
         {
@@ -143,7 +156,8 @@ public class CompressedRandomAccessReader extends RandomAccessReader
         }
 
         // buffer offset is always aligned
-        bufferOffset = current() & ~(buffer.array().length - 1);
+        // bufferOffset = current() & ~(buffer.array().length - 1);
+        STATE("LEAVE decompressChunk");
     }
 
     private int checksum(CompressionMetadata.Chunk chunk) throws IOException
