@@ -41,13 +41,11 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     // buffer which will cache file blocks
     protected ByteBuffer buffer;
 
-    // `current` as current position in file
     // `bufferOffset` is the offset of the beginning of the buffer
     // `markedPointer` folds the offset of the last file mark
-    protected long bufferOffset, current = 0, markedPointer;
-    // `validBufferBytes` is the number of bytes in the buffer that are actually valid;
-    //  this will be LESS than buffer capacity if buffer is not full!
-    protected int validBufferBytes = 0;
+    protected long bufferOffset, markedPointer;
+
+    private boolean initialized = false;
 
     // channel linked with the file, used to retrieve data and force updates.
     protected final SeekableByteChannel channel;
@@ -85,7 +83,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         {
             throw new FSReadError(e, filePath);
         }
-        validBufferBytes = -1; // that will trigger reBuffer() on demand by read/seek operations
     }
 
     public static RandomAccessReader open(File file, PoolingSegmentedFile owner)
@@ -148,18 +145,24 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
                 read += n;
             }
 
-            validBufferBytes = read;
+            initialized = true;
         }
         catch (IOException e)
         {
             throw new FSReadError(e, filePath);
         }
+        buffer.flip();
     }
 
     @Override
     public long getFilePointer()
     {
-        return current;
+        return current();
+    }
+
+    protected long current()
+    {
+        return bufferOffset + buffer.position();
     }
 
     public String getPath()
@@ -169,7 +172,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     public int getTotalBufferSize()
     {
-        return buffer.array().length;
+        return buffer.capacity();
     }
 
     public void reset()
@@ -179,14 +182,14 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     public long bytesPastMark()
     {
-        long bytes = current - markedPointer;
+        long bytes = current() - markedPointer;
         assert bytes >= 0;
         return bytes;
     }
 
     public FileMark mark()
     {
-        markedPointer = current;
+        markedPointer = current();
         return new BufferedRandomAccessFileMark(markedPointer);
     }
 
@@ -199,7 +202,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     public long bytesPastMark(FileMark mark)
     {
         assert mark instanceof BufferedRandomAccessFileMark;
-        long bytes = current - ((BufferedRandomAccessFileMark) mark).pointer;
+        long bytes = current() - ((BufferedRandomAccessFileMark) mark).pointer;
         assert bytes >= 0;
         return bytes;
     }
@@ -217,15 +220,9 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         return length() - getFilePointer();
     }
 
-    protected int bufferCursor()
-    {
-        return (int) (current - bufferOffset);
-    }
-
     protected void resetBuffer()
     {
-        bufferOffset = current;
-        validBufferBytes = 0;
+        bufferOffset += buffer.position();
         buffer.clear();
     }
 
@@ -290,10 +287,10 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
             throw new IllegalArgumentException(String.format("unable to seek to position %d in %s (%d bytes) in read-only mode",
                                                              newPosition, getPath(), length()));
 
-        current = newPosition;
-
-        if (newPosition > (bufferOffset + validBufferBytes) || newPosition < bufferOffset)
+        if (newPosition > current() + buffer.remaining() || newPosition < bufferOffset)
             reBuffer();
+
+        buffer.position((int) (newPosition - bufferOffset));
     }
 
     // -1 will be returned if there is nothing to read; higher-level methods like readInt
@@ -306,12 +303,10 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         if (isEOF())
             return -1; // required by RandomAccessFile
 
-        if (current >= bufferOffset + buffer.array().length || validBufferBytes == -1)
+        if (!buffer.hasRemaining() || !initialized)
             reBuffer();
 
-        assert current >= bufferOffset && current < bufferOffset + validBufferBytes;
-
-        return ((int) buffer.array()[(int) (current++ - bufferOffset)]) & 0xff;
+        return (int)buffer.get() & 0xff;
     }
 
     @Override
@@ -334,21 +329,11 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         if (isEOF())
             return -1;
 
-        if (current >= bufferOffset + buffer.array().length || validBufferBytes == -1)
+        if (!buffer.hasRemaining() || !initialized)
             reBuffer();
 
-        assert current >= bufferOffset && current < bufferOffset + validBufferBytes
-                : String.format("File (%s), current offset %d, buffer offset %d, buffer limit %d",
-                                getPath(),
-                                current,
-                                bufferOffset,
-                                validBufferBytes);
-
-        int toCopy = Math.min(length, validBufferBytes - bufferCursor());
-
-        System.arraycopy(buffer.array(), bufferCursor(), buff, offset, toCopy);
-        current += toCopy;
-
+        int toCopy = Math.min(length, buffer.remaining());
+        buffer.get(buff, offset, toCopy);
         return toCopy;
     }
 
@@ -356,22 +341,39 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     {
         assert length >= 0 : "buffer length should not be negative: " + length;
 
-        byte[] buff = new byte[length];
-
+        ByteBuffer clone = ByteBuffer.allocate(length);
         try
         {
-            readFully(buff); // reading data buffer
+            if (!buffer.hasRemaining() || !initialized)
+                reBuffer();
+
+            int read = 0;
+            while (!isEOF() && read < length)
+            {
+                // Copy out remainder of what buffer has available and reBuffer if target remaining is greater
+                if (length - read > buffer.remaining())
+                {
+                    int start = clone.position();
+                    clone.put(buffer);
+                    read += clone.position() - start;
+                    reBuffer();
+                }
+                // Or arraycopy out a subset of the buffer if we're trying to copy out less
+                else if (length - read < buffer.remaining())
+                {
+                    int toCopy = clone.remaining();
+                    clone.put(buffer.array(), buffer.position(), toCopy);
+                    buffer.position(buffer.position() + toCopy);
+                    read += toCopy;
+                }
+            }
         }
-        catch (EOFException e)
-        {
-            throw e;
-        }
-        catch (IOException e)
+        catch (Exception e)
         {
             throw new FSReadError(e, filePath);
         }
-
-        return ByteBuffer.wrap(buff);
+        clone.flip();
+        return clone;
     }
 
     public long length()
@@ -381,7 +383,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     public long getPosition()
     {
-        return current;
+        return bufferOffset + buffer.position();
     }
 
     public void setLength(long newLength) throws IOException
