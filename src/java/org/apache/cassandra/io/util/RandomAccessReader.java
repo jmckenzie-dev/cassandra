@@ -350,6 +350,10 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     {
         assert length >= 0 : "buffer length should not be negative: " + length;
 
+        if (length > fileLength) {
+            throw new EOFException();
+        }
+
         ByteBuffer clone = ByteBuffer.allocate(length);
         int read = 0;
         try

@@ -215,6 +215,7 @@ public class SystemKeyspace
      */
     public static UUID startCompaction(ColumnFamilyStore cfs, Iterable<SSTableReader> toCompact)
     {
+        logger.error("SystemKeyspace.startCompaction on cfs: " + cfs.getColumnFamilyName());
         if (Keyspace.SYSTEM_KS.equals(cfs.keyspace.getName()))
             return null;
 
