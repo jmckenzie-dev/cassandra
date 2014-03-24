@@ -69,12 +69,15 @@ public class CleanupTest extends SchemaLoader
         // insert data and verify we get it back w/ range query
         fillCF(cfs, LOOPS);
 
+        System.err.println("getMaxTimestampList");
         // record max timestamps of the sstables pre-cleanup
         List<Long> expectedMaxTimestamps = getMaxTimestampList(cfs);
 
+        System.err.println("getRangeSlice");
         rows = Util.getRangeSlice(cfs);
         assertEquals(LOOPS, rows.size());
 
+        System.err.println("performCleanup");
         // with one token in the ring, owned by the local node, cleanup should be a no-op
         CompactionManager.instance.performCleanup(cfs);
 
