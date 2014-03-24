@@ -100,8 +100,6 @@ public class CompactionTask extends AbstractCompactionTask
         // it is not empty, it may compact down to nothing if all rows are deleted.
         assert sstables != null && sstableDirectory != null;
 
-        logger.error("toCompact size: " + toCompact.size() + " on directory: " + sstableDirectory.getName());
-
         if (toCompact.size() == 0)
             return;
 
@@ -110,10 +108,7 @@ public class CompactionTask extends AbstractCompactionTask
         AbstractCompactionStrategy strategy = cfs.getCompactionStrategy();
 
         if (DatabaseDescriptor.isSnapshotBeforeCompaction())
-        {
-            logger.error("performing snapshotWithoutFlush");
             cfs.snapshotWithoutFlush(System.currentTimeMillis() + "-compact-" + cfs.name);
-        }
 
         // sanity check: all sstables must belong to the same cfs
         assert !Iterables.any(toCompact, new Predicate<SSTableReader>()
@@ -129,7 +124,6 @@ public class CompactionTask extends AbstractCompactionTask
 
         CompactionController controller = getCompactionController(toCompact);
         Set<SSTableReader> actuallyCompact = Sets.difference(toCompact, controller.getFullyExpiredSSTables());
-        logger.error("actuallyCompact size: " + actuallyCompact.size());
 
         // new sstables from flush can be added during a compaction, but only the compaction can remove them,
         // so in our single-threaded compaction world this is a valid way of determining if we're compacting
@@ -168,7 +162,6 @@ public class CompactionTask extends AbstractCompactionTask
             }
 
             SSTableWriter writer = createCompactionWriter(sstableDirectory, keysPerSSTable, minRepairedAt);
-            logger.error("1 - adding writer for: " + writer.descriptor.toString());
             writers.add(writer);
             while (iter.hasNext())
             {
@@ -203,7 +196,6 @@ public class CompactionTask extends AbstractCompactionTask
                     // tmp = false because later we want to query it with descriptor from SSTableReader
                     cachedKeyMap.put(writer.descriptor.asTemporary(false), cachedKeys);
                     writer = createCompactionWriter(sstableDirectory, keysPerSSTable, minRepairedAt);
-                    logger.error("2 - adding writer for: " + writer.descriptor.toString());
                     writers.add(writer);
                     cachedKeys = new HashMap<>();
                 }
@@ -216,17 +208,12 @@ public class CompactionTask extends AbstractCompactionTask
             else
             {
                 writer.abort();
-                logger.error("3 - removing writer for: " + writer.descriptor.toString());
                 writers.remove(writer);
             }
 
             long maxAge = getMaxDataAge(toCompact);
             for (SSTableWriter completedWriter : writers)
-            {
-                SSTableReader result = completedWriter.closeAndOpenReader(maxAge);
-                logger.error("Adding completed sstable writer for: " + result.getColumnFamilyName());
-                sstables.add(result);
-            }
+                sstables.add(completedWriter.closeAndOpenReader(maxAge));
         }
         catch (Throwable t)
         {
