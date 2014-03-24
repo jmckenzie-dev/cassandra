@@ -2487,7 +2487,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         final int cmd = nextRepairCommand.incrementAndGet();
         if (ranges.size() > 0)
         {
-            new Thread(createRepairTask(cmd, keyspace, ranges, isSequential, dataCenters, hosts, fullRepair, columnFamilies)).start();
+            if (!FBUtilities.isUnix() && isSequential)
+            {
+                logger.warn("WARNING!  Snapshot-based repair is not supported on Windows.  Reverting to parallel repair.");
+                new Thread(createRepairTask(cmd, keyspace, ranges, false, dataCenters, hosts, fullRepair, columnFamilies)).start();
+            }
+            else
+            {
+                new Thread(createRepairTask(cmd, keyspace, ranges, isSequential, dataCenters, hosts, fullRepair, columnFamilies)).start();
+            }
         }
         return cmd;
     }
@@ -2506,7 +2514,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         final int cmd = nextRepairCommand.incrementAndGet();
         if (ranges.size() > 0)
         {
-            new Thread(createRepairTask(cmd, keyspace, ranges, isSequential, isLocal, fullRepair, columnFamilies)).start();
+            if (!FBUtilities.isUnix() && isSequential)
+            {
+                logger.warn("WARNING!  Snapshot-based repair is not supported on Windows.  Reverting to parallel repair.");
+                new Thread(createRepairTask(cmd, keyspace, ranges, false, isLocal, fullRepair, columnFamilies)).start();
+            }
+            else
+            {
+                new Thread(createRepairTask(cmd, keyspace, ranges, isSequential, isLocal, fullRepair, columnFamilies)).start();
+            }
         }
         return cmd;
     }
