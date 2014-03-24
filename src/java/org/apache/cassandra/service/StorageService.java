@@ -2489,7 +2489,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             if (!FBUtilities.isUnix() && isSequential)
             {
-                logger.warn("WARNING!  Snapshot-based repair is not supported on Windows.  Reverting to parallel repair.");
+                logger.warn("Snapshot-based repair is not supported on Windows.  Reverting to parallel repair.");
                 new Thread(createRepairTask(cmd, keyspace, ranges, false, dataCenters, hosts, fullRepair, columnFamilies)).start();
             }
             else
@@ -2516,7 +2516,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             if (!FBUtilities.isUnix() && isSequential)
             {
-                logger.warn("WARNING!  Snapshot-based repair is not supported on Windows.  Reverting to parallel repair.");
+                logger.warn("Snapshot-based repair is not supported on Windows.  Reverting to parallel repair.");
                 new Thread(createRepairTask(cmd, keyspace, ranges, false, isLocal, fullRepair, columnFamilies)).start();
             }
             else
