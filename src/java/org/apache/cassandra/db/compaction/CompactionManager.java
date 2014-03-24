@@ -1295,6 +1295,12 @@ public class CompactionManager implements CompactionManagerMBean
         {
             try
             {
+                if (sstable.metadata == null) {
+                    logger.error("metadata null.");
+                }
+                else if (scanner == null) {
+                    logger.error("scanner null.");
+                }
                 return new CompactionInfo(sstable.metadata,
                                           OperationType.CLEANUP,
                                           scanner.getCurrentPosition(),
@@ -1302,6 +1308,9 @@ public class CompactionManager implements CompactionManagerMBean
             }
             catch (Exception e)
             {
+                logger.error("currentPosition: " + scanner.getCurrentPosition());
+                logger.error("scanner length in bytes: " + scanner.getLengthInBytes());
+                logger.error("Backing tables: " + scanner.getBackingFiles());
                 throw new RuntimeException();
             }
         }

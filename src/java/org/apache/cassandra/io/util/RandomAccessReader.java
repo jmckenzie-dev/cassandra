@@ -33,6 +33,8 @@ import org.slf4j.LoggerFactory;
 
 public class RandomAccessReader extends AbstractDataInput implements FileDataInput
 {
+    PrintWriter writer;
+
     private static final Logger logger = LoggerFactory.getLogger(RandomAccessReader.class);
 
     public static final long CACHE_FLUSH_INTERVAL_IN_BYTES = (long) Math.pow(2, 27); // 128mb
@@ -66,6 +68,8 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
         filePath = file.getAbsolutePath();
         fileShort = file.getName();
+
+        writer = new PrintWriter("logs/" + fileShort + ".txt");
 
         try
         {
@@ -174,6 +178,11 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     protected long current()
     {
+        // Protect against checking len after RAR is closed
+        if (buffer == null) {
+            return bufferOffset;
+            // logger.error("ERROR!  Null buffer on file: " + filePath + ".  This shouldn't happen.");
+        }
         return bufferOffset + buffer.position();
     }
 
@@ -262,6 +271,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
         try
         {
+            writer.close();
             channel.close();
         }
         catch (IOException e)
@@ -359,8 +369,8 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     public ByteBuffer readBytes(int length) throws EOFException
     {
-        // STATE("ENTER readBytes");
-        // DBG("length: " + length);
+        STATE("ENTER readBytes");
+        DBG("length: " + length);
         assert length >= 0 : "buffer length should not be negative: " + length;
 
         ByteBuffer clone = ByteBuffer.allocate(length);
@@ -383,6 +393,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
                     reBuffer();
                     // DBG("buffer remaining after reBuffer: " + buffer.remaining());
                     // DBG("read vs. len.  read: " + read + " and length: " + length);
+                    STATE("readBytes leaving if");
                 }
                 // Terminal - arraycopy out a subset of the buffer
                 else
@@ -392,7 +403,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
                     clone.put(buffer.array(), buffer.position(), toCopy);
                     buffer.position(buffer.position() + toCopy);
                     read += toCopy;
-                    STATE("leaving else   ");
+                    STATE("readBytes leaving else");
                 }
             }
         }
@@ -495,7 +506,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     }
 
     protected void DBG(String input) {
-        // logger.error(fileShort + " - " + input);
+        // writer.write(input + "\n");
     }
 
     protected void STATE(String label) {
