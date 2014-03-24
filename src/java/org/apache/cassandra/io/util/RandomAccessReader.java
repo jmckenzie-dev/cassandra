@@ -373,6 +373,10 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         DBG("length: " + length);
         assert length >= 0 : "buffer length should not be negative: " + length;
 
+        if (length > fileLength) {
+            throw new EOFException();
+        }
+
         ByteBuffer clone = ByteBuffer.allocate(length);
         int read = 0;
         try
@@ -429,11 +433,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     public long getPosition()
     {
         return bufferOffset + buffer.position();
-    }
-
-    public void setLength(long newLength) throws IOException
-    {
-        channel.truncate(newLength);
     }
 
     protected void seekInternal(long position)

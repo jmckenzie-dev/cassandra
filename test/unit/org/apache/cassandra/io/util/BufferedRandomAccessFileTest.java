@@ -591,16 +591,6 @@ public class BufferedRandomAccessFileTest
         }
     }
 
-    @Test (expected=IOException.class)
-    public void testSetLengthDuringReadMode() throws IOException
-    {
-        File tmpFile = File.createTempFile("set_length_during_read_mode", "bin");
-        try (RandomAccessReader file = RandomAccessReader.open(tmpFile))
-        {
-            file.setLength(4L);
-        }
-    }
-
     private SequentialWriter createTempFile(String name) throws IOException
     {
         File tempFile = File.createTempFile(name, null);

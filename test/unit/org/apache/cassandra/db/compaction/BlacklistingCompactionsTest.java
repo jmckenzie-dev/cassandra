@@ -21,6 +21,9 @@ package org.apache.cassandra.db.compaction;
  */
 
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.RandomAccessFile;
 import java.util.Collection;
 import java.util.HashSet;
@@ -43,6 +46,7 @@ import static org.apache.cassandra.Util.cellname;
 public class BlacklistingCompactionsTest extends SchemaLoader
 {
     public static final String KEYSPACE = "Keyspace1";
+    private static final Logger logger = LoggerFactory.getLogger(BlacklistingCompactionsTest.class);
 
     @BeforeClass
     public static void closeStdErr()
@@ -129,18 +133,28 @@ public class BlacklistingCompactionsTest extends SchemaLoader
 
         int failures = 0;
 
+        logger.error("TEST - running tests.  sstables.size: " + sstables.size());
         // in case something will go wrong we don't want to loop forever using for (;;)
         for (int i = 0; i < sstables.size(); i++)
         {
+            logger.error("Pass number: " + i);
             try
             {
+                logger.error("TEST - sstables size prior to force major: " + cfs.getSSTables().size());
                 cfs.forceMajorCompaction();
+                logger.error("TEST - sstables size after force major: " + cfs.getSSTables().size());
+                logger.error("TEST - sstablesToCorrupt: " + sstablesToCorrupt);
             }
             catch (Exception e)
             {
                 // kind of a hack since we're not specifying just CorruptSSTableExceptions, or (what we actually expect)
                 // an ExecutionException wrapping a CSSTE.  This is probably Good Enough though, since if there are
                 // other errors in compaction presumably the other tests would bring that to light.
+                logger.error("TEST - failure occurred.  Not printing anything.");
+                logger.error("Exception: " + e);
+                for (StackTraceElement ste : e.getStackTrace()) {
+                    logger.error("Stack: " + ste.toString());
+                }
                 failures++;
                 continue;
             }
