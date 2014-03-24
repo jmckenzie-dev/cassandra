@@ -33,8 +33,6 @@ import org.slf4j.LoggerFactory;
 
 public class RandomAccessReader extends AbstractDataInput implements FileDataInput
 {
-    PrintWriter writer;
-
     private static final Logger logger = LoggerFactory.getLogger(RandomAccessReader.class);
 
     public static final long CACHE_FLUSH_INTERVAL_IN_BYTES = (long) Math.pow(2, 27); // 128mb
@@ -68,8 +66,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
         filePath = file.getAbsolutePath();
         fileShort = file.getName();
-
-        writer = new PrintWriter("logs/" + fileShort + ".txt");
 
         try
         {
@@ -505,7 +501,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     }
 
     protected void DBG(String input) {
-        // writer.write(input + "\n");
+        // logger.error(input + "\n");
     }
 
     protected void STATE(String label) {
