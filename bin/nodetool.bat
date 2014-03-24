@@ -17,12 +17,33 @@
 @echo off
 if "%OS%" == "Windows_NT" setlocal
 
+set NTARGS=
+set ISREPAIR=0
+set PAR=0
+
 if NOT DEFINED CASSANDRA_HOME set CASSANDRA_HOME=%~dp0..
 if NOT DEFINED JAVA_HOME goto :err
 
 REM Ensure that any user defined CLASSPATH variables are not used on startup
 set CLASSPATH="%CASSANDRA_HOME%\conf"
 
+REM Warn and disable snapshot-based repair - CASSANDRA-6097
+for %%a in (%*) do call :appendArgs %%a
+if %ISREPAIR% == 1 (
+    if %PAR% == 0 (
+        echo WARNING!  Snapshot-based repair is disabled on Windows in version 2.X.  Switching to parallel-based repair.
+        call :appendArgs -par
+    )
+)
+goto :buildClassPath
+
+:appendArgs
+if %1 == repair ( set ISREPAIR=1 )
+if %1 == -par ( set PAR=1 )
+set NTARGS=%NTARGS% %1
+goto :eof
+
+:buildClassPath
 REM For each jar in the CASSANDRA_HOME lib directory call append to build the CLASSPATH variable.
 for %%i in ("%CASSANDRA_HOME%\lib\*.jar") do call :append "%%i"
 goto okClasspath
@@ -38,7 +59,7 @@ goto runNodeTool
 
 :runNodeTool
 echo Starting NodeTool
-"%JAVA_HOME%\bin\java" -cp %CASSANDRA_CLASSPATH% -Dlogback.configurationFile=logback-tools.xml org.apache.cassandra.tools.NodeTool %*
+"%JAVA_HOME%\bin\java" -cp %CASSANDRA_CLASSPATH% -Dlogback.configurationFile=logback-tools.xml org.apache.cassandra.tools.NodeTool %NTARGS%
 goto finally
 
 :err
