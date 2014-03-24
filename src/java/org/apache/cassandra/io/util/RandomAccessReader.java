@@ -267,7 +267,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
         try
         {
-            writer.close();
             channel.close();
         }
         catch (IOException e)
