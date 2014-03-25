@@ -45,6 +45,7 @@ usage: cassandra.ps1 [-f] [-h] [-p pidfile] [-H dumpfile] [-E errorfile] [-insta
     -f              Run cassandra in foreground
     -install        install cassandra as a service
     -uninstall      remove cassandra service
+    -p              pidfile tracked by server and removed on close
     -H              change JVM HeapDumpPath
     -E              change JVM ErrorFile
     -help           print this message
@@ -91,6 +92,20 @@ Function Main
     }
 
     SetCassandraEnvironment
+
+    # Other command line params
+    if ($H)
+    {
+        $env:JAVA_OPTS = $env:JAVA_OPTS + " -XX:HeapDumpPath=$H"
+    }
+    if ($E)
+    {
+        $env:JAVA_OPTS = $env:JAVA_OPTS + " -XX:ErrorFile=$E"
+    }
+    if ($p)
+    {
+        $env:CASSANDRA_PARAMS = $env:CASSANDRA_PARAMS + " -pidfile=$p"
+    }
 
     if ($install -or $uninstall)
     {
