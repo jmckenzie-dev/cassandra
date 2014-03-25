@@ -23,6 +23,8 @@ import java.util.zip.Adler32;
 import java.util.zip.CRC32;
 import java.util.zip.Checksum;
 
+import com.yammer.metrics.Metrics;
+import com.yammer.metrics.core.TimerContext;
 import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.util.CompressedPoolingSegmentedFile;
@@ -30,12 +32,16 @@ import org.apache.cassandra.io.util.PoolingSegmentedFile;
 import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.utils.FBUtilities;
 
+import com.yammer.metrics.core.Timer;
+
 /**
  * CRAR extends RAR to transparently uncompress blocks from the file into RAR.buffer.  Most of the RAR
  * "read bytes from the buffer, rebuffering when necessary" machinery works unchanged after that.
  */
 public class CompressedRandomAccessReader extends RandomAccessReader
 {
+    private Timer cReBufferTimer = Metrics.newTimer(CompressedRandomAccessReader.class, "reBuffer compressed");
+
     public static CompressedRandomAccessReader open(String path, CompressionMetadata metadata, CompressedPoolingSegmentedFile owner)
     {
         try
@@ -84,7 +90,9 @@ public class CompressedRandomAccessReader extends RandomAccessReader
     {
         try
         {
+            TimerContext timer = cReBufferTimer.time();
             decompressChunk(metadata.chunkFor(current()));
+            timer.stop();
         }
         catch (CorruptBlockException e)
         {
