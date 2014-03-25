@@ -28,13 +28,8 @@ import com.google.common.annotations.VisibleForTesting;
 
 import org.apache.cassandra.io.FSReadError;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class RandomAccessReader extends AbstractDataInput implements FileDataInput
 {
-    private static final Logger logger = LoggerFactory.getLogger(RandomAccessReader.class);
-
     public static final long CACHE_FLUSH_INTERVAL_IN_BYTES = (long) Math.pow(2, 27); // 128mb
 
     // default buffer size, 64Kb
@@ -42,7 +37,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     // absolute filesystem path to the file
     private final String filePath;
-    private final String fileShort;
 
     // buffer which will cache file blocks
     protected ByteBuffer buffer;
@@ -65,7 +59,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         this.owner = owner;
 
         filePath = file.getAbsolutePath();
-        fileShort = file.getName();
 
         try
         {
@@ -132,17 +125,12 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
      */
     protected void reBuffer()
     {
-        DBG("bufferOffset entering reBuffer: " + bufferOffset);
         resetBuffer();
-        DBG("bufferOffset after resetBuffer: " + bufferOffset);
 
         try
         {
             if (bufferOffset >= channel.size())
-            {
-                DBG("exiting reBuffer.  bufferOffset: " + bufferOffset + " and channel.size: " + channel.size());
                 return;
-            }
 
             channel.position(bufferOffset); // setting channel position
 
@@ -175,11 +163,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     protected long current()
     {
         // Protect against checking len after RAR is closed
-        if (buffer == null) {
-            return bufferOffset;
-            // logger.error("ERROR!  Null buffer on file: " + filePath + ".  This shouldn't happen.");
-        }
-        return bufferOffset + buffer.position();
+        return buffer == null? bufferOffset : bufferOffset + buffer.position();
     }
 
     public String getPath()
@@ -297,7 +281,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     @Override
     public void seek(long newPosition)
     {
-        STATE("seek to: " + newPosition);
         if (newPosition < 0)
             throw new IllegalArgumentException("new position should not be negative");
 
@@ -313,9 +296,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
             reBuffer();
         }
 
-        DBG("newPosition: " + newPosition + " and bufferOffset: " + bufferOffset);
         buffer.position((int) (newPosition - bufferOffset));
-        STATE("leaving seek to: " + newPosition);
     }
 
     // -1 will be returned if there is nothing to read; higher-level methods like readInt
@@ -364,13 +345,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     public ByteBuffer readBytes(int length) throws EOFException
     {
-        STATE("ENTER readBytes");
-        DBG("length: " + length);
         assert length >= 0 : "buffer length should not be negative: " + length;
-
-        if (length > fileLength) {
-            throw new EOFException();
-        }
 
         ByteBuffer clone = ByteBuffer.allocate(length);
         int read = 0;
@@ -384,39 +359,30 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
                 // Copy out remainder of what buffer has available and reBuffer if target remaining is greater
                 if (length - read >= buffer.remaining())
                 {
-                    // STATE("if block on w  ");
                     int start = clone.position();
                     clone.put(buffer);
                     read += clone.position() - start;
-                    // DBG("About to reBuffer.");
                     reBuffer();
-                    // DBG("buffer remaining after reBuffer: " + buffer.remaining());
-                    // DBG("read vs. len.  read: " + read + " and length: " + length);
-                    STATE("readBytes leaving if");
                 }
                 // Terminal - arraycopy out a subset of the buffer
                 else
                 {
-                    // STATE("else block on w");
                     int toCopy = clone.remaining();
                     clone.put(buffer.array(), buffer.position(), toCopy);
                     buffer.position(buffer.position() + toCopy);
                     read += toCopy;
-                    STATE("readBytes leaving else");
                 }
             }
+            // Possibility of compression means we can't compare to fileLength to see if we've requested too many bytes.
+            // If we reach this point and we want more bytes but there aren't any more to reBuffer, we know we've hit EOF
+            if (!buffer.hasRemaining() && read < length)
+                throw new EOFException();
         }
         catch (Exception e)
         {
-            DBG("Exception occurred during readBytes: " + e.toString());
             throw new FSReadError(e, filePath);
         }
         clone.flip();
-        if (read != length)
-        {
-            DBG("WARNING!  read != length.  read: " + read + " and length: " + length);
-            STATE("Exiting with warning.");
-        }
         return clone;
     }
 
@@ -497,17 +463,5 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
         /* return the actual number of bytes skipped */
         return (int) (newpos - pos);
-    }
-
-    protected void DBG(String input) {
-        // logger.error(input + "\n");
-    }
-
-    protected void STATE(String label) {
-        DBG(" *** " + label
-            + "     bufferOffset: " + bufferOffset
-            + "     position: " + buffer.position()
-            + "     remaining: " + buffer.remaining()
-            + "     length: " + length());
     }
 }
