@@ -130,7 +130,10 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         try
         {
             if (bufferOffset >= channel.size())
+            {
+                buffer.flip();
                 return;
+            }
 
             channel.position(bufferOffset); // setting channel position
 
@@ -356,7 +359,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
             while (buffer.hasRemaining() && read < length)
             {
-                // Copy out remainder of what buffer has available and reBuffer if target remaining is greater
+                // Copy out remainder of what buffer has available and reBuffer
                 if (length - read >= buffer.remaining())
                 {
                     int start = clone.position();
@@ -369,14 +372,18 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
                 {
                     int toCopy = clone.remaining();
                     clone.put(buffer.array(), buffer.position(), toCopy);
-                    buffer.position(buffer.position() + toCopy);
+
                     read += toCopy;
+                    buffer.position(buffer.position() + toCopy);
                 }
             }
-            // Possibility of compression means we can't compare to fileLength to see if we've requested too many bytes.
-            // If we reach this point and we want more bytes but there aren't any more to reBuffer, we know we've hit EOF
-            if (!buffer.hasRemaining() && read < length)
+            if (read < length) {
                 throw new EOFException();
+            }
+        }
+        catch (EOFException e)
+        {
+            throw e;
         }
         catch (Exception e)
         {
