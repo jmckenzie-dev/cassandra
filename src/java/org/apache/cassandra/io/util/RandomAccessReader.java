@@ -371,7 +371,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
                     read += clone.position() - start;
                     reBuffer();
                 }
-                // Terminal - arraycopy out a subset of the buffer
+                // copy out a subset of the buffer - exit condition
                 else
                 {
                     int toCopy = clone.remaining();
