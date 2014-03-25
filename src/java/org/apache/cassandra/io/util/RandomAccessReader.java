@@ -37,6 +37,9 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
     protected Timer readBytesTimer = Metrics.newTimer(RandomAccessReader.class, "readBytes");
     protected Timer readTimer = Metrics.newTimer(RandomAccessReader.class, "read");
 
+    protected Timer seekTimer = Metrics.newTimer(RandomAccessReader.class, "channel position change");
+    protected Timer whileTimer = Metrics.newTimer(RandomAccessReader.class, "while loop read");
+
     // default buffer size, 64Kb
     public static final int DEFAULT_BUFFER_SIZE = 65536;
 
@@ -130,10 +133,13 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
             if (bufferOffset >= channel.size())
                 return;
 
+            TimerContext timerOne = seekTimer.time();
             channel.position(bufferOffset); // setting channel position
+            timerOne.stop();
 
             int read = 0;
 
+            TimerContext timerTwo = whileTimer.time();
             while (read < buffer.length)
             {
                 int n = super.read(buffer, read, buffer.length - read);
@@ -141,6 +147,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
                     break;
                 read += n;
             }
+            timerTwo.stop();
 
             validBufferBytes = read;
         }
