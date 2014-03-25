@@ -39,8 +39,12 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     private static final Logger logger = LoggerFactory.getLogger(RandomAccessReader.class);
 
     protected Timer reBufferTimer = Metrics.newTimer(RandomAccessReader.class, "rebuffer");
-    protected Timer readBytesTimer = Metrics.newTimer(RandomAccessReader.class, "readBytesTimer");
-    protected Timer readTimer = Metrics.newTimer(RandomAccessReader.class, "readTimer");
+    protected Timer readBytesTimer = Metrics.newTimer(RandomAccessReader.class, "readBytes");
+    protected Timer readByteArrayTimer = Metrics.newTimer(RandomAccessReader.class, "readByteArray");
+    protected Timer readTimer = Metrics.newTimer(RandomAccessReader.class, "read");
+    protected Timer resetTimer = Metrics.newTimer(RandomAccessReader.class, "reset");
+    protected Timer channelSeekTimer = Metrics.newTimer(RandomAccessReader.class, "channelSeek on reBuffer");
+    protected Timer whileLoopTimer = Metrics.newTimer(RandomAccessReader.class, "whileLoop on reBuffer");
 
     public static final long CACHE_FLUSH_INTERVAL_IN_BYTES = (long) Math.pow(2, 27); // 128mb
 
@@ -148,10 +152,13 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
                 return;
             }
 
+            TimerContext timerOne = channelSeekTimer.time();
             channel.position(bufferOffset); // setting channel position
+            timerOne.stop();
 
             int read = 0;
 
+            TimerContext timerTwo = whileLoopTimer.time();
             while (read < buffer.array().length)
             {
                 int n = channel.read(buffer);
@@ -160,6 +167,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
                     break;
                 read += n;
             }
+            timerTwo.stop();
 
             initialized = true;
         }
@@ -240,8 +248,10 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     protected void resetBuffer()
     {
+        TimerContext timer = resetTimer.time();
         bufferOffset += buffer.position();
         buffer.clear();
+        timer.stop();
     }
 
     @Override
@@ -345,6 +355,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     // or readFully (from RandomAccessFile) will throw EOFException but this should not
     public int read(byte[] buff, int offset, int length)
     {
+        TimerContext timer = readByteArrayTimer.time();
         if (buffer == null)
             throw new AssertionError("Attempted to read from closed RAR");
 
@@ -359,6 +370,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
         int toCopy = Math.min(length, buffer.remaining());
         buffer.get(buff, offset, toCopy);
+        timer.stop();
         return toCopy;
     }
 
