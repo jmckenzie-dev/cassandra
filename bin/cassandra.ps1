@@ -185,12 +185,13 @@ $env:JAVA_HOME/bin/java
         echo $proc.Id > $env:CASSANDRA_HOME/cassandra.pid
 
         $cassPid = $proc.Id
-        if ($cassPid -eq "")
+        if (-Not ($proc) -or $cassPid -eq "")
         {
             echo "Error starting cassandra."
         }
         else
         {
+            $proc.RedirectStandardInput = true
             echo "Started cassandra successfully with pid: $cassPid"
         }
     }
