@@ -23,11 +23,19 @@ import java.nio.channels.FileChannel;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import com.yammer.metrics.Metrics;
+import com.yammer.metrics.core.Timer;
+import com.yammer.metrics.core.TimerContext;
 import org.apache.cassandra.io.FSReadError;
 
 public class RandomAccessReader extends RandomAccessFile implements FileDataInput
 {
     public static final long CACHE_FLUSH_INTERVAL_IN_BYTES = (long) Math.pow(2, 27); // 128mb
+
+    protected Timer reBufferTimer = Metrics.newTimer(RandomAccessReader.class, "reBuffer");
+    protected Timer readByteArrayTimer = Metrics.newTimer(RandomAccessReader.class, "readByteArray");
+    protected Timer readBytesTimer = Metrics.newTimer(RandomAccessReader.class, "readBytes");
+    protected Timer readTimer = Metrics.newTimer(RandomAccessReader.class, "read");
 
     // default buffer size, 64Kb
     public static final int DEFAULT_BUFFER_SIZE = 65536;
@@ -114,6 +122,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
      */
     protected void reBuffer()
     {
+        TimerContext timer = reBufferTimer.time();
         resetBuffer();
 
         try
@@ -139,6 +148,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
         {
             throw new FSReadError(e, filePath);
         }
+        timer.stop();
     }
 
     @Override
@@ -285,6 +295,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
     // or readFully (from RandomAccessFile) will throw EOFException but this should not
     public int read()
     {
+        TimerContext timer = readTimer.time();
         if (buffer == null)
             throw new AssertionError("Attempted to read from closed RAR");
 
@@ -296,6 +307,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
 
         assert current >= bufferOffset && current < bufferOffset + validBufferBytes;
 
+        timer.stop();
         return ((int) buffer[(int) (current++ - bufferOffset)]) & 0xff;
     }
 
@@ -310,6 +322,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
     // or readFully (from RandomAccessFile) will throw EOFException but this should not
     public int read(byte[] buff, int offset, int length)
     {
+        TimerContext timer = readByteArrayTimer.time();
         if (buffer == null)
             throw new AssertionError("Attempted to read from closed RAR");
 
@@ -334,11 +347,13 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
         System.arraycopy(buffer, bufferCursor(), buff, offset, toCopy);
         current += toCopy;
 
+        timer.stop();
         return toCopy;
     }
 
     public ByteBuffer readBytes(int length) throws EOFException
     {
+        TimerContext timer = readBytesTimer.time();
         assert length >= 0 : "buffer length should not be negative: " + length;
 
         byte[] buff = new byte[length];
@@ -356,6 +371,7 @@ public class RandomAccessReader extends RandomAccessFile implements FileDataInpu
             throw new FSReadError(e, filePath);
         }
 
+        timer.stop();
         return ByteBuffer.wrap(buff);
     }
 
