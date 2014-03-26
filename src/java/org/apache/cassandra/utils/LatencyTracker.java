@@ -23,7 +23,6 @@ public class LatencyTracker
 {
     private final AtomicLong opCount = new AtomicLong(0);
     private final AtomicLong totalLatency = new AtomicLong(0);
-
     private long lastLatency = 0;
     private long lastOpCount = 0;
     private final EstimatedHistogram totalHistogram = new EstimatedHistogram();
