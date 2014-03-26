@@ -98,7 +98,7 @@ public class CompressedRandomAccessReader extends RandomAccessReader
 
     private void decompressChunk(CompressionMetadata.Chunk chunk) throws IOException
     {
-        // Increment up by one block as we deserialize in chunks.
+        // buffer offset is always aligned
         bufferOffset = current() & ~(buffer.array().length - 1);
 
         if (channel.position() != chunk.offset)
