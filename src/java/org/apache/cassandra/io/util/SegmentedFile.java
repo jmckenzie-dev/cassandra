@@ -69,11 +69,6 @@ public abstract class SegmentedFile
      */
     public static Builder getBuilder(Config.DiskAccessMode mode)
     {
-        // Don't support mmap on Windows for readers - causes file-lock issues on hard-links for snapshots
-        if (!FBUtilities.isUnix()) {
-            return new BufferedPoolingSegmentedFile.Builder();
-        }
-
         return mode == Config.DiskAccessMode.mmap
                ? new MmappedSegmentedFile.Builder()
                : new BufferedPoolingSegmentedFile.Builder();

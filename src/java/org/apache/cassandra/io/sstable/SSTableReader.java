@@ -1085,12 +1085,6 @@ public class SSTableReader extends SSTable implements Closeable
 
     public void preheat(Map<DecoratedKey, RowIndexEntry> cachedKeys) throws IOException
     {
-        // no posix_fadvise type functionality on Windows
-        // NOTE: this prevents a race with the RAF holding onto a snapshot with the RAR during attempted
-        // deletion of hard-links on Windows
-        if (!FBUtilities.isUnix())
-            return;
-
         RandomAccessFile f = new RandomAccessFile(getFilename(), "r");
 
         try
@@ -1735,12 +1729,6 @@ public class SSTableReader extends SSTable implements Closeable
 
     private void dropPageCache(String filePath)
     {
-        // no posix_fadvise type functionality on Windows
-        // NOTE: this prevents a race with the RAF holding onto a snapshot with the RAR during attempted
-        // deletion of hard-links on Windows
-        if (!FBUtilities.isUnix())
-            return;
-
         RandomAccessFile file = null;
 
         try

@@ -26,26 +26,10 @@ import java.nio.file.StandardOpenOption;
 
 import com.google.common.annotations.VisibleForTesting;
 
-import com.yammer.metrics.Metrics;
-import com.yammer.metrics.core.Timer;
-import com.yammer.metrics.core.TimerContext;
 import org.apache.cassandra.io.FSReadError;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class RandomAccessReader extends AbstractDataInput implements FileDataInput
 {
-    private static final Logger logger = LoggerFactory.getLogger(RandomAccessReader.class);
-
-    protected Timer reBufferTimer = Metrics.newTimer(RandomAccessReader.class, "rebuffer");
-    protected Timer readBytesTimer = Metrics.newTimer(RandomAccessReader.class, "readBytes");
-    protected Timer readByteArrayTimer = Metrics.newTimer(RandomAccessReader.class, "readByteArray");
-    protected Timer readTimer = Metrics.newTimer(RandomAccessReader.class, "read");
-    protected Timer resetTimer = Metrics.newTimer(RandomAccessReader.class, "reset");
-    protected Timer channelSeekTimer = Metrics.newTimer(RandomAccessReader.class, "channelSeek on reBuffer");
-    protected Timer whileLoopTimer = Metrics.newTimer(RandomAccessReader.class, "whileLoop on reBuffer");
-
     public static final long CACHE_FLUSH_INTERVAL_IN_BYTES = (long) Math.pow(2, 27); // 128mb
 
     // default buffer size, 64Kb
@@ -141,7 +125,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
      */
     protected void reBuffer()
     {
-        TimerContext timer = reBufferTimer.time();
         resetBuffer();
 
         try
@@ -152,13 +135,10 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
                 return;
             }
 
-            TimerContext timerOne = channelSeekTimer.time();
             channel.position(bufferOffset); // setting channel position
-            timerOne.stop();
 
             int read = 0;
 
-            TimerContext timerTwo = whileLoopTimer.time();
             while (read < buffer.array().length)
             {
                 int n = channel.read(buffer);
@@ -167,7 +147,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
                     break;
                 read += n;
             }
-            timerTwo.stop();
 
             initialized = true;
         }
@@ -176,7 +155,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
             throw new FSReadError(e, filePath);
         }
         buffer.flip();
-        timer.stop();
     }
 
     @Override
@@ -248,10 +226,8 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     protected void resetBuffer()
     {
-        TimerContext timer = resetTimer.time();
         bufferOffset += buffer.position();
         buffer.clear();
-        timer.stop();
     }
 
     @Override
@@ -330,7 +306,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     // or readFully (from RandomAccessFile) will throw EOFException but this should not
     public int read()
     {
-        TimerContext timer = readTimer.time();
         if (buffer == null)
             throw new AssertionError("Attempted to read from closed RAR");
 
@@ -340,7 +315,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         if (!buffer.hasRemaining() || !initialized)
             reBuffer();
 
-        timer.stop();
         return (int)buffer.get() & 0xff;
     }
 
@@ -355,7 +329,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     // or readFully (from RandomAccessFile) will throw EOFException but this should not
     public int read(byte[] buff, int offset, int length)
     {
-        TimerContext timer = readByteArrayTimer.time();
         if (buffer == null)
             throw new AssertionError("Attempted to read from closed RAR");
 
@@ -370,13 +343,11 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
         int toCopy = Math.min(length, buffer.remaining());
         buffer.get(buff, offset, toCopy);
-        timer.stop();
         return toCopy;
     }
 
     public ByteBuffer readBytes(int length) throws EOFException
     {
-        TimerContext timer = readBytesTimer.time();
         assert length >= 0 : "buffer length should not be negative: " + length;
 
         if (length > fileLength) {
@@ -423,7 +394,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
             throw new FSReadError(e, filePath);
         }
         clone.flip();
-        timer.stop();
         return clone;
     }
 
