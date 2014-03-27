@@ -37,7 +37,8 @@ public class StreamPlan
     private final List<StreamEventHandler> handlers = new ArrayList<>();
 
     // sessions per InetAddress of the other end.
-    private final Map<InetAddress, StreamSession> sessions = new HashMap<>();
+    // private final Map<InetAddress, StreamSession> sessions = new HashMap<>();
+    private Map<InetAddress, SessionMap> sessions = new HashMap<>();
     private final long repairedAt;
 
     private boolean flushBeforeTransfer = true;
@@ -58,9 +59,8 @@ public class StreamPlan
         this.repairedAt = repairedAt;
     }
 
-
     /**
-     * Request data in {@code keyspace} and {@code ranges} from specific node.
+     * Request data in {@code keyspace} and {@code ranges} from specific node.  Defaults to sessionId 0.
      *
      * @param from endpoint address to fetch data from.
      * @param keyspace name of keyspace
@@ -69,11 +69,26 @@ public class StreamPlan
      */
     public StreamPlan requestRanges(InetAddress from, String keyspace, Collection<Range<Token>> ranges)
     {
-        return requestRanges(from, keyspace, ranges, new String[0]);
+        return requestRanges(from, 0, keyspace, ranges);
+    }
+
+    /**
+     * Request data in {@code keyspace} and {@code ranges} from specific node.
+     *
+     * @param from endpoint address to fetch data from.
+     * @param sessionId integer id of the StreamSession
+     * @param keyspace name of keyspace
+     * @param ranges ranges to fetch
+     * @return this object for chaining
+     */
+    public StreamPlan requestRanges(InetAddress from, int sessionId, String keyspace, Collection<Range<Token>> ranges)
+    {
+        return requestRanges(from, sessionId, keyspace, ranges, new String[0]);
     }
 
     /**
      * Request data in {@code columnFamilies} under {@code keyspace} and {@code ranges} from specific node.
+     * Defaults to sessionId 0.
      *
      * @param from endpoint address to fetch data from.
      * @param keyspace name of keyspace
@@ -83,13 +98,28 @@ public class StreamPlan
      */
     public StreamPlan requestRanges(InetAddress from, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
     {
-        StreamSession session = getOrCreateSession(from);
+        return requestRanges(from, 0, keyspace, ranges, columnFamilies);
+    }
+
+    /**
+     * Request data in {@code columnFamilies} under {@code keyspace} and {@code ranges} from specific node.
+     *
+     * @param from endpoint address to fetch data from.
+     * @param sessionId integer id of the StreamSession
+     * @param keyspace name of keyspace
+     * @param ranges ranges to fetch
+     * @param columnFamilies specific column families
+     * @return this object for chaining
+     */
+    public StreamPlan requestRanges(InetAddress from, int sessionId, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
+    {
+        StreamSession session = getOrCreateSession(from, sessionId);
         session.addStreamRequest(keyspace, ranges, Arrays.asList(columnFamilies), repairedAt);
         return this;
     }
 
     /**
-     * Add transfer task to send data of specific keyspace and ranges.
+     * Add transfer task to send data of specific keyspace and ranges.  Defaults to sessionId 0.
      *
      * @param to endpoint address of receiver
      * @param keyspace name of keyspace
@@ -98,11 +128,26 @@ public class StreamPlan
      */
     public StreamPlan transferRanges(InetAddress to, String keyspace, Collection<Range<Token>> ranges)
     {
-        return transferRanges(to, keyspace, ranges, new String[0]);
+        return transferRanges(to, 0, keyspace, ranges);
+    }
+
+    /**
+     * Add transfer task to send data of specific keyspace and ranges.
+     *
+     * @param to endpoint address of receiver
+     * @param sessionId integer id of the StreamSession
+     * @param keyspace name of keyspace
+     * @param ranges ranges to send
+     * @return this object for chaining
+     */
+    public StreamPlan transferRanges(InetAddress to, int sessionId, String keyspace, Collection<Range<Token>> ranges)
+    {
+        return transferRanges(to, sessionId, keyspace, ranges, new String[0]);
     }
 
     /**
      * Add transfer task to send data of specific {@code columnFamilies} under {@code keyspace} and {@code ranges}.
+     * Defaults to sessionId 0.
      *
      * @param to endpoint address of receiver
      * @param keyspace name of keyspace
@@ -112,13 +157,28 @@ public class StreamPlan
      */
     public StreamPlan transferRanges(InetAddress to, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
     {
-        StreamSession session = getOrCreateSession(to);
+        return transferRanges(to, 0, keyspace, ranges, columnFamilies);
+    }
+
+    /**
+     * Add transfer task to send data of specific {@code columnFamilies} under {@code keyspace} and {@code ranges}.
+     *
+     * @param to endpoint address of receiver
+     * @param sessionId integer id of the StreamSession
+     * @param keyspace name of keyspace
+     * @param ranges ranges to send
+     * @param columnFamilies specific column families
+     * @return this object for chaining
+     */
+    public StreamPlan transferRanges(InetAddress to, int sessionId, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
+    {
+        StreamSession session = getOrCreateSession(to, sessionId);
         session.addTransferRanges(keyspace, ranges, Arrays.asList(columnFamilies), flushBeforeTransfer, repairedAt);
         return this;
     }
 
     /**
-     * Add transfer task to send given SSTable files.
+     * Add transfer task to send given SSTable files.  Defaults to sessionId 0.
      *
      * @param to endpoint address of receiver
      * @param sstableDetails sstables with file positions and estimated key count
@@ -126,7 +186,20 @@ public class StreamPlan
      */
     public StreamPlan transferFiles(InetAddress to, Collection<StreamSession.SSTableStreamingSections> sstableDetails)
     {
-        StreamSession session = getOrCreateSession(to);
+        return transferFiles(to, 0, sstableDetails);
+    }
+
+    /**
+     * Add transfer task to send given SSTable files.
+     *
+     * @param to endpoint address of receiver
+     * @param sessionId integer id of the StreamSession
+     * @param sstableDetails sstables with file positions and estimated key count
+     * @return this object for chaining
+     */
+    public StreamPlan transferFiles(InetAddress to, int sessionId, Collection<StreamSession.SSTableStreamingSections> sstableDetails)
+    {
+        StreamSession session = getOrCreateSession(to, sessionId);
         session.addTransferFiles(sstableDetails);
         return this;
     }
@@ -154,7 +227,15 @@ public class StreamPlan
      */
     public StreamResultFuture execute()
     {
-        return StreamResultFuture.init(planId, description, sessions.values(), handlers);
+        Collection<StreamSession> combinedSessions = new ArrayList<StreamSession>();
+        for (Map.Entry<InetAddress, SessionMap> hostMap : sessions.entrySet())
+        {
+            for (Map.Entry<Integer, StreamSession> entry : hostMap.getValue().getSessionMap().entrySet())
+            {
+                combinedSessions.add(entry.getValue());
+            }
+        }
+        return StreamResultFuture.init(planId, description, combinedSessions, handlers);
     }
 
     /**
@@ -170,15 +251,39 @@ public class StreamPlan
         return this;
     }
 
-    private StreamSession getOrCreateSession(InetAddress peer)
+    private StreamSession getOrCreateSession(InetAddress peer, int sessionId)
     {
-        StreamSession session = sessions.get(peer);
+        SessionMap sessionMap = sessions.get(peer);
+        StreamSession session = sessionMap.getSession(sessionId);
         if (session == null)
         {
             session = new StreamSession(peer);
-            sessions.put(peer, session);
+            sessionMap.addSession(sessionId, peer);
         }
         return session;
     }
 
+    private class SessionMap
+    {
+        private HashMap<Integer, StreamSession> sessionMap = new HashMap<Integer, StreamSession>();
+
+        public HashMap<Integer, StreamSession> getSessionMap()
+        {
+            return sessionMap;
+        }
+
+        public void addSession(Integer id, InetAddress peer)
+        {
+            if (sessionMap.containsKey(id))
+                throw new IllegalArgumentException("Duplicate session ID passed into StreamCollection");
+
+            sessionMap.put(id, new StreamSession(peer));
+        }
+
+        public StreamSession getSession(Integer id)
+        {
+            StreamSession result = sessionMap.get(id);
+            return result;
+        }
+    }
 }

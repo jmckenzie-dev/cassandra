@@ -174,7 +174,7 @@ public class SSTableLoader implements StreamEventHandler
             for (StreamSession.SSTableStreamingSections details : endpointDetails)
                 details.sstable.acquireReference();
 
-            plan.transferFiles(remote, streamingDetails.get(remote));
+            plan.transferFiles(remote, 0, streamingDetails.get(remote));
         }
         plan.listeners(this, listeners);
         return plan.execute();

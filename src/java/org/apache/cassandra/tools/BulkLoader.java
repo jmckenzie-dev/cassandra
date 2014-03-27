@@ -68,6 +68,7 @@ public class BulkLoader
     private static final String SSL_ALGORITHM = "ssl-alg";
     private static final String SSL_STORE_TYPE = "store-type";
     private static final String SSL_CIPHER_SUITES = "ssl-ciphers";
+    private static final String CONNECTIONS_PER_HOST = "connections-per-host";
 
     public static void main(String args[])
     {
@@ -305,6 +306,7 @@ public class BulkLoader
         public int throttle = 0;
         public ITransportFactory transportFactory = new TFramedTransportFactory();
         public EncryptionOptions encOptions = new EncryptionOptions.ClientEncryptionOptions();
+        public int connectionsPerHost = 1;
 
         public final Set<InetAddress> hosts = new HashSet<InetAddress>();
         public final Set<InetAddress> ignores = new HashSet<InetAddress>();
@@ -408,6 +410,9 @@ public class BulkLoader
                         errorMsg("Unknown host: " + e.getMessage(), options);
                     }
                 }
+
+                if (cmd.hasOption(CONNECTIONS_PER_HOST))
+                    opts.connectionsPerHost = Integer.parseInt(cmd.getOptionValue(CONNECTIONS_PER_HOST));
 
                 if(cmd.hasOption(SSL_TRUSTSTORE))
                 {
@@ -531,6 +536,7 @@ public class BulkLoader
             options.addOption("u",  USER_OPTION, "username", "username for cassandra authentication");
             options.addOption("pw", PASSWD_OPTION, "password", "password for cassandra authentication");
             options.addOption("tf", TRANSPORT_FACTORY, "transport factory", "Fully-qualified ITransportFactory class name for creating a connection to cassandra");
+            options.addOption("cph", CONNECTIONS_PER_HOST, "number of concurrent connections-per-host.");
             // ssl connection-related options
             options.addOption("ts", SSL_TRUSTSTORE, "TRUSTSTORE", "SSL: full path to truststore");
             options.addOption("tspw", SSL_TRUSTSTORE_PW, "TRUSTSTORE-PASSWORD", "SSL: password of the truststore");
