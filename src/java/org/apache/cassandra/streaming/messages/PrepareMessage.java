@@ -23,7 +23,6 @@ import java.nio.channels.ReadableByteChannel;
 import java.util.ArrayList;
 import java.util.Collection;
 
-import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.io.util.DataOutputStreamAndChannel;
 import org.apache.cassandra.streaming.StreamRequest;
 import org.apache.cassandra.streaming.StreamSession;
@@ -36,7 +35,7 @@ public class PrepareMessage extends StreamMessage
         public PrepareMessage deserialize(ReadableByteChannel in, int version, StreamSession session) throws IOException
         {
             DataInput input = new DataInputStream(Channels.newInputStream(in));
-            PrepareMessage message = new PrepareMessage();
+            PrepareMessage message = new PrepareMessage(session.sessionIndex());
             // requests
             int numRequests = input.readInt();
             for (int i = 0; i < numRequests; i++)
@@ -71,9 +70,9 @@ public class PrepareMessage extends StreamMessage
      */
     public final Collection<StreamSummary> summaries = new ArrayList<>();
 
-    public PrepareMessage()
+    public PrepareMessage(int sessionIndex)
     {
-        super(Type.PREPARE);
+        super(Type.PREPARE, sessionIndex);
     }
 
     @Override

@@ -119,7 +119,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
     private static final DebuggableThreadPoolExecutor streamExecutor = DebuggableThreadPoolExecutor.createWithFixedPoolSize("StreamConnectionEstablisher",
                                                                                                                             FBUtilities.getAvailableProcessors());
     public final InetAddress peer;
-    private final int index;
+    private int index;
 
     // should not be null when session is started
     private StreamResultFuture streamResult;
@@ -175,6 +175,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
     public int sessionIndex()
     {
         return index;
+    }
+
+    public void setSessionIndex(int index)
+    {
+        this.index = index;
     }
 
     /**
@@ -432,7 +437,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
     {
         // send prepare message
         state(State.PREPARING);
-        PrepareMessage prepare = new PrepareMessage();
+        PrepareMessage prepare = new PrepareMessage(index);
         prepare.requests.addAll(requests);
         for (StreamTransferTask task : transfers.values())
             prepare.summaries.add(task.getSummary());
@@ -453,7 +458,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         logger.error("[Stream #{}] Streaming error occurred", planId(), e);
         // send session failure message
         if (handler.isOutgoingConnected())
-            handler.sendMessage(new SessionFailedMessage());
+            handler.sendMessage(new SessionFailedMessage(index));
         // fail session
         closeSession(State.FAILED);
     }
@@ -473,7 +478,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         // send back prepare message if prepare message contains stream request
         if (!requests.isEmpty())
         {
-            PrepareMessage prepare = new PrepareMessage();
+            PrepareMessage prepare = new PrepareMessage(index);
             for (StreamTransferTask task : transfers.values())
                 prepare.summaries.add(task.getSummary());
             handler.sendMessage(prepare);
@@ -513,7 +518,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         StreamingMetrics.totalIncomingBytes.inc(headerSize);
         metrics.incomingBytes.inc(headerSize);
         // send back file received message
-        handler.sendMessage(new ReceivedMessage(message.header.cfId, message.header.sequenceNumber));
+        handler.sendMessage(new ReceivedMessage(index, message.header.cfId, message.header.sequenceNumber));
         receivers.get(message.header.cfId).received(message.sstable);
     }
 
@@ -549,7 +554,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         {
             if (!completeSent)
             {
-                handler.sendMessage(new CompleteMessage());
+                handler.sendMessage(new CompleteMessage(index));
                 completeSent = true;
             }
             closeSession(State.COMPLETE);
@@ -576,7 +581,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         if (retries > DatabaseDescriptor.getMaxStreamingRetries())
             onError(new IOException("Too many retries for " + header, e));
         else
-            handler.sendMessage(new RetryMessage(header.cfId, header.sequenceNumber));
+            handler.sendMessage(new RetryMessage(index, header.cfId, header.sequenceNumber));
     }
 
     /**
@@ -642,7 +647,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             {
                 if (!completeSent)
                 {
-                    handler.sendMessage(new CompleteMessage());
+                    handler.sendMessage(new CompleteMessage(index));
                     completeSent = true;
                 }
                 closeSession(State.COMPLETE);
@@ -650,7 +655,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             else
             {
                 // notify peer that this session is completed
-                handler.sendMessage(new CompleteMessage());
+                handler.sendMessage(new CompleteMessage(index));
                 completeSent = true;
                 state(State.WAIT_COMPLETE);
             }

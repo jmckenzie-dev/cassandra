@@ -96,7 +96,8 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         return future;
     }
 
-    public static synchronized StreamResultFuture initReceivingSide(UUID planId,
+    public static synchronized StreamResultFuture initReceivingSide(int sessionIndex,
+                                                                    UUID planId,
                                                                     String description,
                                                                     InetAddress from,
                                                                     Socket socket,
@@ -106,7 +107,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         StreamResultFuture future = StreamManager.instance.getReceivingStream(planId);
         if (future == null)
         {
-            final StreamSession session = new StreamSession(from);
+            final StreamSession session = new StreamSession(from, sessionIndex);
 
             // The main reason we create a StreamResultFuture on the receiving side is for JMX exposure.
             future = new StreamResultFuture(planId, description, Collections.singleton(session));

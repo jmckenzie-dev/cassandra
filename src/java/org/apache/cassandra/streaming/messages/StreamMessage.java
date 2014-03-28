@@ -39,11 +39,19 @@ public abstract class StreamMessage
 
     public static void serialize(StreamMessage message, DataOutputStreamAndChannel out, int version, StreamSession session) throws IOException
     {
-        ByteBuffer buff = ByteBuffer.allocate(1);
+        ByteBuffer buff = ByteBuffer.allocate(4);
         // message type
         buff.put(message.type.type);
         buff.flip();
         out.write(buff);
+
+        // session index
+        buff.clear();
+        System.err.println("StreamMessage.serialize: serializing sessionIndex: " + message.sessionIndex);
+        buff.putInt(message.sessionIndex);
+        buff.flip();
+        out.write(buff);
+
         message.type.outSerializer.serialize(message, out, version, session);
     }
 
@@ -54,6 +62,13 @@ public abstract class StreamMessage
         {
             buff.flip();
             Type type = Type.get(buff.get());
+
+            ByteBuffer idxBuff = ByteBuffer.allocate(4);
+            in.read(idxBuff);
+            idxBuff.flip();
+            session.setSessionIndex(idxBuff.getInt());
+            System.err.println("StreamMessage.deserialize: deserializing sessionIndex " + session.sessionIndex());
+
             return type.inSerializer.deserialize(in, version, session);
         }
         else
