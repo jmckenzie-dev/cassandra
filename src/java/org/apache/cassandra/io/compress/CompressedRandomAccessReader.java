@@ -79,12 +79,71 @@ public class CompressedRandomAccessReader extends RandomAccessReader
         compressed = ByteBuffer.wrap(new byte[metadata.compressor().initialCompressedBufferLength(metadata.chunkLength())]);
     }
 
+    protected ByteBuffer allocateBuffer(int bufferSize)
+    {
+        assert Integer.bitCount(bufferSize) == 1;
+        return ByteBuffer.allocate(bufferSize);
+    }
+
     @Override
     protected void reBuffer()
     {
         try
         {
-            decompressChunk(metadata.chunkFor(current()));
+            long position = current();
+            assert position < metadata.dataLength;
+
+            CompressionMetadata.Chunk chunk = metadata.chunkFor(position);
+
+            if (channel.position() != chunk.offset)
+                channel.position(chunk.offset);
+
+            if (compressed.capacity() < chunk.length)
+                compressed = ByteBuffer.wrap(new byte[chunk.length]);
+            else
+                compressed.clear();
+            compressed.limit(chunk.length);
+
+            if (channel.read(compressed) != chunk.length)
+                throw new CorruptBlockException(getPath(), chunk);
+
+            // technically flip() is unnecessary since all the remaining work uses the raw array, but if that changes
+            // in the future this will save a lot of hair-pulling
+            compressed.flip();
+            buffer.clear();
+            int decompressedBytes;
+            try
+            {
+                decompressedBytes = metadata.compressor().uncompress(compressed.array(), 0, chunk.length, buffer.array(), 0);
+                buffer.limit(decompressedBytes);
+            }
+            catch (IOException e)
+            {
+                throw new CorruptBlockException(getPath(), chunk);
+            }
+
+            if (metadata.parameters.getCrcCheckChance() > FBUtilities.threadLocalRandom().nextDouble())
+            {
+
+                if (metadata.hasPostCompressionAdlerChecksums)
+                {
+                    checksum.update(compressed.array(), 0, chunk.length);
+                }
+                else
+                {
+                    checksum.update(buffer.array(), 0, decompressedBytes);
+                }
+
+                if (checksum(chunk) != (int) checksum.getValue())
+                    throw new CorruptBlockException(getPath(), chunk);
+
+                // reset checksum object back to the original (blank) state
+                checksum.reset();
+            }
+
+            // buffer offset is always aligned
+            bufferOffset = position & ~(buffer.capacity() - 1);
+            buffer.position((int) (position - bufferOffset));
         }
         catch (CorruptBlockException e)
         {
@@ -93,60 +152,6 @@ public class CompressedRandomAccessReader extends RandomAccessReader
         catch (IOException e)
         {
             throw new FSReadError(e, getPath());
-        }
-    }
-
-    private void decompressChunk(CompressionMetadata.Chunk chunk) throws IOException
-    {
-        // buffer offset is always aligned
-        bufferOffset = current() & ~(buffer.array().length - 1);
-
-        if (channel.position() != chunk.offset)
-            channel.position(chunk.offset);
-
-        if (compressed.capacity() < chunk.length)
-            compressed = ByteBuffer.wrap(new byte[chunk.length]);
-        else
-            compressed.clear();
-        compressed.limit(chunk.length);
-
-        if (channel.read(compressed) != chunk.length)
-            throw new CorruptBlockException(getPath(), chunk);
-
-        // technically flip() is unnecessary since all the remaining work uses the raw array, but if that changes
-        // in the future this will save a lot of hair-pulling
-        compressed.flip();
-        buffer.clear();
-        int decompressedBytes = 0;
-        try
-        {
-            decompressedBytes = metadata.compressor().uncompress(compressed.array(), 0, chunk.length, buffer.array(), 0);
-            buffer.position(decompressedBytes);
-            buffer.flip();
-            initialized = true;
-        }
-        catch (IOException e)
-        {
-            throw new CorruptBlockException(getPath(), chunk);
-        }
-
-        if (metadata.parameters.getCrcCheckChance() > FBUtilities.threadLocalRandom().nextDouble())
-        {
-
-            if (metadata.hasPostCompressionAdlerChecksums)
-            {
-                checksum.update(compressed.array(), 0, chunk.length);
-            }
-            else
-            {
-                checksum.update(buffer.array(), 0, decompressedBytes);
-            }
-
-            if (checksum(chunk) != (int) checksum.getValue())
-                throw new CorruptBlockException(getPath(), chunk);
-
-            // reset checksum object back to the original (blank) state
-            checksum.reset();
         }
     }
 

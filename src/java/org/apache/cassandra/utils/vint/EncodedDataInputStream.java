@@ -20,7 +20,7 @@ package org.apache.cassandra.utils.vint;
 import java.io.DataInput;
 import java.io.IOException;
 
-import org.apache.cassandra.io.util.AbstractDataInputSmall;
+import org.apache.cassandra.io.util.AbstractDataInput;
 
 /**
  * Borrows idea from
@@ -28,7 +28,7 @@ import org.apache.cassandra.io.util.AbstractDataInputSmall;
  *
  * Should be used with EncodedDataOutputStream
  */
-public class EncodedDataInputStream extends AbstractDataInputSmall
+public class EncodedDataInputStream extends AbstractDataInput implements DataInput
 {
     private DataInput input;
 
@@ -47,12 +47,22 @@ public class EncodedDataInputStream extends AbstractDataInputSmall
         return input.readByte() & 0xFF;
     }
 
-    protected void seekInternal(int position)
+    protected void seek(long position)
     {
         throw new UnsupportedOperationException();
     }
 
-    protected int getPosition()
+    protected long getPosition()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    protected long getPositionLimit()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    protected long length()
     {
         throw new UnsupportedOperationException();
     }

@@ -37,7 +37,7 @@ public class CompressedThrottledReader extends CompressedRandomAccessReader
 
     protected void reBuffer()
     {
-        limiter.acquire(buffer.array().length);
+        limiter.acquire(buffer.capacity());
         super.reBuffer();
     }
 

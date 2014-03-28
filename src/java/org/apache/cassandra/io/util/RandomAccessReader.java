@@ -20,13 +20,12 @@ package org.apache.cassandra.io.util;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.channels.SeekableByteChannel;
-import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 
 import com.google.common.annotations.VisibleForTesting;
 
 import org.apache.cassandra.io.FSReadError;
+import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class RandomAccessReader extends AbstractDataInput implements FileDataInput
 {
@@ -45,10 +44,8 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     // `markedPointer` folds the offset of the last file mark
     protected long bufferOffset, markedPointer;
 
-    protected boolean initialized = false;
-
     // channel linked with the file, used to retrieve data and force updates.
-    protected final SeekableByteChannel channel;
+    protected final FileChannel channel;
 
     private final long fileLength;
 
@@ -62,7 +59,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
         try
         {
-            channel = Files.newByteChannel(file.toPath(), StandardOpenOption.READ);
+            channel = FileChannel.open(file.toPath(), StandardOpenOption.READ);
         }
         catch (IOException e)
         {
@@ -72,7 +69,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         // allocating required size of the buffer
         if (bufferSize <= 0)
             throw new IllegalArgumentException("bufferSize must be positive");
-        buffer = ByteBuffer.allocate(bufferSize);
 
         // we can cache file length in read-only mode
         try
@@ -83,6 +79,13 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         {
             throw new FSReadError(e, filePath);
         }
+        buffer = allocateBuffer(bufferSize);
+        buffer.limit(0);
+    }
+
+    protected ByteBuffer allocateBuffer(int bufferSize)
+    {
+        return ByteBuffer.allocate((int) Math.min(fileLength, bufferSize));
     }
 
     public static RandomAccessReader open(File file, PoolingSegmentedFile owner)
@@ -117,7 +120,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     // channel extends FileChannel, impl SeekableByteChannel.  Safe to cast.
     public FileChannel getChannel()
     {
-        return (FileChannel)channel;
+        return channel;
     }
 
     /**
@@ -125,36 +128,25 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
      */
     protected void reBuffer()
     {
-        resetBuffer();
+        bufferOffset += buffer.position();
+        buffer.clear();
+        assert bufferOffset < fileLength;
 
         try
         {
-            if (bufferOffset >= channel.size())
-            {
-                buffer.flip();
-                return;
-            }
-
             channel.position(bufferOffset); // setting channel position
-
-            int read = 0;
-
-            while (read < buffer.array().length)
+            while (buffer.hasRemaining())
             {
                 int n = channel.read(buffer);
-
                 if (n < 0)
                     break;
-                read += n;
             }
-
-            initialized = true;
+            buffer.flip();
         }
         catch (IOException e)
         {
             throw new FSReadError(e, filePath);
         }
-        buffer.flip();
     }
 
     @Override
@@ -165,8 +157,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     protected long current()
     {
-        // Protect against checking len after RAR is closed
-        return buffer == null? bufferOffset : bufferOffset + buffer.position();
+        return bufferOffset + (buffer == null ? 0 : buffer.position());
     }
 
     public String getPath()
@@ -224,12 +215,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         return length() - getFilePointer();
     }
 
-    protected void resetBuffer()
-    {
-        bufferOffset += buffer.position();
-        buffer.clear();
-    }
-
     @Override
     public void close()
     {
@@ -250,6 +235,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
 
     public void deallocate()
     {
+        bufferOffset += buffer.position();
         buffer = null; // makes sure we don't use this after it's ostensibly closed
 
         try
@@ -287,19 +273,26 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         if (newPosition < 0)
             throw new IllegalArgumentException("new position should not be negative");
 
-        if (newPosition > length()) // it is save to call length() in read-only mode
-            throw new IllegalArgumentException(String.format("unable to seek to position %d in %s (%d bytes) in read-only mode",
-                                                             newPosition, getPath(), length()));
-
-        if (newPosition > current() + buffer.remaining() || newPosition < bufferOffset || !initialized)
+        if (newPosition >= length()) // it is save to call length() in read-only mode
         {
-            // Set current location to newPosition and clear buffer so reBuffer calculates from newPosition
+            if (newPosition > length())
+                throw new IllegalArgumentException(String.format("unable to seek to position %d in %s (%d bytes) in read-only mode",
+                                                             newPosition, getPath(), length()));
+            buffer.limit(0);
             bufferOffset = newPosition;
-            buffer.clear();
-            reBuffer();
+            return;
         }
 
-        buffer.position((int) (newPosition - bufferOffset));
+        if (newPosition >= bufferOffset && newPosition < bufferOffset + buffer.limit())
+        {
+            buffer.position((int) (newPosition - bufferOffset));
+            return;
+        }
+        // Set current location to newPosition and clear buffer so reBuffer calculates from newPosition
+        bufferOffset = newPosition;
+        buffer.clear();
+        reBuffer();
+        assert current() == newPosition;
     }
 
     // -1 will be returned if there is nothing to read; higher-level methods like readInt
@@ -312,7 +305,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         if (isEOF())
             return -1; // required by RandomAccessFile
 
-        if (!buffer.hasRemaining() || !initialized)
+        if (!buffer.hasRemaining())
             reBuffer();
 
         return (int)buffer.get() & 0xff;
@@ -338,7 +331,7 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         if (isEOF())
             return -1;
 
-        if (!buffer.hasRemaining() || !initialized)
+        if (!buffer.hasRemaining())
             reBuffer();
 
         int toCopy = Math.min(length, buffer.remaining());
@@ -349,41 +342,19 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
     public ByteBuffer readBytes(int length) throws EOFException
     {
         assert length >= 0 : "buffer length should not be negative: " + length;
-
-        if (length > fileLength) {
-            throw new EOFException();
-        }
-
-        ByteBuffer clone = ByteBuffer.allocate(length);
-        int read = 0;
         try
         {
-            if (!buffer.hasRemaining() || !initialized)
-                reBuffer();
-
-            while (buffer.hasRemaining() && read < length)
+            ByteBuffer result = ByteBuffer.allocate(length);
+            while (result.hasRemaining())
             {
-                // Copy out remainder of what buffer has available and reBuffer
-                if (length - read >= buffer.remaining())
-                {
-                    int start = clone.position();
-                    clone.put(buffer);
-                    read += clone.position() - start;
+                if (isEOF())
+                    throw new EOFException();
+                if (!buffer.hasRemaining())
                     reBuffer();
-                }
-                // copy out a subset of the buffer - exit condition
-                else
-                {
-                    int toCopy = clone.remaining();
-                    clone.put(buffer.array(), buffer.position(), toCopy);
-
-                    read += toCopy;
-                    buffer.position(buffer.position() + toCopy);
-                }
+                ByteBufferUtil.put(buffer, result);
             }
-            if (read < length) {
-                throw new EOFException();
-            }
+            result.flip();
+            return result;
         }
         catch (EOFException e)
         {
@@ -393,8 +364,6 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         {
             throw new FSReadError(e, filePath);
         }
-        clone.flip();
-        return clone;
     }
 
     public long length()
@@ -407,72 +376,8 @@ public class RandomAccessReader extends AbstractDataInput implements FileDataInp
         return bufferOffset + buffer.position();
     }
 
-    protected void seekInternal(long position)
+    public long getPositionLimit()
     {
-        seek(position);
-    }
-
-    /**
-    * Reads a line of text form the current position in this file. A line is
-    * represented by zero or more characters followed by {@code '\n'}, {@code
-    * '\r'}, {@code "\r\n"} or the end of file marker. The string does not
-    * include the line terminating sequence.
-    * <p>
-    * Blocks until a line terminating sequence has been read, the end of the
-    * file is reached or an exception is thrown.
-    *
-    * @return the contents of the line or {@code null} if no characters have
-    *         been read before the end of the file has been reached.
-    * @throws java.io.IOException
-    *             if this file is closed or another I/O error occurs.
-    */
-    public final String readLine() throws IOException {
-        StringBuilder line = new StringBuilder(80); // Typical line length
-        boolean foundTerminator = false;
-        long unreadPosition = 0;
-        while (true) {
-            int nextByte = read();
-            switch (nextByte) {
-                case -1:
-                    return line.length() != 0 ? line.toString() : null;
-                case (byte) '\r':
-                    if (foundTerminator) {
-                        seekInternal(unreadPosition);
-                        return line.toString();
-                    }
-                    foundTerminator = true;
-                    /* Have to be able to peek ahead one byte */
-                    unreadPosition = getPosition();
-                    break;
-                case (byte) '\n':
-                    return line.toString();
-                default:
-                    if (foundTerminator) {
-                        seekInternal(unreadPosition);
-                        return line.toString();
-                    }
-                    line.append((char) nextByte);
-            }
-        }
-    }
-
-    public int skipBytes(int n) throws IOException {
-        long pos;
-        long len;
-        long newpos;
-
-        if (n <= 0) {
-            return 0;
-        }
-        pos = getPosition();
-        len = length();
-        newpos = pos + n;
-        if (newpos > len) {
-            newpos = len;
-        }
-        seek(newpos);
-
-        /* return the actual number of bytes skipped */
-        return (int) (newpos - pos);
+        return length();
     }
 }

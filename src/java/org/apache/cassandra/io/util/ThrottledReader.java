@@ -38,7 +38,7 @@ public class ThrottledReader extends RandomAccessReader
 
     protected void reBuffer()
     {
-        limiter.acquire(buffer.array().length);
+        limiter.acquire(buffer.capacity());
         super.reBuffer();
     }
 

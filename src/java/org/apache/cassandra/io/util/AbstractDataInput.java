@@ -21,6 +21,21 @@ import java.io.*;
 
 public abstract class AbstractDataInput extends InputStream implements DataInput
 {
+    protected abstract void seek(long position) throws IOException;
+    protected abstract long getPosition();
+    protected abstract long getPositionLimit();
+
+    public int skipBytes(int n) throws IOException
+    {
+        if (n <= 0)
+            return 0;
+        long oldPosition = getPosition();
+        seek(Math.min(getPositionLimit(), oldPosition + n));
+        long skipped = getPosition() - oldPosition;
+        assert skipped >= 0 && skipped <= n;
+        return (int) skipped;
+    }
+
     /**
      * Reads a boolean from the current position in this file. Blocks until one
      * byte has been read, the end of the file is reached or an exception is
@@ -188,6 +203,50 @@ public abstract class AbstractDataInput extends InputStream implements DataInput
         if ((ch1 | ch2 | ch3 | ch4) < 0)
             throw new EOFException();
         return ((ch1 << 24) + (ch2 << 16) + (ch3 << 8) + (ch4 << 0));
+    }
+
+    /**
+     * Reads a line of text form the current position in this file. A line is
+     * represented by zero or more characters followed by {@code '\n'}, {@code
+     * '\r'}, {@code "\r\n"} or the end of file marker. The string does not
+     * include the line terminating sequence.
+     * <p>
+     * Blocks until a line terminating sequence has been read, the end of the
+     * file is reached or an exception is thrown.
+     *
+     * @return the contents of the line or {@code null} if no characters have
+     *         been read before the end of the file has been reached.
+     * @throws IOException
+     *             if this file is closed or another I/O error occurs.
+     */
+    public final String readLine() throws IOException {
+        StringBuilder line = new StringBuilder(80); // Typical line length
+        boolean foundTerminator = false;
+        long unreadPosition = -1;
+        while (true) {
+            int nextByte = read();
+            switch (nextByte) {
+                case -1:
+                    return line.length() != 0 ? line.toString() : null;
+                case (byte) '\r':
+                    if (foundTerminator) {
+                        seek(unreadPosition);
+                        return line.toString();
+                    }
+                    foundTerminator = true;
+                    /* Have to be able to peek ahead one byte */
+                    unreadPosition = getPosition();
+                    break;
+                case (byte) '\n':
+                    return line.toString();
+                default:
+                    if (foundTerminator) {
+                        seek(unreadPosition);
+                        return line.toString();
+                    }
+                    line.append((char) nextByte);
+            }
+        }
     }
 
     /**
