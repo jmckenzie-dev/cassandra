@@ -25,8 +25,6 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.UUIDGen;
 
-import com.google.common.collect.Lists;
-
 /**
  * {@link StreamPlan} is a helper class that builds StreamOperation of given configuration.
  *

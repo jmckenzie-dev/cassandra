@@ -524,7 +524,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     public void progress(Descriptor desc, ProgressInfo.Direction direction, long bytes, long total)
     {
-        ProgressInfo progress = new ProgressInfo(peer, desc.filenameFor(Component.DATA), direction, bytes, total);
+        ProgressInfo progress = new ProgressInfo(peer, index, desc.filenameFor(Component.DATA), direction, bytes, total);
         streamResult.handleProgress(progress);
     }
 
@@ -595,7 +595,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         List<StreamSummary> transferSummaries = Lists.newArrayList();
         for (StreamTask transfer : transfers.values())
             transferSummaries.add(transfer.getSummary());
-        return new SessionInfo(peer, receivingSummaries, transferSummaries, state);
+        return new SessionInfo(peer, index, receivingSummaries, transferSummaries, state);
     }
 
     public synchronized void taskCompleted(StreamReceiveTask completedTask)

@@ -51,8 +51,9 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
     public final String description;
     private final Collection<StreamEventHandler> eventListeners = new ConcurrentLinkedQueue<>();
 
-    private final Map<InetAddress, StreamSession> ongoingSessions;
-    private final Map<InetAddress, SessionInfo> sessionStates = new NonBlockingHashMap<>();
+    private final Map<InetAddress, HostSessions> hostSessions = new NonBlockingHashMap<>();
+    // private final Map<InetAddress, ArrayList<StreamSession>> ongoingSessions;
+    // private final Map<InetAddress, ArrayList<SessionInfo>> sessionStates = new NonBlockingHashMap<>();
 
     /**
      * Create new StreamResult of given {@code planId} and type.
@@ -66,9 +67,18 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
     {
         this.planId = planId;
         this.description = description;
-        this.ongoingSessions = new HashMap<>(sessions.size());
+
+        HostSessions newSessions = new HostSessions();
+        InetAddress peer = null;
         for (StreamSession session : sessions)
-            this.ongoingSessions.put(session.peer, session);
+        {
+            if (peer == null)
+                peer = session.peer;
+            newSessions.addSession(session);
+            // All sessions should be for this same host or we have a problem
+            assert (peer == session.peer);
+        }
+        hostSessions.put(peer, newSessions);
 
         // if there is no session to listen to, we immediately set result for returning
         if (sessions.isEmpty())
@@ -88,7 +98,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         // start sessions
         for (final StreamSession session : sessions)
         {
-            logger.info("[Stream #{}] Beginning stream session with {}", planId, session.peer);
+            logger.info("[Stream #{}, ID#{}] Beginning stream session with {}", planId, session.sessionIndex(), session.peer);
             session.init(future);
             session.start();
         }
@@ -107,6 +117,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         StreamResultFuture future = StreamManager.instance.getReceivingStream(planId);
         if (future == null)
         {
+            logger.info("[Stream #{} ID#{}] Creating new streaming plan for {}", planId, sessionIndex, description);
             final StreamSession session = new StreamSession(from, sessionIndex);
 
             // The main reason we create a StreamResultFuture on the receiving side is for JMX exposure.
@@ -118,8 +129,8 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         }
         else
         {
-            future.attachSocket(from, socket, isForOutgoing, version);
-            logger.info("[Stream #{}] Received streaming plan for {}", planId,  description);
+            future.attachSocket(from, sessionIndex, socket, isForOutgoing, version);
+            logger.info("[Stream #{}, ID#{}] Received streaming plan for {}", planId, sessionIndex, description);
         }
         return future;
     }
@@ -131,11 +142,12 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         return future;
     }
 
-    public void attachSocket(InetAddress from, Socket socket, boolean isForOutgoing, int version) throws IOException
+    public void attachSocket(InetAddress from, int sessionIndex, Socket socket, boolean isForOutgoing, int version) throws IOException
     {
-        StreamSession session = ongoingSessions.get(from);
-        if (session == null)
+        HostSessions sessionList = hostSessions.get(from);
+        if (sessionList == null)
             throw new RuntimeException(String.format("Got connection from %s for stream session %s but no such session locally", from, planId));
+        StreamSession session = sessionList.getStreamSession(sessionIndex);
         session.handler.initiateOnReceivingSide(socket, isForOutgoing, version);
     }
 
@@ -150,7 +162,13 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
      */
     public StreamState getCurrentState()
     {
-        return new StreamState(planId, description, ImmutableSet.copyOf(sessionStates.values()));
+        Set<SessionInfo> sessionInfos = new HashSet<>();
+        for (Map.Entry<InetAddress, HostSessions> pair : hostSessions.entrySet())
+        {
+            sessionInfos.addAll(pair.getValue().getAllSessionProgress());
+        }
+
+        return new StreamState(planId, description, sessionInfos);
     }
 
     @Override
@@ -178,7 +196,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
                               sessionInfo.getTotalFilesToSend(),
                               sessionInfo.getTotalSizeToSend());
         StreamEvent.SessionPreparedEvent event = new StreamEvent.SessionPreparedEvent(planId, sessionInfo);
-        sessionStates.put(sessionInfo.peer, sessionInfo);
+        hostSessions.get(sessionInfo.peer).updateSessionInfo(session.sessionIndex(), sessionInfo);
         fireStreamEvent(event);
     }
 
@@ -187,14 +205,19 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         logger.info("[Stream #{}] Session with {} is complete", session.planId(), session.peer);
 
         SessionInfo sessionInfo = session.getSessionInfo();
-        sessionStates.put(sessionInfo.peer, sessionInfo);
+
+        // sessionStates.put(sessionInfo.peer, sessionInfo);
+        hostSessions.get(sessionInfo.peer).updateSessionInfo(session.sessionIndex(), sessionInfo);
+
         fireStreamEvent(new StreamEvent.SessionCompleteEvent(session));
         maybeComplete(session);
     }
 
     public void handleProgress(ProgressInfo progress)
     {
-        sessionStates.get(progress.peer).updateProgress(progress);
+        // sessionStates.get(progress.peer).updateProgress(progress);
+        hostSessions.get(progress.peer).updateProgress(progress.sessionIndex, progress);
+
         fireStreamEvent(new StreamEvent.ProgressEvent(planId, progress));
     }
 
@@ -207,8 +230,11 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
 
     private synchronized void maybeComplete(StreamSession session)
     {
-        ongoingSessions.remove(session.peer);
-        if (ongoingSessions.isEmpty())
+        HostSessions sessions = hostSessions.get(session.peer);
+        sessions.removeSession(session.sessionIndex());
+        // ongoingSessions.remove(session.peer);
+        //if (ongoingSessions.isEmpty())
+        if (sessions.isEmpty())
         {
             StreamState finalState = getCurrentState();
             if (finalState.hasFailedSession())
@@ -221,6 +247,47 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
                 logger.info("[Stream #{}] All sessions completed", planId);
                 set(finalState);
             }
+        }
+    }
+
+    private class HostSessions
+    {
+        private Map<Integer, StreamSession> sessions = new HashMap<>();
+        private Map<Integer, SessionInfo> infos = new HashMap<>();
+
+        public void addSession(StreamSession session)
+        {
+            sessions.put(session.sessionIndex(), session);
+        }
+
+        public void removeSession(int sessionIndex)
+        {
+            sessions.remove(sessionIndex);
+        }
+
+        public boolean isEmpty()
+        {
+            return sessions.isEmpty();
+        }
+
+        public void updateSessionInfo(int sessionIndex, SessionInfo info)
+        {
+            infos.put(sessionIndex, info);
+        }
+
+        public StreamSession getStreamSession(int sessionIndex)
+        {
+            return sessions.get(sessionIndex);
+        }
+
+        public void updateProgress(int sessionIndex, ProgressInfo progress)
+        {
+            infos.get(sessionIndex).updateProgress(progress);
+        }
+
+        public Collection<SessionInfo> getAllSessionProgress()
+        {
+            return ImmutableSet.copyOf(infos.values());
         }
     }
 }
