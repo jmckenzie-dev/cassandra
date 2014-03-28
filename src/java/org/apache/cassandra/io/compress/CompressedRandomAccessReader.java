@@ -84,7 +84,7 @@ public class CompressedRandomAccessReader extends RandomAccessReader
     {
         try
         {
-            decompressChunk(metadata.chunkFor(current));
+            decompressChunk(metadata.chunkFor(current()));
         }
         catch (CorruptBlockException e)
         {
@@ -98,6 +98,9 @@ public class CompressedRandomAccessReader extends RandomAccessReader
 
     private void decompressChunk(CompressionMetadata.Chunk chunk) throws IOException
     {
+        // buffer offset is always aligned
+        bufferOffset = current() & ~(buffer.array().length - 1);
+
         if (channel.position() != chunk.offset)
             channel.position(chunk.offset);
 
@@ -113,9 +116,14 @@ public class CompressedRandomAccessReader extends RandomAccessReader
         // technically flip() is unnecessary since all the remaining work uses the raw array, but if that changes
         // in the future this will save a lot of hair-pulling
         compressed.flip();
+        buffer.clear();
+        int decompressedBytes = 0;
         try
         {
-            validBufferBytes = metadata.compressor().uncompress(compressed.array(), 0, chunk.length, buffer, 0);
+            decompressedBytes = metadata.compressor().uncompress(compressed.array(), 0, chunk.length, buffer.array(), 0);
+            buffer.position(decompressedBytes);
+            buffer.flip();
+            initialized = true;
         }
         catch (IOException e)
         {
@@ -131,7 +139,7 @@ public class CompressedRandomAccessReader extends RandomAccessReader
             }
             else
             {
-                checksum.update(buffer, 0, validBufferBytes);
+                checksum.update(buffer.array(), 0, decompressedBytes);
             }
 
             if (checksum(chunk) != (int) checksum.getValue())
@@ -140,9 +148,6 @@ public class CompressedRandomAccessReader extends RandomAccessReader
             // reset checksum object back to the original (blank) state
             checksum.reset();
         }
-
-        // buffer offset is always aligned
-        bufferOffset = current & ~(buffer.length - 1);
     }
 
     private int checksum(CompressionMetadata.Chunk chunk) throws IOException

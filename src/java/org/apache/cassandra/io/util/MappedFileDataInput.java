@@ -24,7 +24,7 @@ import java.nio.channels.FileChannel;
 
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-public class MappedFileDataInput extends AbstractDataInput implements FileDataInput
+public class MappedFileDataInput extends AbstractDataInputSmall implements FileDataInput
 {
     private final MappedByteBuffer buffer;
     private final String filename;
