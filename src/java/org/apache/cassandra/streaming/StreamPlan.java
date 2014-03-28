@@ -169,6 +169,7 @@ public class StreamPlan
             System.err.println("Step: " + step + " index: " + index + " slice count: " + sliceCount);
             if (index % step == 0)
             {
+                System.err.println("index % step == 0.  Creating new slice.");
                 // Add the currently built slice to the result set if we're not at inception
                 if (slice != null)
                     result.add(slice);
@@ -186,7 +187,8 @@ public class StreamPlan
             System.err.println("Count of entries in sublist: " + subList.size());
             total += subList.size();
         }
-        System.err.println("Size of input: " + sstableDetails + " and size of total in slices: " + total);
+        System.err.println("Size of input: " + sstableDetails.size() + " and size of total in slices: " + total);
+        assert(sstableDetails.size() == total);
         return result;
     }
 

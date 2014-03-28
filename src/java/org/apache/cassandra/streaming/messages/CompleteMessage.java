@@ -29,15 +29,15 @@ public class CompleteMessage extends StreamMessage
     {
         public CompleteMessage deserialize(ReadableByteChannel in, int version, StreamSession session) throws IOException
         {
-            return new CompleteMessage();
+            return new CompleteMessage(session.sessionIndex());
         }
 
         public void serialize(CompleteMessage message, DataOutputStreamAndChannel out, int version, StreamSession session) throws IOException {}
     };
 
-    public CompleteMessage()
+    public CompleteMessage(int sessionIndex)
     {
-        super(Type.COMPLETE);
+        super(Type.COMPLETE, sessionIndex);
     }
 
     @Override

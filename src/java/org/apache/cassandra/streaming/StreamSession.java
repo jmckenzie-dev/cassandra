@@ -172,7 +172,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         return streamResult == null ? null : streamResult.description;
     }
 
-    public int sessionId()
+    public int sessionIndex()
     {
         return index;
     }
