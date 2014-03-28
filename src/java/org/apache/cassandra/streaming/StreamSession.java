@@ -119,6 +119,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
     private static final DebuggableThreadPoolExecutor streamExecutor = DebuggableThreadPoolExecutor.createWithFixedPoolSize("StreamConnectionEstablisher",
                                                                                                                             FBUtilities.getAvailableProcessors());
     public final InetAddress peer;
+    private final int index;
 
     // should not be null when session is started
     private StreamResultFuture streamResult;
@@ -153,9 +154,10 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
      *
      * @param peer Address of streaming peer
      */
-    public StreamSession(InetAddress peer)
+    public StreamSession(InetAddress peer, int index)
     {
         this.peer = peer;
+        this.index = index;
         this.handler = new ConnectionHandler(this);
         this.metrics = StreamingMetrics.get(peer);
     }
@@ -168,6 +170,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
     public String description()
     {
         return streamResult == null ? null : streamResult.description;
+    }
+
+    public int sessionId()
+    {
+        return index;
     }
 
     /**

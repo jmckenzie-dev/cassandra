@@ -35,6 +35,9 @@ public abstract class StreamMessage
     /** Streaming protocol version */
     public static final int CURRENT_VERSION = 1;
 
+    /** Session index associated with message */
+    public final int sessionIndex;
+
     public static void serialize(StreamMessage message, DataOutputStreamAndChannel out, int version, StreamSession session) throws IOException
     {
         ByteBuffer buff = ByteBuffer.allocate(1);

@@ -151,6 +151,7 @@ public class SSTableLoader implements StreamEventHandler
         outputHandler.output("Established connection to initial hosts");
 
         StreamPlan plan = new StreamPlan("Bulk Load");
+        plan.setConnectionsPerHost(2);
 
         Map<InetAddress, Collection<Range<Token>>> endpointToRanges = client.getEndpointToRangesMap();
         openSSTables(endpointToRanges);
@@ -174,7 +175,7 @@ public class SSTableLoader implements StreamEventHandler
             for (StreamSession.SSTableStreamingSections details : endpointDetails)
                 details.sstable.acquireReference();
 
-            plan.transferFiles(remote, 0, streamingDetails.get(remote));
+            plan.transferFiles(remote, streamingDetails.get(remote));
         }
         plan.listeners(this, listeners);
         return plan.execute();
