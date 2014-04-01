@@ -61,14 +61,6 @@ public class MemoryInputStream extends AbstractDataInput implements DataInput
         return mem.size();
     }
 
-    public int skipBytes(int n) throws IOException
-    {
-        if (n <= 0)
-            return 0;
-        seek(getPosition() + n);
-        return position;
-    }
-
     public void close()
     {
         // do nothing.
