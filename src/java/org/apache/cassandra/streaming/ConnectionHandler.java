@@ -217,7 +217,12 @@ public class ConnectionHandler
 
         public void sendInitMessage(Socket socket, boolean isForOutgoing) throws IOException
         {
-            StreamInitMessage message = new StreamInitMessage(FBUtilities.getBroadcastAddress(), session.sessionIndex(), session.planId(), session.description(), isForOutgoing);
+            StreamInitMessage message = new StreamInitMessage(
+                    FBUtilities.getBroadcastAddress(),
+                    session.sessionIndex(),
+                    session.planId(),
+                    session.description(),
+                    isForOutgoing);
             ByteBuffer messageBuf = message.createMessage(false, protocolVersion);
             getWriteChannel(socket).write(messageBuf);
         }
@@ -246,6 +251,7 @@ public class ConnectionHandler
 
         protected void signalCloseDone()
         {
+            System.err.println("signalCloseDone() hit.");
             closeFuture.get().set(null);
 
             // We can now close the socket
@@ -283,10 +289,16 @@ public class ConnectionHandler
                     StreamMessage message = StreamMessage.deserialize(in, protocolVersion, session);
                     // Might be null if there is an error during streaming (see FileMessage.deserialize). It's ok
                     // to ignore here since we'll have asked for a retry.
+                    System.err.println("Received closed message.");
                     if (message != null)
                     {
+                        System.err.println("Message is not null.");
                         logger.debug("[Stream #{}] Received {}", session.planId(), message);
                         session.messageReceived(message);
+                    }
+                    else
+                    {
+                        System.err.println("Message is null.");
                     }
                 }
             }

@@ -21,11 +21,9 @@ import java.io.File;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.Sets;
 import org.apache.cassandra.config.EncryptionOptions;
 import org.apache.commons.cli.*;
 import org.apache.thrift.protocol.TBinaryProtocol;
@@ -74,7 +72,16 @@ public class BulkLoader
     {
         LoaderOptions options = LoaderOptions.parseArgs(args);
         OutputHandler handler = new OutputHandler.SystemOutput(options.verbose, options.debug);
-        SSTableLoader loader = new SSTableLoader(options.directory, new ExternalClient(options.hosts, options.rpcPort, options.user, options.passwd, options.transportFactory), handler);
+        SSTableLoader loader = new SSTableLoader(
+                options.directory,
+                new ExternalClient(
+                        options.hosts,
+                        options.rpcPort,
+                        options.user,
+                        options.passwd,
+                        options.transportFactory),
+                handler,
+                options.connectionsPerHost);
         DatabaseDescriptor.setStreamThroughputOutboundMegabitsPerSec(options.throttle);
         StreamResultFuture future = null;
         try
@@ -100,7 +107,9 @@ public class BulkLoader
 
         try
         {
+            System.err.println("get on future.");
             future.get();
+            System.err.println("GOT!");
             System.exit(0); // We need that to stop non daemonized threads
         }
         catch (Exception e)
@@ -117,8 +126,7 @@ public class BulkLoader
     // Return true when everything is at 100%
     static class ProgressIndicator implements StreamEventHandler
     {
-        private final Map<InetAddress, SessionInfo> sessionsByHost = new ConcurrentHashMap<>();
-        private final Map<InetAddress, Set<ProgressInfo>> progressByHost = new ConcurrentHashMap<>();
+        StreamCoordinator coordinator = new StreamCoordinator(0);
 
         private long start;
         private long lastProgress;
@@ -137,49 +145,53 @@ public class BulkLoader
             if (event.eventType == StreamEvent.Type.STREAM_PREPARED)
             {
                 SessionInfo session = ((StreamEvent.SessionPreparedEvent) event).session;
-                sessionsByHost.put(session.peer, session);
+                coordinator.addSessionInfo(session);
             }
             else if (event.eventType == StreamEvent.Type.FILE_PROGRESS)
             {
                 ProgressInfo progressInfo = ((StreamEvent.ProgressEvent) event).progress;
 
+                // only update progress if it's been > 100ms since last progress event or if this is a file complete
+                long time = System.nanoTime();
+                long deltaTime = TimeUnit.NANOSECONDS.toMillis(time - lastTime);
+                if (deltaTime < 100 && !progressInfo.isCompleted())
+                    return;
+
                 // update progress
-                Set<ProgressInfo> progresses = progressByHost.get(progressInfo.peer);
-                if (progresses == null)
-                {
-                    progresses = Sets.newSetFromMap(new ConcurrentHashMap<ProgressInfo, Boolean>());
-                    progressByHost.put(progressInfo.peer, progresses);
-                }
-                if (progresses.contains(progressInfo))
-                    progresses.remove(progressInfo);
-                progresses.add(progressInfo);
+                coordinator.updateProgress(progressInfo);
 
                 StringBuilder sb = new StringBuilder();
                 sb.append("\rprogress: ");
 
                 long totalProgress = 0;
                 long totalSize = 0;
-                for (Map.Entry<InetAddress, Set<ProgressInfo>> entry : progressByHost.entrySet())
-                {
-                    SessionInfo session = sessionsByHost.get(entry.getKey());
 
-                    long size = session.getTotalSizeToSend();
-                    long current = 0;
-                    int completed = 0;
-                    for (ProgressInfo progress : entry.getValue())
+                // recalculate progress across all sessions in all hosts and display
+                for (InetAddress peer : coordinator.getPeers())
+                {
+                    sb.append(" --- [").append(peer.toString());
+                    for (SessionInfo session : coordinator.getHostSessionInfo(peer))
                     {
-                        if (progress.currentBytes == progress.totalBytes)
-                            completed++;
-                        current += progress.currentBytes;
+                        long size = session.getTotalSizeToSend();
+                        long current = 0;
+                        int completed = 0;
+                        for (ProgressInfo progress : coordinator.getSessionProgress(peer, session.sessionIndex))
+                        {
+                            if (progress.currentBytes == progress.totalBytes)
+                                completed++;
+                            current += progress.currentBytes;
+                        }
+                        totalProgress += current;
+
+                        totalSize += size;
+
+                        sb.append("{ID:").append(session.sessionIndex);
+                        sb.append(" ").append(completed).append("/").append(session.getTotalFilesToSend());
+                        sb.append(" (").append(size == 0 ? 100L : current * 100L / size).append("%)}");
                     }
-                    totalProgress += current;
-                    totalSize += size;
-                    sb.append("[").append(entry.getKey());
-                    sb.append(" ").append(completed).append("/").append(session.getTotalFilesToSend());
-                    sb.append(" (").append(size == 0 ? 100L : current * 100L / size).append("%)] ");
+                    sb.append("]");
                 }
-                long time = System.nanoTime();
-                long deltaTime = TimeUnit.NANOSECONDS.toMillis(time - lastTime);
+
                 lastTime = time;
                 long deltaProgress = totalProgress - lastProgress;
                 lastProgress = totalProgress;
@@ -536,7 +548,7 @@ public class BulkLoader
             options.addOption("u",  USER_OPTION, "username", "username for cassandra authentication");
             options.addOption("pw", PASSWD_OPTION, "password", "password for cassandra authentication");
             options.addOption("tf", TRANSPORT_FACTORY, "transport factory", "Fully-qualified ITransportFactory class name for creating a connection to cassandra");
-            options.addOption("cph", CONNECTIONS_PER_HOST, "number of concurrent connections-per-host.");
+            options.addOption("cph", CONNECTIONS_PER_HOST, "connectionsPerHost", "number of concurrent connections-per-host.");
             // ssl connection-related options
             options.addOption("ts", SSL_TRUSTSTORE, "TRUSTSTORE", "SSL: full path to truststore");
             options.addOption("tspw", SSL_TRUSTSTORE_PW, "TRUSTSTORE-PASSWORD", "SSL: password of the truststore");

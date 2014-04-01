@@ -47,7 +47,6 @@ public abstract class StreamMessage
 
         // session index
         buff.clear();
-        System.err.println("StreamMessage.serialize: serializing sessionIndex: " + message.sessionIndex);
         buff.putInt(message.sessionIndex);
         buff.flip();
         out.write(buff);
@@ -67,7 +66,6 @@ public abstract class StreamMessage
             in.read(idxBuff);
             idxBuff.flip();
             session.setSessionIndex(idxBuff.getInt());
-            System.err.println("StreamMessage.deserialize: deserializing sessionIndex " + session.sessionIndex());
 
             return type.inSerializer.deserialize(in, version, session);
         }

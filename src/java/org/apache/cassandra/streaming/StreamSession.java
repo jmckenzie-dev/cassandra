@@ -190,6 +190,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
      */
     public void init(StreamResultFuture streamResult)
     {
+        System.err.println("init on StreamSession - binding future.");
         this.streamResult = streamResult;
 
         // register to gossiper/FD to fail on node failure
@@ -352,6 +353,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     private void closeSession(State finalState)
     {
+        System.err.println("closeSession called.");
         state(finalState);
 
         if (finalState == State.FAILED)
@@ -484,7 +486,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             handler.sendMessage(prepare);
         }
 
-        // if there are files to stream
+        // if there are files to stream and we've received all our prepare messages
         if (!maybeCompleted())
             startStreamingFiles();
     }
@@ -550,6 +552,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
      */
     public synchronized void complete()
     {
+        System.err.println("StreamSession complete call.");
         if (state == State.WAIT_COMPLETE)
         {
             if (!completeSent)

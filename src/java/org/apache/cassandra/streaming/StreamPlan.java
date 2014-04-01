@@ -35,11 +35,8 @@ public class StreamPlan
     private final UUID planId = UUIDGen.getTimeUUID();
     private final String description;
     private final List<StreamEventHandler> handlers = new ArrayList<>();
-    private int connectionsPerHost = 1;
 
-    // sessions per InetAddress of the other end.
-    // private final Map<InetAddress, StreamSession> sessions = new HashMap<>();
-    private Map<InetAddress, StreamSessionRoundRobin> sessions = new HashMap<>();
+    StreamCoordinator coordinator;
     private final long repairedAt;
 
     private boolean flushBeforeTransfer = true;
@@ -58,11 +55,12 @@ public class StreamPlan
     {
         this.description = description;
         this.repairedAt = repairedAt;
+        this.coordinator = new StreamCoordinator(1);
     }
 
     public void setConnectionsPerHost(int value)
     {
-        connectionsPerHost = value;
+        coordinator.setConnectionsPerHost(value);
     }
 
     /**
@@ -89,7 +87,7 @@ public class StreamPlan
      */
     public StreamPlan requestRanges(InetAddress from, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
     {
-        StreamSession session = getOrCreateSession(from);
+        StreamSession session = coordinator.getOrCreateNextSession(from);
         session.addStreamRequest(keyspace, ranges, Arrays.asList(columnFamilies), repairedAt);
         return this;
     }
@@ -118,7 +116,7 @@ public class StreamPlan
      */
     public StreamPlan transferRanges(InetAddress to, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
     {
-        StreamSession session = getOrCreateSession(to);
+        StreamSession session = coordinator.getOrCreateNextSession(to);
         session.addTransferRanges(keyspace, ranges, Arrays.asList(columnFamilies), flushBeforeTransfer, repairedAt);
         return this;
     }
@@ -132,62 +130,9 @@ public class StreamPlan
      */
     public StreamPlan transferFiles(InetAddress to, Collection<StreamSession.SSTableStreamingSections> sstableDetails)
     {
-        // Split up based on # connections per host and distribute evenly
-        if (connectionsPerHost > 1)
-        {
-            ArrayList<ArrayList<StreamSession.SSTableStreamingSections>> lists = populateSubLists(sstableDetails);
-
-            for (ArrayList<StreamSession.SSTableStreamingSections> list : lists)
-            {
-                StreamSession session = getOrCreateSession(to);
-                session.addTransferFiles(list);
-            }
-        }
-        else
-        {
-            StreamSession session = getOrCreateSession(to);
-            session.addTransferFiles(sstableDetails);
-        }
-
+        coordinator.transferFiles(to, sstableDetails);
         return this;
-    }
 
-    private ArrayList<ArrayList<StreamSession.SSTableStreamingSections>> populateSubLists(
-            Collection<StreamSession.SSTableStreamingSections> sstableDetails)
-    {
-        int step = sstableDetails.size() / connectionsPerHost;
-        int index = 0;
-
-        int sliceCount = 0;
-
-        ArrayList<ArrayList<StreamSession.SSTableStreamingSections>> result = new ArrayList<>();
-        ArrayList<StreamSession.SSTableStreamingSections> slice = null;
-        for (StreamSession.SSTableStreamingSections streamSession : sstableDetails)
-        {
-            System.err.println("Step: " + step + " index: " + index + " slice count: " + sliceCount);
-            if (index % step == 0)
-            {
-                System.err.println("index % step == 0.  Creating new slice.");
-                // Add the currently built slice to the result set if we're not at inception
-                if (slice != null)
-                    result.add(slice);
-
-                slice = new ArrayList<StreamSession.SSTableStreamingSections>();
-                ++sliceCount;
-            }
-            slice.add(streamSession);
-            ++index;
-        }
-
-        int total = 0;
-        for (ArrayList<StreamSession.SSTableStreamingSections> subList : result)
-        {
-            System.err.println("Count of entries in sublist: " + subList.size());
-            total += subList.size();
-        }
-        System.err.println("Size of input: " + sstableDetails.size() + " and size of total in slices: " + total);
-        assert(sstableDetails.size() == total);
-        return result;
     }
 
     public StreamPlan listeners(StreamEventHandler handler, StreamEventHandler... handlers)
@@ -203,7 +148,7 @@ public class StreamPlan
      */
     public boolean isEmpty()
     {
-        return sessions.isEmpty();
+        return coordinator.hasActiveSessions();
     }
 
     /**
@@ -213,16 +158,7 @@ public class StreamPlan
      */
     public StreamResultFuture execute()
     {
-        Collection<StreamSession> combinedSessions = new ArrayList<StreamSession>();
-        for (Map.Entry<InetAddress, StreamSessionRoundRobin> pair : sessions.entrySet())
-        {
-            for (StreamSession session : pair.getValue())
-            {
-                combinedSessions.add(session);
-            }
-        }
-        System.err.println("Total combined sessions: " + combinedSessions.size());
-        return StreamResultFuture.init(planId, description, combinedSessions, handlers);
+        return StreamResultFuture.init(planId, description, coordinator.getAllStreamSessions(), handlers);
     }
 
     /**
@@ -236,49 +172,5 @@ public class StreamPlan
     {
         this.flushBeforeTransfer = flushBeforeTransfer;
         return this;
-    }
-
-    private StreamSession getOrCreateSession(InetAddress peer)
-    {
-        StreamSessionRoundRobin sessionList = sessions.get(peer);
-        if (sessionList == null)
-        {
-            sessionList = new StreamSessionRoundRobin();
-            sessions.put(peer, sessionList);
-        }
-
-        // Round-robin across all sessions for this host here based on connectionsPerHost
-        System.err.println("getting session.");
-        return sessionList.getOrCreateNextSession(peer);
-    }
-
-    private class StreamSessionRoundRobin implements Iterable<StreamSession>
-    {
-        private ArrayList<StreamSession> sessions = new ArrayList<StreamSession>();
-        private int lastReturned = -1;
-
-        public Iterator<StreamSession> iterator()
-        {
-            return sessions.iterator();
-        }
-
-        public StreamSession getOrCreateNextSession(InetAddress peer)
-        {
-            // Add a new session if we're under our limit
-            if (sessions.size() < connectionsPerHost)
-            {
-                int newIndex = sessions.size();
-                System.err.println("Creating new session with index: " + newIndex);
-                sessions.add(new StreamSession(peer, newIndex));
-            }
-
-            StreamSession result = sessions.get(++lastReturned);
-
-            if (lastReturned == connectionsPerHost)
-                lastReturned = 0;
-
-            System.err.println("Returning session");
-            return result;
-        }
     }
 }

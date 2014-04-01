@@ -28,6 +28,7 @@ import java.util.NoSuchElementException;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.FSReadError;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
 /**
@@ -68,9 +69,12 @@ public abstract class SegmentedFile
      */
     public static Builder getBuilder(Config.DiskAccessMode mode)
     {
-        return mode == Config.DiskAccessMode.mmap
-               ? new MmappedSegmentedFile.Builder()
-               : new BufferedPoolingSegmentedFile.Builder();
+        // if (FBUtilities.isUnix())
+            return mode == Config.DiskAccessMode.mmap
+                   ? new MmappedSegmentedFile.Builder()
+                   : new BufferedPoolingSegmentedFile.Builder();
+        // else
+        //    return new BufferedPoolingSegmentedFile.Builder();
     }
 
     public static Builder getCompressedBuilder()
