@@ -198,6 +198,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
     {
         logger.info("[Stream #{}] Session with {} is complete", session.planId(), session.peer);
 
+        System.err.println("*****   handleSessionComplete call.");
         fireStreamEvent(new StreamEvent.SessionCompleteEvent(session));
         maybeComplete(session);
     }

@@ -304,15 +304,18 @@ public class ConnectionHandler
             }
             catch (SocketException e)
             {
+                System.err.println("SOCKET ALREADY CLOSED.");
                 // socket is closed
                 close();
             }
             catch (Throwable e)
             {
+                System.err.println("SOME OTHER THROWABLE.");
                 session.onError(e);
             }
             finally
             {
+                System.err.println("FINALLY - CLOSE");
                 signalCloseDone();
             }
         }
@@ -361,8 +364,10 @@ public class ConnectionHandler
                 StreamMessage next;
                 while (!isClosed())
                 {
+                    System.err.println("polling on messageQueue for messages.");
                     if ((next = messageQueue.poll(1, TimeUnit.SECONDS)) != null)
                     {
+                        System.err.println("SENDING A MESSAGE: " + next.type.toString());
                         logger.debug("[Stream #{}] Sending {}", session.planId(), next);
                         sendMessage(out, next);
                         if (next.type == StreamMessage.Type.SESSION_FAILED)
@@ -370,20 +375,24 @@ public class ConnectionHandler
                     }
                 }
 
+                System.err.println("Sending last message in queue for connectionHandler.");
                 // Sends the last messages on the queue
                 while ((next = messageQueue.poll()) != null)
                     sendMessage(out, next);
             }
             catch (InterruptedException e)
             {
+                System.err.println(" ------ Interrupted Error");
                 throw new AssertionError(e);
             }
             catch (Throwable e)
             {
+                System.err.println(" ------ IOException Error");
                 session.onError(e);
             }
             finally
             {
+                System.err.println(" ------ signalCloseDone call");
                 signalCloseDone();
             }
         }

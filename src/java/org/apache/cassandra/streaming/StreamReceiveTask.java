@@ -63,6 +63,7 @@ public class StreamReceiveTask extends StreamTask
         assert !aborted;
 
         sstables.add(sstable);
+        System.err.println("Comparing sstables size to totalFiles in StreamReceiveTask: " + sstables.size() + " / " + totalFiles);
         if (sstables.size() == totalFiles)
             complete();
     }
@@ -79,8 +80,16 @@ public class StreamReceiveTask extends StreamTask
 
     private void complete()
     {
+        System.err.println("complete() call inside StreamReceiveTask.");
         if (!sstables.isEmpty())
+        {
+            System.err.println("sstables isn't empty, so sending a completion task.");
             StorageService.tasks.submit(new OnCompletionRunnable(this));
+        }
+        else
+        {
+            System.err.println("sstables is empty.  nothing to do?");
+        }
     }
 
     private static class OnCompletionRunnable implements Runnable
@@ -94,6 +103,7 @@ public class StreamReceiveTask extends StreamTask
 
         public void run()
         {
+            System.err.println("Completion Runnable for StreamReceiveTask.");
             Pair<String, String> kscf = Schema.instance.getCF(task.cfId);
             ColumnFamilyStore cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
 
@@ -117,6 +127,7 @@ public class StreamReceiveTask extends StreamTask
                 SSTableReader.releaseReferences(readers);
             }
 
+            System.err.println("taskCompleted call.");
             task.session.taskCompleted(task);
         }
     }

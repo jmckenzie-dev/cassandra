@@ -353,7 +353,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     private void closeSession(State finalState)
     {
-        System.err.println("closeSession called.");
+        System.err.println("******* closeSession called.");
         state(finalState);
 
         if (finalState == State.FAILED)
@@ -401,6 +401,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     public void messageReceived(StreamMessage message)
     {
+        System.err.println("messageReceived with type: " + message.type.toString());
         switch (message.type)
         {
             case PREPARE:
@@ -414,6 +415,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
             case RECEIVED:
                 ReceivedMessage received = (ReceivedMessage) message;
+                System.err.println("PROCESSING RECEIVED MESSAGE");
                 received(received.cfId, received.sequenceNumber);
                 break;
 
@@ -423,6 +425,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
                 break;
 
             case COMPLETE:
+                System.err.println("COMPLETE inside messageReceived.");
                 complete();
                 break;
 
@@ -603,6 +606,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     public synchronized void taskCompleted(StreamReceiveTask completedTask)
     {
+        System.err.println("Removing task from completed: " + completedTask.cfId.toString());
         receivers.remove(completedTask.cfId);
         maybeCompleted();
     }
@@ -643,20 +647,26 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     private boolean maybeCompleted()
     {
+        System.err.println("maybeCompleted in StreamSession");
         boolean completed = receivers.isEmpty() && transfers.isEmpty();
         if (completed)
         {
+            System.err.println("We're completed.  What type are we?");
             if (state == State.WAIT_COMPLETE)
             {
+                System.err.println("WAIT_COMPLETE");
                 if (!completeSent)
                 {
+                    System.err.println("Sending new complete message.");
                     handler.sendMessage(new CompleteMessage(index));
                     completeSent = true;
                 }
+                System.err.println("Closing session");
                 closeSession(State.COMPLETE);
             }
             else
             {
+                System.err.println("Sending message to notifier that this is completed.");
                 // notify peer that this session is completed
                 handler.sendMessage(new CompleteMessage(index));
                 completeSent = true;
