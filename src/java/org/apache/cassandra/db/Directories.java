@@ -464,18 +464,16 @@ public class Directories
         List<File> result = new ArrayList<File>();
         for (File dataDirectory : sstableDirectories)
         {
-            logger.error("D  : getAllSnapshotDirectories - checking sstableDirectory: " + dataDirectory.toString());
             if (dataDirectory.isDirectory())
             {
                 File snapshotDirectory = new File(dataDirectory, SNAPSHOT_SUBDIR);
                 if (snapshotDirectory.isDirectory())
                 {
-                    logger.error("D  : getAllSnapshotDirectories - adding directory: " + snapshotDirectory.toString() + " to results.");
-                    result.add(snapshotDirectory);
-                }
-                else
-                {
-                    logger.error("D  : getAllSnapshotDirectoryes - not a directory: " + snapshotDirectory.toString());
+                    for (File snapshotSubDir : snapshotDirectory.listFiles())
+                    {
+                        if (snapshotSubDir.isDirectory())
+                            result.add(snapshotSubDir);
+                    }
                 }
             }
         }

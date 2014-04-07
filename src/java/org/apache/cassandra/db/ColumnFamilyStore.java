@@ -429,6 +429,16 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         Directories directories = Directories.create(keyspaceName, columnFamily);
 
+        // clean up any snapshot files that are marked for deletion - need to do this before any other SSTR's are opened
+        // as Windows cannot delete hard-links to mmapped files
+        List<File> snapshotDirs = directories.getAllSnapshotDirectories();
+        for (File snapshot : snapshotDirs)
+        {
+            File sentinel = new File(snapshot, ".delete");
+            if (sentinel.exists())
+                FileUtils.deleteRecursive(snapshot);
+        }
+
         // remove any left-behind SSTables from failed/stalled streaming
         FileFilter filter = new FileFilter()
         {
@@ -475,19 +485,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             for (Component component : components)
             {
                 FileUtils.deleteWithConfirm(desc.filenameFor(component));
-            }
-        }
-
-        // clean up any snapshot files that are marked for deletion
-        List<File> snapshotDirs = directories.getAllSnapshotDirectories();
-        for (File f : snapshotDirs)
-        {
-            File sentinel = new File(f.getPath() + "/.delete");
-            logger.error("CFS: scrubDataDirectories checking for sentinel: " + sentinel.toString());
-            if (sentinel.exists())
-            {
-                logger.error("CFS: sentinel exists.  Deleting snapshot folder: " + f.toString());
-                FileUtils.deleteRecursive(f);
             }
         }
 
