@@ -478,6 +478,19 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             }
         }
 
+        // clean up any snapshot files that are marked for deletion
+        List<File> snapshotDirs = directories.getAllSnapshotDirectories();
+        for (File f : snapshotDirs)
+        {
+            File sentinel = new File(f.getPath() + "/.delete");
+            logger.error("CFS: scrubDataDirectories checking for sentinel: " + sentinel.toString());
+            if (sentinel.exists())
+            {
+                logger.error("CFS: sentinel exists.  Deleting snapshot folder: " + f.toString());
+                FileUtils.deleteRecursive(f);
+            }
+        }
+
         // cleanup incomplete saved caches
         Pattern tmpCacheFilePattern = Pattern.compile(keyspaceName + "-" + columnFamily + "-(Key|Row)Cache.*\\.tmp$");
         File dir = new File(DatabaseDescriptor.getSavedCachesLocation());

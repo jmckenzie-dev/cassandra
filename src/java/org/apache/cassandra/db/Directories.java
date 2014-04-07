@@ -411,9 +411,8 @@ public class Directories
             File snapshotDir = new File(dir, join(SNAPSHOT_SUBDIR, tag));
             if (snapshotDir.exists())
             {
-                if (logger.isDebugEnabled())
-                    logger.debug("Removing snapshot directory " + snapshotDir);
-                FileUtils.deleteRecursive(snapshotDir);
+                SnapshotDeletingTask task = new SnapshotDeletingTask(snapshotDir.getAbsolutePath());
+                task.schedule();
             }
         }
     }
@@ -456,6 +455,29 @@ public class Directories
         {
             if (dataDirectory.isDirectory())
                 result.add(dataDirectory);
+        }
+        return result;
+    }
+
+    public List<File> getAllSnapshotDirectories()
+    {
+        List<File> result = new ArrayList<File>();
+        for (File dataDirectory : sstableDirectories)
+        {
+            logger.error("D  : getAllSnapshotDirectories - checking sstableDirectory: " + dataDirectory.toString());
+            if (dataDirectory.isDirectory())
+            {
+                File snapshotDirectory = new File(dataDirectory, SNAPSHOT_SUBDIR);
+                if (snapshotDirectory.isDirectory())
+                {
+                    logger.error("D  : getAllSnapshotDirectories - adding directory: " + snapshotDirectory.toString() + " to results.");
+                    result.add(snapshotDirectory);
+                }
+                else
+                {
+                    logger.error("D  : getAllSnapshotDirectoryes - not a directory: " + snapshotDirectory.toString());
+                }
+            }
         }
         return result;
     }
