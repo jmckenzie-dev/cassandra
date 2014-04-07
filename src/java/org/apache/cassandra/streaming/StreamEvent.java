@@ -31,25 +31,25 @@ public abstract class StreamEvent
 
     public final Type eventType;
     public final UUID planId;
-    public final int sessionIndex;
 
-    protected StreamEvent(Type eventType, UUID planId, int sessionIndex)
+    protected StreamEvent(Type eventType, UUID planId)
     {
         this.eventType = eventType;
         this.planId = planId;
-        this.sessionIndex = sessionIndex;
     }
 
     public static class SessionCompleteEvent extends StreamEvent
     {
         public final InetAddress peer;
         public final boolean success;
+        public final int sessionIndex;
 
         public SessionCompleteEvent(StreamSession session)
         {
-            super(Type.STREAM_COMPLETE, session.planId(), session.sessionIndex());
+            super(Type.STREAM_COMPLETE, session.planId());
             this.peer = session.peer;
             this.success = session.isSuccess();
+            this.sessionIndex = session.sessionIndex();
         }
     }
 
@@ -59,7 +59,7 @@ public abstract class StreamEvent
 
         public ProgressEvent(UUID planId, ProgressInfo progress)
         {
-            super(Type.FILE_PROGRESS, planId, progress.sessionIndex);
+            super(Type.FILE_PROGRESS, planId);
             this.progress = progress;
         }
 
@@ -76,7 +76,7 @@ public abstract class StreamEvent
 
         public SessionPreparedEvent(UUID planId, SessionInfo session)
         {
-            super(Type.STREAM_PREPARED, planId, session.sessionIndex);
+            super(Type.STREAM_PREPARED, planId);
             this.session = session;
         }
     }

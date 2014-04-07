@@ -97,6 +97,7 @@ public class StreamWriter
                 long length = section.right - start;
                 // tracks write progress
                 long bytesTransferred = 0;
+                System.err.println("Transferring new file on idx: " + session.sessionIndex() + " with file name: " + file.getPath());
                 while (bytesTransferred < length)
                 {
                     long lastWrite = write(file, validator, skipBytes, length, bytesTransferred);

@@ -23,10 +23,8 @@ import java.net.Socket;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.AbstractFuture;
 import com.google.common.util.concurrent.Futures;
-import org.cliffc.high_scale_lib.NonBlockingHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,12 +68,8 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         this.description = description;
         this.coordinator = new StreamCoordinator(0);
 
-        System.err.println("StreamResultFuture ctor with count of sessions: " + sessions.size());
         for (StreamSession session : sessions)
-        {
-            System.err.println("StreamResultFuture: Adding a session from the collection in ctor.  Idx: " + session.sessionIndex());
             coordinator.addStreamSession(session);
-        }
 
         // if there is no session to listen to, we immediately set result for returning
         if (sessions.isEmpty())
@@ -112,16 +106,13 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
                                                                     boolean isForOutgoing,
                                                                     int version) throws IOException
     {
-        System.err.println("[initReceivingSide]");
         StreamResultFuture future = StreamManager.instance.getReceivingStream(planId);
         if (future == null)
         {
-            System.err.println("   future is null");
-            // logger.info("[Stream #{} ID#{}] Creating new streaming plan for {}", planId, sessionIndex, description);
+            logger.info("[Stream #{} ID#{}] Creating new streaming plan for {}", planId, sessionIndex, description);
             final StreamSession session = new StreamSession(from, sessionIndex);
 
             // The main reason we create a StreamResultFuture on the receiving side is for JMX exposure.
-            System.err.println("initReceivingSide -> about to create a singleton collection.");
             future = new StreamResultFuture(planId, description, Collections.singleton(session));
             StreamManager.instance.registerReceiving(future);
 
@@ -130,9 +121,8 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         }
         else
         {
-            System.err.println("   future is not null.  Attaching socket.");
             future.attachSocket(from, sessionIndex, socket, isForOutgoing, version);
-            // logger.info("[Stream #{}, ID#{}] Received streaming plan for {}", planId, sessionIndex, description);
+            logger.info("[Stream #{}, ID#{}] Received streaming plan for {}", planId, sessionIndex, description);
         }
         return future;
     }
@@ -198,7 +188,6 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
     {
         logger.info("[Stream #{}] Session with {} is complete", session.planId(), session.peer);
 
-        System.err.println("*****   handleSessionComplete call.");
         fireStreamEvent(new StreamEvent.SessionCompleteEvent(session));
         maybeComplete(session);
     }
@@ -208,7 +197,12 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         fireStreamEvent(new StreamEvent.ProgressEvent(planId, progress));
     }
 
-    void fireStreamEvent(StreamEvent event)
+    public boolean checkComplete()
+    {
+        return !coordinator.hasActiveSessions();
+    }
+
+    synchronized void fireStreamEvent(StreamEvent event)
     {
         // delegate to listener
         for (StreamEventHandler listener : eventListeners)
@@ -217,10 +211,6 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
 
     private synchronized void maybeComplete(StreamSession session)
     {
-        coordinator.removeStreamSession(session);
-        System.err.println("---");
-        System.err.println("Checking if maybeComplete");
-        System.err.println("---");
         if (!coordinator.hasActiveSessions())
         {
             StreamState finalState = getCurrentState();

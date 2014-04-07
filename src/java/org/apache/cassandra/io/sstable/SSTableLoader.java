@@ -159,7 +159,6 @@ public class SSTableLoader implements StreamEventHandler
 
         StreamPlan plan = new StreamPlan("Bulk Load");
         plan.setConnectionsPerHost(connectionsPerHost);
-        System.err.println("StreamResultFuture.stream with cph: " + connectionsPerHost);
 
         Map<InetAddress, Collection<Range<Token>>> endpointToRanges = client.getEndpointToRangesMap();
         openSSTables(endpointToRanges);

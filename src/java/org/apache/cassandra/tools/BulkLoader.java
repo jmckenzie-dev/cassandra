@@ -107,9 +107,10 @@ public class BulkLoader
 
         try
         {
-            System.err.println("get on future.");
             future.get();
-            System.err.println("GOT!");
+            System.err.println("Waiting for graceful session exit.");
+            while (!future.checkComplete()) {}
+            System.err.println("checkComplete returned true.  Exiting.");
             System.exit(0); // We need that to stop non daemonized threads
         }
         catch (Exception e)
@@ -146,6 +147,7 @@ public class BulkLoader
             {
                 SessionInfo session = ((StreamEvent.SessionPreparedEvent) event).session;
                 coordinator.addSessionInfo(session);
+                System.err.println("ProgressIndicator -> size of session infos after add: " + coordinator.getHostSessionInfo(session.peer).size());
             }
             else if (event.eventType == StreamEvent.Type.FILE_PROGRESS)
             {
@@ -155,8 +157,9 @@ public class BulkLoader
                 long time = System.nanoTime();
                 long deltaTime = TimeUnit.NANOSECONDS.toMillis(time - lastTime);
                 if (deltaTime < 100 && !progressInfo.isCompleted())
-                    return;
+                     return;
 
+                System.err.println("Updating progress on stream: " + progressInfo.sessionIndex + " with file: " + progressInfo.fileName);
                 // update progress
                 coordinator.updateProgress(progressInfo);
 
@@ -169,14 +172,21 @@ public class BulkLoader
                 // recalculate progress across all sessions in all hosts and display
                 for (InetAddress peer : coordinator.getPeers())
                 {
+                    zPrint(progressInfo, "Processing peer: " + peer.toString());
                     sb.append(" --- [").append(peer.toString());
+                    zPrint(progressInfo, "Count of sessioninfos for peer: " + coordinator.getHostSessionInfo(peer).size());
                     for (SessionInfo session : coordinator.getHostSessionInfo(peer))
                     {
+                        zPrint(progressInfo, "   Processing session with index: " + session.sessionIndex);
                         long size = session.getTotalSizeToSend();
                         long current = 0;
                         int completed = 0;
+
+                        // It's possible to reach this point before
+                        zPrint(progressInfo, "   Count of ProgressInfos for this sessionIndex: " + coordinator.getSessionProgress(peer, session.sessionIndex).size());
                         for (ProgressInfo progress : coordinator.getSessionProgress(peer, session.sessionIndex))
                         {
+                            zPrint(progressInfo, "      ProgressInfo for file: " + progress.fileName);
                             if (progress.currentBytes == progress.totalBytes)
                                 completed++;
                             current += progress.currentBytes;
@@ -200,8 +210,14 @@ public class BulkLoader
                 sb.append(mbPerSec(deltaProgress, deltaTime)).append("MB/s");
                 sb.append(" (avg: ").append(mbPerSec(totalProgress, TimeUnit.NANOSECONDS.toMillis(time - start))).append("MB/s)]");
 
-                System.out.print(sb.toString());
+                System.err.println(sb.toString());
             }
+        }
+
+        private void zPrint(ProgressInfo info, String input)
+        {
+            // if (info.sessionIndex == 0)
+            System.err.println(input);
         }
 
         private int mbPerSec(long bytes, long timeInMs)

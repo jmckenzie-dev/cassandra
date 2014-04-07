@@ -17,10 +17,7 @@
  */
 package org.apache.cassandra.streaming;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -44,12 +41,16 @@ public class StreamReceiveTask extends StreamTask
     //  holds references to SSTables received
     protected Collection<SSTableWriter> sstables;
 
+    private static Random r = new Random();
+    private int id = -1;
+
     public StreamReceiveTask(StreamSession session, UUID cfId, int totalFiles, long totalSize)
     {
         super(session, cfId);
         this.totalFiles = totalFiles;
         this.totalSize = totalSize;
         this.sstables = new ArrayList<>(totalFiles);
+        id = r.nextInt();
     }
 
     /**
@@ -59,11 +60,11 @@ public class StreamReceiveTask extends StreamTask
      */
     public void received(SSTableWriter sstable)
     {
+        System.err.println("received() call on SRT with id: " + id);
         assert cfId.equals(sstable.metadata.cfId);
         assert !aborted;
 
         sstables.add(sstable);
-        System.err.println("Comparing sstables size to totalFiles in StreamReceiveTask: " + sstables.size() + " / " + totalFiles);
         if (sstables.size() == totalFiles)
             complete();
     }
@@ -80,16 +81,9 @@ public class StreamReceiveTask extends StreamTask
 
     private void complete()
     {
-        System.err.println("complete() call inside StreamReceiveTask.");
+        System.err.println("complete() call on SRT with id: " + id);
         if (!sstables.isEmpty())
-        {
-            System.err.println("sstables isn't empty, so sending a completion task.");
             StorageService.tasks.submit(new OnCompletionRunnable(this));
-        }
-        else
-        {
-            System.err.println("sstables is empty.  nothing to do?");
-        }
     }
 
     private static class OnCompletionRunnable implements Runnable
@@ -103,7 +97,7 @@ public class StreamReceiveTask extends StreamTask
 
         public void run()
         {
-            System.err.println("Completion Runnable for StreamReceiveTask.");
+            System.err.println("OCR: run() on id: " + task.id);
             Pair<String, String> kscf = Schema.instance.getCF(task.cfId);
             ColumnFamilyStore cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
 
@@ -127,7 +121,6 @@ public class StreamReceiveTask extends StreamTask
                 SSTableReader.releaseReferences(readers);
             }
 
-            System.err.println("taskCompleted call.");
             task.session.taskCompleted(task);
         }
     }

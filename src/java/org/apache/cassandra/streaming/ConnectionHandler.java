@@ -27,6 +27,7 @@ import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.Random;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -168,7 +169,10 @@ public class ConnectionHandler
     public void sendMessage(StreamMessage message)
     {
         if (outgoing.isClosed())
+        {
+            System.err.println("ERROR!  Attempting to enqueue message of type: " + message.type + " on a closed stream handler.");
             throw new RuntimeException("Outgoing stream handler has been closed");
+        }
 
         outgoing.enqueue(message);
     }
@@ -251,7 +255,13 @@ public class ConnectionHandler
 
         protected void signalCloseDone()
         {
-            System.err.println("signalCloseDone() hit.");
+            if (closeFuture.get() == null)
+            {
+                Exception e = new Exception();
+                e.fillInStackTrace();
+                System.err.println("*************** signalCloseDone on MessageHandler with closeFuture null.  IDX:" + session.sessionIndex());
+                e.printStackTrace(System.err);
+            }
             closeFuture.get().set(null);
 
             // We can now close the socket
@@ -289,33 +299,28 @@ public class ConnectionHandler
                     StreamMessage message = StreamMessage.deserialize(in, protocolVersion, session);
                     // Might be null if there is an error during streaming (see FileMessage.deserialize). It's ok
                     // to ignore here since we'll have asked for a retry.
-                    System.err.println("Received closed message.");
                     if (message != null)
                     {
-                        System.err.println("Message is not null.");
                         logger.debug("[Stream #{}] Received {}", session.planId(), message);
                         session.messageReceived(message);
                     }
-                    else
-                    {
-                        System.err.println("Message is null.");
-                    }
                 }
+                System.err.println("IMH: run() and isClosed().  Exiting gracefully.");
             }
             catch (SocketException e)
             {
-                System.err.println("SOCKET ALREADY CLOSED.");
+                System.err.println("IMH: SocketException: " + e.toString());
                 // socket is closed
                 close();
             }
             catch (Throwable e)
             {
-                System.err.println("SOME OTHER THROWABLE.");
+                System.err.println("IMH: OTHEREXCEPTION: " + e.toString());
                 session.onError(e);
             }
             finally
             {
-                System.err.println("FINALLY - CLOSE");
+                System.err.flush();
                 signalCloseDone();
             }
         }
@@ -364,10 +369,8 @@ public class ConnectionHandler
                 StreamMessage next;
                 while (!isClosed())
                 {
-                    System.err.println("polling on messageQueue for messages.");
                     if ((next = messageQueue.poll(1, TimeUnit.SECONDS)) != null)
                     {
-                        System.err.println("SENDING A MESSAGE: " + next.type.toString());
                         logger.debug("[Stream #{}] Sending {}", session.planId(), next);
                         sendMessage(out, next);
                         if (next.type == StreamMessage.Type.SESSION_FAILED)
@@ -375,24 +378,30 @@ public class ConnectionHandler
                     }
                 }
 
-                System.err.println("Sending last message in queue for connectionHandler.");
                 // Sends the last messages on the queue
                 while ((next = messageQueue.poll()) != null)
                     sendMessage(out, next);
+
+                System.err.println("OMH: run() and isClosed.  Exiting gracefully.");
             }
             catch (InterruptedException e)
             {
-                System.err.println(" ------ Interrupted Error");
+                System.err.println("OMH: InterruptedException: " + e.toString());
                 throw new AssertionError(e);
             }
             catch (Throwable e)
             {
-                System.err.println(" ------ IOException Error");
+                System.err.println("OMH: IOException: " + e.toString());
                 session.onError(e);
+            }
+            catch (Exception e)
+            {
+                System.err.println("OMH: OTHER Exception: " + e.toString());
+                e.printStackTrace(System.err);
             }
             finally
             {
-                System.err.println(" ------ signalCloseDone call");
+                System.err.flush();
                 signalCloseDone();
             }
         }

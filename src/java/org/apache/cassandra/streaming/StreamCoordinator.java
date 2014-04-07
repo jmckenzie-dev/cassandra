@@ -19,18 +19,17 @@ package org.apache.cassandra.streaming;
 
 import java.net.InetAddress;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * {@link org.apache.cassandra.streaming.StreamCoordinator} is a helper class that abstracts away maintaining multiple
- * StreamSession, SessionInfo, and ProgressInfo instances per peer.
+ * StreamSession and ProgressInfo instances per peer.
  *
  * This class coordinatea multiple SessionStreams per peer in both the outgoing StreamPlan context and on the
  * inbound StreamResultFuture context.
  */
 public class StreamCoordinator
 {
-    private Map<InetAddress, HostStreamingData> peerSessions = new ConcurrentHashMap<>();
+    private Map<InetAddress, HostStreamingData> peerSessions = new HashMap<>();
     private int connectionsPerHost = 1;
 
     public StreamCoordinator(int connectionsPerHost)
@@ -38,7 +37,7 @@ public class StreamCoordinator
         this.connectionsPerHost = connectionsPerHost;
     }
 
-    public boolean hasActiveSessions()
+    public synchronized boolean hasActiveSessions()
     {
         for (Map.Entry<InetAddress, HostStreamingData> pair : peerSessions.entrySet())
         {
@@ -48,12 +47,12 @@ public class StreamCoordinator
         return false;
     }
 
-    public void setConnectionsPerHost(int value)
+    public synchronized void setConnectionsPerHost(int value)
     {
         connectionsPerHost = value;
     }
 
-    public Collection<StreamSession> getAllStreamSessions()
+    public synchronized Collection<StreamSession> getAllStreamSessions()
     {
         Collection<StreamSession> results = new ArrayList<>();
         for (Map.Entry<InetAddress, HostStreamingData> pair : peerSessions.entrySet())
@@ -63,29 +62,92 @@ public class StreamCoordinator
         return results;
     }
 
-    public Set<SessionInfo> getAllSessionInfo()
+    public synchronized Set<InetAddress> getPeers()
     {
-        Set<SessionInfo> results = new HashSet<>();
-        for (Map.Entry<InetAddress, HostStreamingData> pair : peerSessions.entrySet())
+        return new HashSet<>(peerSessions.keySet());
+    }
+
+    public synchronized StreamSession getOrCreateNextSession(InetAddress peer)
+    {
+        return getOrCreateHostData(peer).getOrCreateNextSession(peer);
+    }
+
+    public synchronized StreamSession getOrCreateSessionById(InetAddress peer, int id)
+    {
+        return getOrCreateHostData(peer).getOrCreateSessionById(peer, id);
+    }
+
+    public synchronized void addStreamSession(StreamSession session)
+    {
+        getOrCreateHostData(session.peer).addStreamSession(session);
+    }
+
+    public synchronized void updateProgress(ProgressInfo info)
+    {
+        getHostData(info.peer).updateProgress(info);
+    }
+
+    public synchronized Collection<ProgressInfo> getSessionProgress(InetAddress peer, int index)
+    {
+        return getHostData(peer).getSessionProgress(index);
+    }
+
+    public synchronized void addSessionInfo(SessionInfo session)
+    {
+        HostStreamingData data = getOrCreateHostData(session.peer);
+        data.addSessionInfo(session);
+    }
+
+    public synchronized Collection<SessionInfo> getHostSessionInfo(InetAddress peer)
+    {
+        return getHostData(peer).getAllSessionInfo();
+    }
+
+    public synchronized Set<SessionInfo> getAllSessionInfo()
+    {
+        Set<SessionInfo> result = new HashSet<>();
+        for (HostStreamingData data : peerSessions.values())
         {
-            results.addAll(pair.getValue().sessionInfos.values());
+            result.addAll(data.getAllSessionInfo());
         }
-        return results;
+        return result;
     }
 
-    public Collection<SessionInfo> getHostSessionInfo(InetAddress peer)
+    public synchronized void transferFiles(InetAddress to, Collection<StreamSession.SSTableStreamingSections> sstableDetails)
     {
-        HostStreamingData data = getHostData(peer);
-        return data.sessionInfos.values();
+        HostStreamingData sessionList = peerSessions.get(to);
+        if (sessionList == null)
+        {
+            sessionList = new HostStreamingData();
+            peerSessions.put(to, sessionList);
+        }
+
+        if (connectionsPerHost > 1)
+        {
+            ArrayList<ArrayList<StreamSession.SSTableStreamingSections>> lists = sliceSSTableDetails(sstableDetails);
+
+            int idx = 0;
+            for (ArrayList<StreamSession.SSTableStreamingSections> list : lists)
+            {
+                System.err.println("Adding SSTableStreamingSections to idx: " + idx + " with files:");
+                for (StreamSession.SSTableStreamingSections section : list)
+                {
+                    System.err.println("   " + section.sstable.getColumnFamilyName());
+                }
+
+                StreamSession session = sessionList.getOrCreateNextSession(to);
+                session.addTransferFiles(list);
+            }
+        }
+        else
+        {
+            StreamSession session = sessionList.getOrCreateNextSession(to);
+            session.addTransferFiles(sstableDetails);
+        }
     }
 
-    public Set<InetAddress> getPeers()
-    {
-        return peerSessions.keySet();
-    }
-
-    public ArrayList<ArrayList<StreamSession.SSTableStreamingSections>> sliceSSTableDetails(
-            Collection<StreamSession.SSTableStreamingSections> sstableDetails)
+    private ArrayList<ArrayList<StreamSession.SSTableStreamingSections>> sliceSSTableDetails(
+        Collection<StreamSession.SSTableStreamingSections> sstableDetails)
     {
         int step = Math.round((float)sstableDetails.size() / (float)connectionsPerHost);
         int index = 0;
@@ -104,75 +166,6 @@ public class StreamCoordinator
         }
 
         return result;
-    }
-
-    public StreamSession getOrCreateNextSession(InetAddress peer)
-    {
-        HostStreamingData sessionList = getOrCreateHostData(peer);
-        return sessionList.getOrCreateNextSession(peer);
-    }
-
-    public StreamSession getOrCreateSessionById(InetAddress peer, int id)
-    {
-        HostStreamingData data = getOrCreateHostData(peer);
-        return data.addReceivingStreamSession(peer, id);
-    }
-
-    public void addStreamSession(StreamSession session)
-    {
-        HostStreamingData data = getOrCreateHostData(session.peer);
-        data.addStreamSession(session);
-    }
-
-    public void removeStreamSession(StreamSession session)
-    {
-        HostStreamingData data = getHostData(session.peer);
-        data.removeStreamSession(session);
-    }
-
-    public void addSessionInfo(SessionInfo info)
-    {
-        System.err.println("SC: addSessionInfo: " + info.peer + " id: " + info.sessionIndex);
-        HostStreamingData data = getOrCreateHostData(info.peer);
-        data.sessionInfos.put(info.sessionIndex, info);
-    }
-
-    public void updateProgress(ProgressInfo info)
-    {
-        HostStreamingData data = getHostData(info.peer);
-        data.updateProgress(info);
-    }
-
-    public Collection<ProgressInfo> getSessionProgress(InetAddress peer, int index)
-    {
-        HostStreamingData data = getHostData(peer);
-        return data.getSessionProgress(index);
-    }
-
-    public void transferFiles(InetAddress to, Collection<StreamSession.SSTableStreamingSections> sstableDetails)
-    {
-        HostStreamingData sessionList = peerSessions.get(to);
-        if (sessionList == null)
-        {
-            sessionList = new HostStreamingData();
-            peerSessions.put(to, sessionList);
-        }
-
-        if (connectionsPerHost > 1)
-        {
-            ArrayList<ArrayList<StreamSession.SSTableStreamingSections>> lists = sliceSSTableDetails(sstableDetails);
-
-            for (ArrayList<StreamSession.SSTableStreamingSections> list : lists)
-            {
-                StreamSession session = sessionList.getOrCreateNextSession(to);
-                session.addTransferFiles(list);
-            }
-        }
-        else
-        {
-            StreamSession session = sessionList.getOrCreateNextSession(to);
-            session.addTransferFiles(sstableDetails);
-        }
     }
 
     private HostStreamingData getHostData(InetAddress peer)
@@ -196,15 +189,20 @@ public class StreamCoordinator
 
     private class HostStreamingData
     {
-        private Map<Integer, StreamSession> streamSessions = new ConcurrentHashMap<>();
-        private Map<Integer, Map<String, ProgressInfo>> progressInfos = new ConcurrentHashMap<>();
+        private Map<Integer, StreamSession> streamSessions = new HashMap<>();
+        private Map<Integer, SessionInfo> sessionInfos = new HashMap<>();
+        private Map<Integer, Map<String, ProgressInfo>> progressInfos = null;
 
-        public Map<Integer, SessionInfo> sessionInfos = new ConcurrentHashMap<>();
         public int lastReturned = -1;
 
         public boolean hasActiveSessions()
         {
-            return streamSessions.size() > 0;
+            for (Map.Entry<Integer, StreamSession> pair : streamSessions.entrySet())
+            {
+                if (!pair.getValue().isComplete())
+                    return true;
+            }
+            return false;
         }
 
         public StreamSession getOrCreateNextSession(InetAddress peer)
@@ -231,25 +229,28 @@ public class StreamCoordinator
             streamSessions.put(streamSessions.size(), session);
         }
 
-        public StreamSession addReceivingStreamSession(InetAddress from, int id)
+        public StreamSession getOrCreateSessionById(InetAddress peer, int id)
         {
-            StreamSession session = new StreamSession(from, id);
-            streamSessions.put(id, session);
+            StreamSession session = streamSessions.get(id);
+            if (session == null)
+            {
+                session = new StreamSession(peer, id);
+                streamSessions.put(id, session);
+            }
             return session;
-        }
-
-        public void removeStreamSession(StreamSession session)
-        {
-            streamSessions.remove(session.sessionIndex());
         }
 
         public Collection<StreamSession> getAllStreamSessions()
         {
-            return streamSessions.values();
+            return new ArrayList<>(streamSessions.values());
         }
 
         public void updateProgress(ProgressInfo info)
         {
+            // lazy init -> ProgressInfo not used on both sides of Stream
+            if (progressInfos == null)
+                progressInfos = new HashMap<>();
+
             Map<String, ProgressInfo> progresses = progressInfos.get(info.sessionIndex);
             if (progresses == null)
             {
@@ -261,7 +262,43 @@ public class StreamCoordinator
 
         public Collection<ProgressInfo> getSessionProgress(int index)
         {
-            return progressInfos.get(index).values();
+            // lazy init -> ProgressInfo not used on both sides of Stream
+            if (progressInfos == null)
+                progressInfos = new HashMap<>();
+
+            Map<String, ProgressInfo> progresses = progressInfos.get(index);
+            if (progresses == null)
+                return new ArrayList<>();
+
+            // return copy to prevent ConcurrentModificationException while iterating
+            return new ArrayList<>(progressInfos.get(index).values());
+        }
+
+        public void addSessionInfo(SessionInfo info)
+        {
+            System.err.println("State of map prior to add:");
+            for (Map.Entry<Integer, SessionInfo> pair : sessionInfos.entrySet())
+            {
+                System.err.println("SI for index: " + pair.getValue().sessionIndex);
+            }
+            if (info == null)
+            {
+                System.err.println("ADDING NULL BAD.");
+                throw new IllegalArgumentException("BAD NULL");
+            }
+
+            sessionInfos.put(info.sessionIndex, info);
+            System.err.println("State of map after add:");
+            for (Map.Entry<Integer, SessionInfo> pair : sessionInfos.entrySet())
+            {
+                System.err.println("SI for index: " + pair.getValue().sessionIndex);
+            }
+        }
+
+        public Collection<SessionInfo> getAllSessionInfo()
+        {
+            System.err.println("size of sessionInfo in getAllSessionInfo: " + sessionInfos.size());
+            return new ArrayList<>(sessionInfos.values());
         }
     }
 }
