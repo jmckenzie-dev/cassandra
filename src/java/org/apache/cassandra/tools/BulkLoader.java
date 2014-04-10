@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Joiner;
 import org.apache.cassandra.config.EncryptionOptions;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.commons.cli.*;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.protocol.TProtocol;
@@ -84,12 +85,14 @@ public class BulkLoader
                 options.connectionsPerHost);
         DatabaseDescriptor.setStreamThroughputOutboundMegabitsPerSec(options.throttle);
         StreamResultFuture future = null;
+
+        ProgressIndicator indicator = new ProgressIndicator();
         try
         {
             if (options.noProgress)
                 future = loader.stream(options.ignores);
             else
-                future = loader.stream(options.ignores, new ProgressIndicator());
+                future = loader.stream(options.ignores, indicator);
         }
         catch (Exception e)
         {
@@ -103,14 +106,15 @@ public class BulkLoader
             System.exit(1);
         }
 
-        handler.output(String.format("Streaming session ID: %s", future.planId));
-
         try
         {
             future.get();
-            System.err.println("Waiting for graceful session exit.");
-            while (!future.checkComplete()) {}
-            System.err.println("checkComplete returned true.  Exiting.");
+
+            if (!options.noProgress)
+                indicator.printSummary();
+
+            // Give sockets time to gracefully close
+            Thread.sleep(1000);
             System.exit(0); // We need that to stop non daemonized threads
         }
         catch (Exception e)
@@ -132,6 +136,7 @@ public class BulkLoader
         private long start;
         private long lastProgress;
         private long lastTime;
+        private int peak;
 
         public ProgressIndicator()
         {
@@ -147,20 +152,14 @@ public class BulkLoader
             {
                 SessionInfo session = ((StreamEvent.SessionPreparedEvent) event).session;
                 coordinator.addSessionInfo(session);
-                System.err.println("ProgressIndicator -> size of session infos after add: " + coordinator.getHostSessionInfo(session.peer).size());
             }
             else if (event.eventType == StreamEvent.Type.FILE_PROGRESS)
             {
                 ProgressInfo progressInfo = ((StreamEvent.ProgressEvent) event).progress;
 
-                // only update progress if it's been > 100ms since last progress event or if this is a file complete
                 long time = System.nanoTime();
-                long deltaTime = TimeUnit.NANOSECONDS.toMillis(time - lastTime);
-                if (deltaTime < 100 && !progressInfo.isCompleted())
-                     return;
+                long deltaTime = time - lastTime;
 
-                System.err.println("Updating progress on stream: " + progressInfo.sessionIndex + " with file: " + progressInfo.fileName);
-                // update progress
                 coordinator.updateProgress(progressInfo);
 
                 StringBuilder sb = new StringBuilder();
@@ -172,21 +171,16 @@ public class BulkLoader
                 // recalculate progress across all sessions in all hosts and display
                 for (InetAddress peer : coordinator.getPeers())
                 {
-                    zPrint(progressInfo, "Processing peer: " + peer.toString());
-                    sb.append(" --- [").append(peer.toString());
-                    zPrint(progressInfo, "Count of sessioninfos for peer: " + coordinator.getHostSessionInfo(peer).size());
+                    sb.append("[").append(peer.toString()).append("]");
+
                     for (SessionInfo session : coordinator.getHostSessionInfo(peer))
                     {
-                        zPrint(progressInfo, "   Processing session with index: " + session.sessionIndex);
                         long size = session.getTotalSizeToSend();
                         long current = 0;
                         int completed = 0;
 
-                        // It's possible to reach this point before
-                        zPrint(progressInfo, "   Count of ProgressInfos for this sessionIndex: " + coordinator.getSessionProgress(peer, session.sessionIndex).size());
                         for (ProgressInfo progress : coordinator.getSessionProgress(peer, session.sessionIndex))
                         {
-                            zPrint(progressInfo, "      ProgressInfo for file: " + progress.fileName);
                             if (progress.currentBytes == progress.totalBytes)
                                 completed++;
                             current += progress.currentBytes;
@@ -195,35 +189,45 @@ public class BulkLoader
 
                         totalSize += size;
 
-                        sb.append("{ID:").append(session.sessionIndex);
-                        sb.append(" ").append(completed).append("/").append(session.getTotalFilesToSend());
-                        sb.append(" (").append(size == 0 ? 100L : current * 100L / size).append("%)}");
+                        sb.append(session.sessionIndex).append(":");
+                        sb.append(completed).append("/").append(session.getTotalFilesToSend());
+                        sb.append(" ").append(String.format("%-3d", size == 0 ? 100L : current * 100L / size)).append("% ");
                     }
-                    sb.append("]");
                 }
 
                 lastTime = time;
                 long deltaProgress = totalProgress - lastProgress;
                 lastProgress = totalProgress;
 
-                sb.append("[total: ").append(totalSize == 0 ? 100L : totalProgress * 100L / totalSize).append("% - ");
-                sb.append(mbPerSec(deltaProgress, deltaTime)).append("MB/s");
-                sb.append(" (avg: ").append(mbPerSec(totalProgress, TimeUnit.NANOSECONDS.toMillis(time - start))).append("MB/s)]");
+                sb.append("total: ").append(totalSize == 0 ? 100L : totalProgress * 100L / totalSize).append("% ");
+                sb.append(String.format("%-3d", mbPerSec(deltaProgress, deltaTime))).append("MB/s");
+                int average = mbPerSec(totalProgress, (time - start));
+                if (average > peak)
+                    peak = average;
+                sb.append("(avg: ").append(average).append(" MB/s)");
 
-                System.err.println(sb.toString());
+                System.err.print(sb.toString());
             }
         }
 
-        private void zPrint(ProgressInfo info, String input)
+        private int mbPerSec(long bytes, long timeInNano)
         {
-            // if (info.sessionIndex == 0)
-            System.err.println(input);
+            double bytesPerNano = ((double)bytes) / timeInNano;
+            return (int)((bytesPerNano * 1000 * 1000 * 1000) / (1024 * 2024));
         }
 
-        private int mbPerSec(long bytes, long timeInMs)
+        private void printSummary()
         {
-            double bytesPerMs = ((double)bytes) / timeInMs;
-            return (int)((bytesPerMs * 1000) / (1024 * 2024));
+            long end = System.nanoTime();
+            long durationMS = ((end - start) / (1000000));
+            int average = mbPerSec(lastProgress, (end - start));
+            StringBuilder sb = new StringBuilder();
+            sb.append("\nSummary statistics: \n");
+            sb.append(String.format("   %-30s: %-10d\n", "Total bytes transferred: ", lastProgress));
+            sb.append(String.format("   %-30s: %-10d\n", "Total duration (ms): ", durationMS));
+            sb.append(String.format("   %-30s: %-10d\n", "Average transfer rate (MB/s): ", + average));
+            sb.append(String.format("   %-30s: %-10d\n", "Peak transfer rate (MB/s): ", + peak));
+            System.err.println(sb.toString());
         }
     }
 

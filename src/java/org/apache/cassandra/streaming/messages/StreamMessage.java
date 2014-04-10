@@ -20,6 +20,7 @@ package org.apache.cassandra.streaming.messages;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
+import java.util.Random;
 
 import org.apache.cassandra.io.util.DataOutputStreamAndChannel;
 import org.apache.cassandra.streaming.StreamSession;
@@ -35,7 +36,12 @@ public abstract class StreamMessage
     public static final int CURRENT_VERSION = 1;
 
     /** Session index associated with message */
-    protected final int sessionIndex;
+    public final int sessionIndex;
+    public int uuid = -1;
+
+    public static Random r = new Random();
+
+    private static int sequenceNumber = 0;
 
     public static void serialize(StreamMessage message, DataOutputStreamAndChannel out, int version, StreamSession session) throws IOException
     {
@@ -65,7 +71,7 @@ public abstract class StreamMessage
             ByteBuffer idxBuff = ByteBuffer.allocate(4);
             in.read(idxBuff);
             idxBuff.flip();
-            session.setSessionIndex(idxBuff.getInt());
+            assert(session.sessionIndex() == idxBuff.getInt());
 
             return type.inSerializer.deserialize(in, version, session);
         }
@@ -131,6 +137,7 @@ public abstract class StreamMessage
     {
         this.type = type;
         this.sessionIndex = sessionIndex;
+        this.uuid = r.nextInt();
     }
 
     /**

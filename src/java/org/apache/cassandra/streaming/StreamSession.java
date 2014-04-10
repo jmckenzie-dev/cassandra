@@ -28,7 +28,6 @@ import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
@@ -113,11 +112,6 @@ import org.apache.cassandra.utils.Pair;
 public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDetectionEventListener
 {
     private static final Logger logger = LoggerFactory.getLogger(StreamSession.class);
-
-    // Executor that establish the streaming connection. Once we're connected to the other end, the rest of the streaming
-    // is directly handled by the ConnectionHandler incoming and outgoing threads.
-    private static final DebuggableThreadPoolExecutor streamExecutor = DebuggableThreadPoolExecutor.createWithFixedPoolSize("StreamConnectionEstablisher",
-                                                                                                                            FBUtilities.getAvailableProcessors());
     public final InetAddress peer;
     private int index;
 
@@ -167,11 +161,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         return streamResult == null ? null : streamResult.planId;
     }
 
-    public String description()
-    {
-        return streamResult == null ? null : streamResult.description;
-    }
-
     public int sessionIndex()
     {
         return index;
@@ -182,6 +171,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         this.index = index;
     }
 
+    public String description()
+    {
+        return streamResult == null ? null : streamResult.description;
+    }
+
     /**
      * Bind this session to report to specific {@link StreamResultFuture} and
      * perform pre-streaming initialization.
@@ -190,7 +184,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
      */
     public void init(StreamResultFuture streamResult)
     {
-        System.err.println("init on StreamSession - binding future.");
         this.streamResult = streamResult;
 
         // register to gossiper/FD to fail on node failure
@@ -207,21 +200,16 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             return;
         }
 
-        streamExecutor.execute(new Runnable()
+        try
         {
-            public void run()
-            {
-                try
-                {
-                    handler.initiate();
-                    onInitializationComplete();
-                }
-                catch (IOException e)
-                {
-                    onError(e);
-                }
-            }
-        });
+            logger.info("[Stream #{}, ID#{}] Beginning stream session with {}", planId(), sessionIndex(), peer);
+            handler.initiate();
+            onInitializationComplete();
+        }
+        catch (Exception e)
+        {
+            onError(e);
+        }
     }
 
     /**
@@ -353,7 +341,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     private void closeSession(State finalState)
     {
-        System.err.println("******* closeSession called.");
         state(finalState);
 
         if (finalState == State.FAILED)
@@ -401,7 +388,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     public void messageReceived(StreamMessage message)
     {
-        System.err.println("messageReceived with type: " + message.type.toString());
         switch (message.type)
         {
             case PREPARE:
@@ -415,7 +401,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
             case RECEIVED:
                 ReceivedMessage received = (ReceivedMessage) message;
-                System.err.println("PROCESSING RECEIVED MESSAGE");
                 received(received.cfId, received.sequenceNumber);
                 break;
 
@@ -425,7 +410,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
                 break;
 
             case COMPLETE:
-                System.err.println("COMPLETE inside messageReceived.");
                 complete();
                 break;
 
@@ -555,7 +539,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
      */
     public synchronized void complete()
     {
-        System.err.println("StreamSession complete call.");
         if (state == State.WAIT_COMPLETE)
         {
             if (!completeSent)
@@ -569,6 +552,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         {
             state(State.WAIT_COMPLETE);
         }
+    }
+
+    public synchronized boolean isComplete()
+    {
+        return completeSent;
     }
 
     /**
@@ -606,7 +594,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     public synchronized void taskCompleted(StreamReceiveTask completedTask)
     {
-        System.err.println("Removing task from completed: " + completedTask.cfId.toString());
         receivers.remove(completedTask.cfId);
         maybeCompleted();
     }
@@ -647,26 +634,20 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     private boolean maybeCompleted()
     {
-        System.err.println("maybeCompleted in StreamSession");
         boolean completed = receivers.isEmpty() && transfers.isEmpty();
         if (completed)
         {
-            System.err.println("We're completed.  What type are we?");
             if (state == State.WAIT_COMPLETE)
             {
-                System.err.println("WAIT_COMPLETE");
                 if (!completeSent)
                 {
-                    System.err.println("Sending new complete message.");
                     handler.sendMessage(new CompleteMessage(index));
                     completeSent = true;
                 }
-                System.err.println("Closing session");
                 closeSession(State.COMPLETE);
             }
             else
             {
-                System.err.println("Sending message to notifier that this is completed.");
                 // notify peer that this session is completed
                 handler.sendMessage(new CompleteMessage(index));
                 completeSent = true;

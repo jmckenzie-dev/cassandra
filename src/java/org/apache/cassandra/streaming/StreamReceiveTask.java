@@ -60,7 +60,6 @@ public class StreamReceiveTask extends StreamTask
      */
     public void received(SSTableWriter sstable)
     {
-        System.err.println("received() call on SRT with id: " + id);
         assert cfId.equals(sstable.metadata.cfId);
         assert !aborted;
 
@@ -81,7 +80,6 @@ public class StreamReceiveTask extends StreamTask
 
     private void complete()
     {
-        System.err.println("complete() call on SRT with id: " + id);
         if (!sstables.isEmpty())
             StorageService.tasks.submit(new OnCompletionRunnable(this));
     }
@@ -97,7 +95,6 @@ public class StreamReceiveTask extends StreamTask
 
         public void run()
         {
-            System.err.println("OCR: run() on id: " + task.id);
             Pair<String, String> kscf = Schema.instance.getCF(task.cfId);
             ColumnFamilyStore cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
 

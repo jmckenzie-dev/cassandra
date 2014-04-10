@@ -20,17 +20,29 @@ package org.apache.cassandra.streaming;
 import java.net.InetAddress;
 import java.util.*;
 
+import com.google.common.collect.ImmutableList;
+import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
+import org.apache.cassandra.utils.FBUtilities;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * {@link org.apache.cassandra.streaming.StreamCoordinator} is a helper class that abstracts away maintaining multiple
  * StreamSession and ProgressInfo instances per peer.
  *
- * This class coordinatea multiple SessionStreams per peer in both the outgoing StreamPlan context and on the
+ * This class coordinates multiple SessionStreams per peer in both the outgoing StreamPlan context and on the
  * inbound StreamResultFuture context.
  */
 public class StreamCoordinator
 {
+    private static final Logger logger = LoggerFactory.getLogger(StreamCoordinator.class);
     private Map<InetAddress, HostStreamingData> peerSessions = new HashMap<>();
     private int connectionsPerHost = 1;
+
+    // Executor strictly for establishing the initial connections. Once we're connected to the other end the rest of the
+    // streaming is handled directly by the ConnectionHandler's incoming and outgoing threads.
+    private static final DebuggableThreadPoolExecutor streamExecutor = DebuggableThreadPoolExecutor.createWithFixedPoolSize("StreamConnectionEstablisher",
+            FBUtilities.getAvailableProcessors());
 
     public StreamCoordinator(int connectionsPerHost)
     {
@@ -60,6 +72,12 @@ public class StreamCoordinator
             results.addAll(pair.getValue().getAllStreamSessions());
         }
         return results;
+    }
+
+    public void connectAllStreamSessions()
+    {
+        for (Map.Entry<InetAddress, HostStreamingData> pair : peerSessions.entrySet())
+            pair.getValue().connectAllStreamSessions();
     }
 
     public synchronized Set<InetAddress> getPeers()
@@ -115,28 +133,16 @@ public class StreamCoordinator
 
     public synchronized void transferFiles(InetAddress to, Collection<StreamSession.SSTableStreamingSections> sstableDetails)
     {
-        HostStreamingData sessionList = peerSessions.get(to);
-        if (sessionList == null)
-        {
-            sessionList = new HostStreamingData();
-            peerSessions.put(to, sessionList);
-        }
+        HostStreamingData sessionList = getOrCreateHostData(to);
 
         if (connectionsPerHost > 1)
         {
-            ArrayList<ArrayList<StreamSession.SSTableStreamingSections>> lists = sliceSSTableDetails(sstableDetails);
+            ArrayList<ArrayList<StreamSession.SSTableStreamingSections>> buckets = sliceSSTableDetails(sstableDetails);
 
-            int idx = 0;
-            for (ArrayList<StreamSession.SSTableStreamingSections> list : lists)
+            for (ArrayList<StreamSession.SSTableStreamingSections> subList : buckets)
             {
-                System.err.println("Adding SSTableStreamingSections to idx: " + idx + " with files:");
-                for (StreamSession.SSTableStreamingSections section : list)
-                {
-                    System.err.println("   " + section.sstable.getColumnFamilyName());
-                }
-
                 StreamSession session = sessionList.getOrCreateNextSession(to);
-                session.addTransferFiles(list);
+                session.addTransferFiles(subList);
             }
         }
         else
@@ -149,7 +155,9 @@ public class StreamCoordinator
     private ArrayList<ArrayList<StreamSession.SSTableStreamingSections>> sliceSSTableDetails(
         Collection<StreamSession.SSTableStreamingSections> sstableDetails)
     {
-        int step = Math.round((float)sstableDetails.size() / (float)connectionsPerHost);
+        // There's no point in divvying things up into more buckets than we have sstableDetails
+        int targetSlices = connectionsPerHost > sstableDetails.size() ? sstableDetails.size() : connectionsPerHost;
+        int step = Math.round((float) sstableDetails.size() / (float) targetSlices);
         int index = 0;
 
         ArrayList<ArrayList<StreamSession.SSTableStreamingSections>> result = new ArrayList<>();
@@ -187,19 +195,35 @@ public class StreamCoordinator
         return data;
     }
 
+    private class StreamSessionConnector implements Runnable
+    {
+        private final StreamSession session;
+        public StreamSessionConnector(StreamSession session)
+        {
+            this.session = session;
+        }
+
+        public void run()
+        {
+            session.start();
+            logger.info("[Stream #{}, ID#{}] Beginning stream session with {}", session.planId(), session.sessionIndex(), session.peer);
+        }
+    }
+
     private class HostStreamingData
     {
         private Map<Integer, StreamSession> streamSessions = new HashMap<>();
         private Map<Integer, SessionInfo> sessionInfos = new HashMap<>();
         private Map<Integer, Map<String, ProgressInfo>> progressInfos = null;
 
-        public int lastReturned = -1;
+        private int lastReturned = -1;
 
         public boolean hasActiveSessions()
         {
             for (Map.Entry<Integer, StreamSession> pair : streamSessions.entrySet())
             {
-                if (!pair.getValue().isComplete())
+                StreamSession.State state = pair.getValue().state();
+                if (state != StreamSession.State.COMPLETE && state != StreamSession.State.FAILED)
                     return true;
             }
             return false;
@@ -229,6 +253,20 @@ public class StreamCoordinator
             streamSessions.put(streamSessions.size(), session);
         }
 
+        public void connectAllStreamSessions()
+        {
+            for (Map.Entry<Integer, StreamSession> pair : streamSessions.entrySet())
+            {
+                StreamSessionConnector runnable = new StreamSessionConnector(pair.getValue());
+                streamExecutor.execute(runnable);
+            }
+        }
+
+        public Collection<StreamSession> getAllStreamSessions()
+        {
+            return new ArrayList<>(streamSessions.values());
+        }
+
         public StreamSession getOrCreateSessionById(InetAddress peer, int id)
         {
             StreamSession session = streamSessions.get(id);
@@ -238,11 +276,6 @@ public class StreamCoordinator
                 streamSessions.put(id, session);
             }
             return session;
-        }
-
-        public Collection<StreamSession> getAllStreamSessions()
-        {
-            return new ArrayList<>(streamSessions.values());
         }
 
         public void updateProgress(ProgressInfo info)
@@ -271,33 +304,16 @@ public class StreamCoordinator
                 return new ArrayList<>();
 
             // return copy to prevent ConcurrentModificationException while iterating
-            return new ArrayList<>(progressInfos.get(index).values());
+            return ImmutableList.copyOf(progressInfos.get(index).values());
         }
 
         public void addSessionInfo(SessionInfo info)
         {
-            System.err.println("State of map prior to add:");
-            for (Map.Entry<Integer, SessionInfo> pair : sessionInfos.entrySet())
-            {
-                System.err.println("SI for index: " + pair.getValue().sessionIndex);
-            }
-            if (info == null)
-            {
-                System.err.println("ADDING NULL BAD.");
-                throw new IllegalArgumentException("BAD NULL");
-            }
-
             sessionInfos.put(info.sessionIndex, info);
-            System.err.println("State of map after add:");
-            for (Map.Entry<Integer, SessionInfo> pair : sessionInfos.entrySet())
-            {
-                System.err.println("SI for index: " + pair.getValue().sessionIndex);
-            }
         }
 
         public Collection<SessionInfo> getAllSessionInfo()
         {
-            System.err.println("size of sessionInfo in getAllSessionInfo: " + sessionInfos.size());
             return new ArrayList<>(sessionInfos.values());
         }
     }

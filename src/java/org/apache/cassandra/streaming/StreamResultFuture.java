@@ -47,12 +47,8 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
 
     public final UUID planId;
     public final String description;
+    public StreamCoordinator coordinator;
     private final Collection<StreamEventHandler> eventListeners = new ConcurrentLinkedQueue<>();
-
-    StreamCoordinator coordinator;
-    // private final Map<InetAddress, HostSessions> hostSessions = new NonBlockingHashMap<>();
-    // private final Map<InetAddress, ArrayList<StreamSession>> ongoingSessions;
-    // private final Map<InetAddress, ArrayList<SessionInfo>> sessionStates = new NonBlockingHashMap<>();
 
     /**
      * Create new StreamResult of given {@code planId} and type.
@@ -64,10 +60,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
      */
     private StreamResultFuture(UUID planId, String description, Collection<StreamSession> sessions)
     {
-        this.planId = planId;
-        this.description = description;
-        this.coordinator = new StreamCoordinator(0);
-
+        this(planId, description);
         for (StreamSession session : sessions)
             coordinator.addStreamSession(session);
 
@@ -75,8 +68,14 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         if (sessions.isEmpty())
             set(getCurrentState());
     }
+    private StreamResultFuture(UUID planId, String description)
+    {
+        this.planId = planId;
+        this.description = description;
+        this.coordinator = new StreamCoordinator(0);
+    }
 
-    static StreamResultFuture init(UUID planId, String description, Collection<StreamSession> sessions, Collection<StreamEventHandler> listeners)
+    static StreamResultFuture init(UUID planId, String description, Collection<StreamSession> sessions, Collection<StreamEventHandler> listeners, StreamCoordinator coordinator)
     {
         StreamResultFuture future = createAndRegister(planId, description, sessions);
         if (listeners != null)
@@ -87,13 +86,12 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
 
         logger.info("[Stream #{}] Executing streaming plan for {}", planId,  description);
 
-        // start sessions
+        // Initialize and start all sessions
         for (final StreamSession session : sessions)
         {
-            logger.info("[Stream #{}, ID#{}] Beginning stream session with {}", planId, session.sessionIndex(), session.peer);
             session.init(future);
-            session.start();
         }
+        coordinator.connectAllStreamSessions();
 
         return future;
     }
@@ -110,20 +108,13 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         if (future == null)
         {
             logger.info("[Stream #{} ID#{}] Creating new streaming plan for {}", planId, sessionIndex, description);
-            final StreamSession session = new StreamSession(from, sessionIndex);
 
             // The main reason we create a StreamResultFuture on the receiving side is for JMX exposure.
-            future = new StreamResultFuture(planId, description, Collections.singleton(session));
+            future = new StreamResultFuture(planId, description);
             StreamManager.instance.registerReceiving(future);
-
-            session.init(future);
-            session.handler.initiateOnReceivingSide(socket, isForOutgoing, version);
         }
-        else
-        {
-            future.attachSocket(from, sessionIndex, socket, isForOutgoing, version);
-            logger.info("[Stream #{}, ID#{}] Received streaming plan for {}", planId, sessionIndex, description);
-        }
+        future.attachSocket(from, sessionIndex, socket, isForOutgoing, version);
+        logger.info("[Stream #{}, ID#{}] Received streaming plan for {}", planId, sessionIndex, description);
         return future;
     }
 
@@ -134,7 +125,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         return future;
     }
 
-    public void attachSocket(InetAddress from, int sessionIndex, Socket socket, boolean isForOutgoing, int version) throws IOException
+    private void attachSocket(InetAddress from, int sessionIndex, Socket socket, boolean isForOutgoing, int version) throws IOException
     {
         StreamSession session = coordinator.getOrCreateSessionById(from, sessionIndex);
         session.init(this);

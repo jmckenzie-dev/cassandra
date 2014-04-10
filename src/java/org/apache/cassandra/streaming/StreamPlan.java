@@ -158,7 +158,7 @@ public class StreamPlan
      */
     public StreamResultFuture execute()
     {
-        return StreamResultFuture.init(planId, description, coordinator.getAllStreamSessions(), handlers);
+        return StreamResultFuture.init(planId, description, coordinator.getAllStreamSessions(), handlers, coordinator);
     }
 
     /**

@@ -30,6 +30,7 @@ import java.util.Comparator;
 import java.util.Random;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.util.concurrent.Futures;
@@ -168,12 +169,6 @@ public class ConnectionHandler
 
     public void sendMessage(StreamMessage message)
     {
-        if (outgoing.isClosed())
-        {
-            System.err.println("ERROR!  Attempting to enqueue message of type: " + message.type + " on a closed stream handler.");
-            throw new RuntimeException("Outgoing stream handler has been closed");
-        }
-
         outgoing.enqueue(message);
     }
 
@@ -305,22 +300,18 @@ public class ConnectionHandler
                         session.messageReceived(message);
                     }
                 }
-                System.err.println("IMH: run() and isClosed().  Exiting gracefully.");
             }
             catch (SocketException e)
             {
-                System.err.println("IMH: SocketException: " + e.toString());
                 // socket is closed
                 close();
             }
             catch (Throwable e)
             {
-                System.err.println("IMH: OTHEREXCEPTION: " + e.toString());
                 session.onError(e);
             }
             finally
             {
-                System.err.flush();
                 signalCloseDone();
             }
         }
@@ -381,27 +372,21 @@ public class ConnectionHandler
                 // Sends the last messages on the queue
                 while ((next = messageQueue.poll()) != null)
                     sendMessage(out, next);
-
-                System.err.println("OMH: run() and isClosed.  Exiting gracefully.");
             }
             catch (InterruptedException e)
             {
-                System.err.println("OMH: InterruptedException: " + e.toString());
                 throw new AssertionError(e);
             }
             catch (Throwable e)
             {
-                System.err.println("OMH: IOException: " + e.toString());
                 session.onError(e);
             }
             catch (Exception e)
             {
-                System.err.println("OMH: OTHER Exception: " + e.toString());
                 e.printStackTrace(System.err);
             }
             finally
             {
-                System.err.flush();
                 signalCloseDone();
             }
         }
