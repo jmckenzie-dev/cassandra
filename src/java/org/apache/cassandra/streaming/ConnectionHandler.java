@@ -27,10 +27,8 @@ import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.Random;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.util.concurrent.Futures;
@@ -169,6 +167,9 @@ public class ConnectionHandler
 
     public void sendMessage(StreamMessage message)
     {
+        if (outgoing.isClosed())
+            throw new RuntimeException("Outgoing stream handler has been closed");
+
         outgoing.enqueue(message);
     }
 
@@ -250,13 +251,6 @@ public class ConnectionHandler
 
         protected void signalCloseDone()
         {
-            if (closeFuture.get() == null)
-            {
-                Exception e = new Exception();
-                e.fillInStackTrace();
-                System.err.println("*************** signalCloseDone on MessageHandler with closeFuture null.  IDX:" + session.sessionIndex());
-                e.printStackTrace(System.err);
-            }
             closeFuture.get().set(null);
 
             // We can now close the socket
@@ -380,10 +374,6 @@ public class ConnectionHandler
             catch (Throwable e)
             {
                 session.onError(e);
-            }
-            catch (Exception e)
-            {
-                e.printStackTrace(System.err);
             }
             finally
             {
