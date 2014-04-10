@@ -76,11 +76,11 @@ public class StreamManager implements StreamManagerMBean
             double interDCThroughput = ((double) DatabaseDescriptor.getInterDCStreamThroughputOutboundMegabitsPerSec()) * ONE_MEGA_BYTE;
             mayUpdateThroughput(interDCThroughput, interDCLimiter);
 
-            if (DatabaseDescriptor.getLocalDataCenter() == null)
-                isLocalDC = false;
-            else
+            if (DatabaseDescriptor.getLocalDataCenter() != null && DatabaseDescriptor.getEndpointSnitch() != null)
                 isLocalDC = DatabaseDescriptor.getLocalDataCenter().equals(
                             DatabaseDescriptor.getEndpointSnitch().getDatacenter(peer));
+            else
+                isLocalDC = true;
         }
 
         private void mayUpdateThroughput(double limit, RateLimiter rateLimiter)

@@ -58,9 +58,6 @@ public class StreamWriter
         this.sstable = sstable;
         this.sections = sections;
         this.limiter =  StreamManager.getRateLimiter(session.peer);
-
-        RandomAccessReader file = sstable.openDataReader();
-        file.close();
     }
 
     /**
