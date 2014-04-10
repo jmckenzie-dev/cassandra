@@ -22,7 +22,6 @@ import java.util.*;
 
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.UUIDGen;
 
 /**
@@ -36,9 +35,7 @@ public class StreamPlan
     private final String description;
     private final List<StreamEventHandler> handlers = new ArrayList<>();
 
-    // sessions per InetAddress of the other end.
-    private final Map<InetAddress, StreamSession> sessions = new HashMap<>();
-    private final long repairedAt;
+    StreamCoordinator coordinator;
 
     private boolean flushBeforeTransfer = true;
 
@@ -49,15 +46,14 @@ public class StreamPlan
      */
     public StreamPlan(String description)
     {
-        this(description, ActiveRepairService.UNREPAIRED_SSTABLE);
-    }
-
-    public StreamPlan(String description, long repairedAt)
-    {
         this.description = description;
-        this.repairedAt = repairedAt;
+        this.coordinator = new StreamCoordinator(1);
     }
 
+    public void setConnectionsPerHost(int value)
+    {
+        coordinator.setConnectionsPerHost(value);
+    }
 
     /**
      * Request data in {@code keyspace} and {@code ranges} from specific node.
@@ -83,10 +79,11 @@ public class StreamPlan
      */
     public StreamPlan requestRanges(InetAddress from, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
     {
-        StreamSession session = getOrCreateSession(from);
-        session.addStreamRequest(keyspace, ranges, Arrays.asList(columnFamilies), repairedAt);
+        StreamSession session = coordinator.getOrCreateNextSession(from);
+        session.addStreamRequest(keyspace, ranges, Arrays.asList(columnFamilies));
         return this;
     }
+
 
     /**
      * Add transfer task to send data of specific keyspace and ranges.
@@ -112,8 +109,8 @@ public class StreamPlan
      */
     public StreamPlan transferRanges(InetAddress to, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
     {
-        StreamSession session = getOrCreateSession(to);
-        session.addTransferRanges(keyspace, ranges, Arrays.asList(columnFamilies), flushBeforeTransfer, repairedAt);
+        StreamSession session = coordinator.getOrCreateNextSession(to);
+        session.addTransferRanges(keyspace, ranges, Arrays.asList(columnFamilies), flushBeforeTransfer);
         return this;
     }
 
@@ -126,9 +123,9 @@ public class StreamPlan
      */
     public StreamPlan transferFiles(InetAddress to, Collection<StreamSession.SSTableStreamingSections> sstableDetails)
     {
-        StreamSession session = getOrCreateSession(to);
-        session.addTransferFiles(sstableDetails);
+        coordinator.transferFiles(to, sstableDetails);
         return this;
+
     }
 
     public StreamPlan listeners(StreamEventHandler handler, StreamEventHandler... handlers)
@@ -144,7 +141,7 @@ public class StreamPlan
      */
     public boolean isEmpty()
     {
-        return sessions.isEmpty();
+        return coordinator.hasActiveSessions();
     }
 
     /**
@@ -154,7 +151,7 @@ public class StreamPlan
      */
     public StreamResultFuture execute()
     {
-        return StreamResultFuture.init(planId, description, sessions.values(), handlers);
+        return StreamResultFuture.init(planId, description, coordinator.getAllStreamSessions(), handlers, coordinator);
     }
 
     /**
@@ -169,16 +166,4 @@ public class StreamPlan
         this.flushBeforeTransfer = flushBeforeTransfer;
         return this;
     }
-
-    private StreamSession getOrCreateSession(InetAddress peer)
-    {
-        StreamSession session = sessions.get(peer);
-        if (session == null)
-        {
-            session = new StreamSession(peer);
-            sessions.put(peer, session);
-        }
-        return session;
-    }
-
 }

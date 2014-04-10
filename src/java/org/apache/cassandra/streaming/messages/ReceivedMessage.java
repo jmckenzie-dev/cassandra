@@ -35,7 +35,7 @@ public class ReceivedMessage extends StreamMessage
         public ReceivedMessage deserialize(ReadableByteChannel in, int version, StreamSession session) throws IOException
         {
             DataInput input = new DataInputStream(Channels.newInputStream(in));
-            return new ReceivedMessage(UUIDSerializer.serializer.deserialize(input, MessagingService.current_version), input.readInt());
+            return new ReceivedMessage(session.sessionIndex(), UUIDSerializer.serializer.deserialize(input, MessagingService.current_version), input.readInt());
         }
 
         public void serialize(ReceivedMessage message, DataOutputStreamAndChannel out, int version, StreamSession session) throws IOException
@@ -48,9 +48,9 @@ public class ReceivedMessage extends StreamMessage
     public final UUID cfId;
     public final int sequenceNumber;
 
-    public ReceivedMessage(UUID cfId, int sequenceNumber)
+    public ReceivedMessage(int sessionIndex, UUID cfId, int sequenceNumber)
     {
-        super(Type.RECEIVED);
+        super(Type.RECEIVED, sessionIndex);
         this.cfId = cfId;
         this.sequenceNumber = sequenceNumber;
     }

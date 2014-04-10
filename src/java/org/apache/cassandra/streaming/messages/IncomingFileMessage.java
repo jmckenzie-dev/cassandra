@@ -44,7 +44,7 @@ public class IncomingFileMessage extends StreamMessage
 
             try
             {
-                return new IncomingFileMessage(reader.read(in), header);
+                return new IncomingFileMessage(reader.read(in), session.sessionIndex(), header);
             }
             catch (Throwable e)
             {
@@ -62,9 +62,9 @@ public class IncomingFileMessage extends StreamMessage
     public FileMessageHeader header;
     public SSTableWriter sstable;
 
-    public IncomingFileMessage(SSTableWriter sstable, FileMessageHeader header)
+    public IncomingFileMessage(SSTableWriter sstable, int sessionIndex, FileMessageHeader header)
     {
-        super(Type.FILE);
+        super(Type.FILE, sessionIndex);
         this.header = header;
         this.sstable = sstable;
     }
