@@ -21,13 +21,13 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import org.apache.cassandra.io.sstable.SSTableWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
@@ -111,12 +111,8 @@ import org.apache.cassandra.utils.Pair;
 public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDetectionEventListener
 {
     private static final Logger logger = LoggerFactory.getLogger(StreamSession.class);
-
-    // Executor that establish the streaming connection. Once we're connected to the other end, the rest of the streaming
-    // is directly handled by the ConnectionHandler incoming and outgoing threads.
-    private static final DebuggableThreadPoolExecutor streamExecutor = DebuggableThreadPoolExecutor.createWithFixedPoolSize("StreamConnectionEstablisher",
-                                                                                                                            FBUtilities.getAvailableProcessors());
     public final InetAddress peer;
+    private int index;
 
     // should not be null when session is started
     private StreamResultFuture streamResult;
@@ -151,9 +147,10 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
      *
      * @param peer Address of streaming peer
      */
-    public StreamSession(InetAddress peer)
+    public StreamSession(InetAddress peer, int index)
     {
         this.peer = peer;
+        this.index = index;
         this.handler = new ConnectionHandler(this);
         this.metrics = StreamingMetrics.get(peer);
     }
@@ -161,6 +158,16 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
     public UUID planId()
     {
         return streamResult == null ? null : streamResult.planId;
+    }
+
+    public int sessionIndex()
+    {
+        return index;
+    }
+
+    public void setSessionIndex(int index)
+    {
+        this.index = index;
     }
 
     public String description()
@@ -192,21 +199,16 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             return;
         }
 
-        streamExecutor.execute(new Runnable()
+        try
         {
-            public void run()
-            {
-                try
-                {
-                    handler.initiate();
-                    onInitializationComplete();
-                }
-                catch (IOException e)
-                {
-                    onError(e);
-                }
-            }
-        });
+            logger.info("[Stream #{}, ID#{}] Beginning stream session with {}", planId(), sessionIndex(), peer);
+            handler.initiate();
+            onInitializationComplete();
+        }
+        catch (Exception e)
+        {
+            onError(e);
+        }
     }
 
     /**
@@ -227,6 +229,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
      * @param keyspace Transfer keyspace
      * @param ranges Transfer ranges
      * @param columnFamilies Transfer ColumnFamilies
+     * @param flushTables flush tables?
      */
     public void addTransferRanges(String keyspace, Collection<Range<Token>> ranges, Collection<String> columnFamilies, boolean flushTables)
     {
@@ -292,7 +295,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
                 task = new StreamTransferTask(this, cfId);
                 transfers.put(cfId, task);
             }
-            task.addTransferFile(details.sstable, details.estimatedKeys, details.sections);
+            task.addTransferFile(details.sstable, index, details.estimatedKeys, details.sections);
         }
     }
 
@@ -397,7 +400,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
     {
         // send prepare message
         state(State.PREPARING);
-        PrepareMessage prepare = new PrepareMessage();
+        PrepareMessage prepare = new PrepareMessage(index);
         prepare.requests.addAll(requests);
         for (StreamTransferTask task : transfers.values())
             prepare.summaries.add(task.getSummary());
@@ -408,17 +411,17 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             startStreamingFiles();
     }
 
-    /**
+    /**l
      * Call back for handling exception during streaming.
      *
      * @param e thrown exception
      */
     public void onError(Throwable e)
     {
-        logger.error("[Stream #" + planId() + "] Streaming error occurred", e);
+        logger.error("[Stream #{}] Streaming error occurred", planId(), e);
         // send session failure message
         if (handler.isOutgoingConnected())
-            handler.sendMessage(new SessionFailedMessage());
+            handler.sendMessage(new SessionFailedMessage(index));
         // fail session
         closeSession(State.FAILED);
     }
@@ -438,13 +441,13 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         // send back prepare message if prepare message contains stream request
         if (!requests.isEmpty())
         {
-            PrepareMessage prepare = new PrepareMessage();
+            PrepareMessage prepare = new PrepareMessage(index);
             for (StreamTransferTask task : transfers.values())
                 prepare.summaries.add(task.getSummary());
             handler.sendMessage(prepare);
         }
 
-        // if there are files to stream
+        // if there are files to stream and we've received all our prepare messages
         if (!maybeCompleted())
             startStreamingFiles();
     }
@@ -472,13 +475,13 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         StreamingMetrics.totalIncomingBytes.inc(headerSize);
         metrics.incomingBytes.inc(headerSize);
         // send back file received message
-        handler.sendMessage(new ReceivedMessage(message.header.cfId, message.header.sequenceNumber));
+        handler.sendMessage(new ReceivedMessage(index, message.header.cfId, message.header.sequenceNumber));
         receivers.get(message.header.cfId).received(message.sstable);
     }
 
     public void progress(Descriptor desc, ProgressInfo.Direction direction, long bytes, long total)
     {
-        ProgressInfo progress = new ProgressInfo(peer, desc.filenameFor(Component.DATA), direction, bytes, total);
+        ProgressInfo progress = new ProgressInfo(peer, index, desc.filenameFor(Component.DATA), direction, bytes, total);
         streamResult.handleProgress(progress);
     }
 
@@ -508,7 +511,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         {
             if (!completeSent)
             {
-                handler.sendMessage(new CompleteMessage());
+                handler.sendMessage(new CompleteMessage(index));
                 completeSent = true;
             }
             closeSession(State.COMPLETE);
@@ -517,6 +520,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         {
             state(State.WAIT_COMPLETE);
         }
+    }
+
+    public synchronized boolean isComplete()
+    {
+        return completeSent;
     }
 
     /**
@@ -529,13 +537,13 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     public void doRetry(FileMessageHeader header, Throwable e)
     {
-        logger.warn("[Stream #" + planId() + "] Retrying for following error", e);
+        logger.warn("[Stream #{}] Retrying for following error", planId(), e);
         // retry
         retries++;
         if (retries > DatabaseDescriptor.getMaxStreamingRetries())
             onError(new IOException("Too many retries for " + header, e));
         else
-            handler.sendMessage(new RetryMessage(header.cfId, header.sequenceNumber));
+            handler.sendMessage(new RetryMessage(index, header.cfId, header.sequenceNumber));
     }
 
     /**
@@ -549,7 +557,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         List<StreamSummary> transferSummaries = Lists.newArrayList();
         for (StreamTask transfer : transfers.values())
             transferSummaries.add(transfer.getSummary());
-        return new SessionInfo(peer, receivingSummaries, transferSummaries, state);
+        return new SessionInfo(peer, index, receivingSummaries, transferSummaries, state);
     }
 
     public synchronized void taskCompleted(StreamReceiveTask completedTask)
@@ -601,7 +609,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             {
                 if (!completeSent)
                 {
-                    handler.sendMessage(new CompleteMessage());
+                    handler.sendMessage(new CompleteMessage(index));
                     completeSent = true;
                 }
                 closeSession(State.COMPLETE);
@@ -609,7 +617,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             else
             {
                 // notify peer that this session is completed
-                handler.sendMessage(new CompleteMessage());
+                handler.sendMessage(new CompleteMessage(index));
                 completeSent = true;
                 state(State.WAIT_COMPLETE);
             }

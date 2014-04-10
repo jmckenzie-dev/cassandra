@@ -64,9 +64,9 @@ public class OutgoingFileMessage extends StreamMessage
     public FileMessageHeader header;
     public SSTableReader sstable;
 
-    public OutgoingFileMessage(SSTableReader sstable, int sequenceNumber, long estimatedKeys, List<Pair<Long, Long>> sections)
+    public OutgoingFileMessage(SSTableReader sstable, int sequenceNumber, int sessionIndex, long estimatedKeys, List<Pair<Long, Long>> sections)
     {
-        super(Type.FILE);
+        super(Type.FILE, sessionIndex);
         this.sstable = sstable;
 
         CompressionInfo compressionInfo = null;

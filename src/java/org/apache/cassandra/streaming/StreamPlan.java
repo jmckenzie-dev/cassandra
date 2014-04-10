@@ -35,8 +35,7 @@ public class StreamPlan
     private final String description;
     private final List<StreamEventHandler> handlers = new ArrayList<>();
 
-    // sessions per InetAddress of the other end.
-    private final Map<InetAddress, StreamSession> sessions = new HashMap<>();
+    StreamCoordinator coordinator;
 
     private boolean flushBeforeTransfer = true;
 
@@ -48,6 +47,12 @@ public class StreamPlan
     public StreamPlan(String description)
     {
         this.description = description;
+        this.coordinator = new StreamCoordinator(1);
+    }
+
+    public void setConnectionsPerHost(int value)
+    {
+        coordinator.setConnectionsPerHost(value);
     }
 
     /**
@@ -74,10 +79,11 @@ public class StreamPlan
      */
     public StreamPlan requestRanges(InetAddress from, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
     {
-        StreamSession session = getOrCreateSession(from);
+        StreamSession session = coordinator.getOrCreateNextSession(from);
         session.addStreamRequest(keyspace, ranges, Arrays.asList(columnFamilies));
         return this;
     }
+
 
     /**
      * Add transfer task to send data of specific keyspace and ranges.
@@ -103,7 +109,7 @@ public class StreamPlan
      */
     public StreamPlan transferRanges(InetAddress to, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
     {
-        StreamSession session = getOrCreateSession(to);
+        StreamSession session = coordinator.getOrCreateNextSession(to);
         session.addTransferRanges(keyspace, ranges, Arrays.asList(columnFamilies), flushBeforeTransfer);
         return this;
     }
@@ -117,9 +123,9 @@ public class StreamPlan
      */
     public StreamPlan transferFiles(InetAddress to, Collection<StreamSession.SSTableStreamingSections> sstableDetails)
     {
-        StreamSession session = getOrCreateSession(to);
-        session.addTransferFiles(sstableDetails);
+        coordinator.transferFiles(to, sstableDetails);
         return this;
+
     }
 
     public StreamPlan listeners(StreamEventHandler handler, StreamEventHandler... handlers)
@@ -135,7 +141,7 @@ public class StreamPlan
      */
     public boolean isEmpty()
     {
-        return sessions.isEmpty();
+        return coordinator.hasActiveSessions();
     }
 
     /**
@@ -145,7 +151,7 @@ public class StreamPlan
      */
     public StreamResultFuture execute()
     {
-        return StreamResultFuture.init(planId, description, sessions.values(), handlers);
+        return StreamResultFuture.init(planId, description, coordinator.getAllStreamSessions(), handlers, coordinator);
     }
 
     /**
@@ -160,16 +166,4 @@ public class StreamPlan
         this.flushBeforeTransfer = flushBeforeTransfer;
         return this;
     }
-
-    private StreamSession getOrCreateSession(InetAddress peer)
-    {
-        StreamSession session = sessions.get(peer);
-        if (session == null)
-        {
-            session = new StreamSession(peer);
-            sessions.put(peer, session);
-        }
-        return session;
-    }
-
 }
