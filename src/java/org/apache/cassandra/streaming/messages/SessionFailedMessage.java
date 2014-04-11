@@ -29,15 +29,15 @@ public class SessionFailedMessage extends StreamMessage
     {
         public SessionFailedMessage deserialize(ReadableByteChannel in, int version, StreamSession session) throws IOException
         {
-            return new SessionFailedMessage(session.sessionIndex());
+            return new SessionFailedMessage();
         }
 
         public void serialize(SessionFailedMessage message, DataOutputStreamAndChannel out, int version, StreamSession session) throws IOException {}
     };
 
-    public SessionFailedMessage(int sessionIndex)
+    public SessionFailedMessage()
     {
-        super(Type.SESSION_FAILED, sessionIndex);
+        super(Type.SESSION_FAILED);
     }
 
     @Override

@@ -36,7 +36,7 @@ public class PrepareMessage extends StreamMessage
         public PrepareMessage deserialize(ReadableByteChannel in, int version, StreamSession session) throws IOException
         {
             DataInput input = new DataInputStream(Channels.newInputStream(in));
-            PrepareMessage message = new PrepareMessage(session.sessionIndex());
+            PrepareMessage message = new PrepareMessage();
             // requests
             int numRequests = input.readInt();
             for (int i = 0; i < numRequests; i++)
@@ -71,9 +71,9 @@ public class PrepareMessage extends StreamMessage
      */
     public final Collection<StreamSummary> summaries = new ArrayList<>();
 
-    public PrepareMessage(int sessionIndex)
+    public PrepareMessage()
     {
-        super(Type.PREPARE, sessionIndex);
+        super(Type.PREPARE);
     }
 
     @Override

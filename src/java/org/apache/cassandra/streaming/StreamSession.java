@@ -28,7 +28,6 @@ import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
@@ -41,7 +40,6 @@ import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.metrics.StreamingMetrics;
-import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.messages.*;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
@@ -113,12 +111,8 @@ import org.apache.cassandra.utils.Pair;
 public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDetectionEventListener
 {
     private static final Logger logger = LoggerFactory.getLogger(StreamSession.class);
-
-    // Executor that establish the streaming connection. Once we're connected to the other end, the rest of the streaming
-    // is directly handled by the ConnectionHandler incoming and outgoing threads.
-    private static final DebuggableThreadPoolExecutor streamExecutor = DebuggableThreadPoolExecutor.createWithFixedPoolSize("StreamConnectionEstablisher",
-                                                                                                                            FBUtilities.getAvailableProcessors());
     public final InetAddress peer;
+    private int index;
 
     // should not be null when session is started
     private StreamResultFuture streamResult;
@@ -153,9 +147,10 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
      *
      * @param peer Address of streaming peer
      */
-    public StreamSession(InetAddress peer)
+    public StreamSession(InetAddress peer, int index)
     {
         this.peer = peer;
+        this.index = index;
         this.handler = new ConnectionHandler(this);
         this.metrics = StreamingMetrics.get(peer);
     }
@@ -163,6 +158,16 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
     public UUID planId()
     {
         return streamResult == null ? null : streamResult.planId;
+    }
+
+    public int sessionIndex()
+    {
+        return index;
+    }
+
+    public void setSessionIndex(int index)
+    {
+        this.index = index;
     }
 
     public String description()
@@ -194,21 +199,16 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             return;
         }
 
-        streamExecutor.execute(new Runnable()
+        try
         {
-            public void run()
-            {
-                try
-                {
-                    handler.initiate();
-                    onInitializationComplete();
-                }
-                catch (IOException e)
-                {
-                    onError(e);
-                }
-            }
-        });
+            logger.info("[Stream #{}, ID#{}] Beginning stream session with {}", planId(), sessionIndex(), peer);
+            handler.initiate();
+            onInitializationComplete();
+        }
+        catch (Exception e)
+        {
+            onError(e);
+        }
     }
 
     /**
@@ -218,34 +218,20 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
      * @param ranges Ranges to retrieve data
      * @param columnFamilies ColumnFamily names. Can be empty if requesting all CF under the keyspace.
      */
-    public void addStreamRequest(String keyspace, Collection<Range<Token>> ranges, Collection<String> columnFamilies, long repairedAt)
+    public void addStreamRequest(String keyspace, Collection<Range<Token>> ranges, Collection<String> columnFamilies)
     {
-        requests.add(new StreamRequest(keyspace, ranges, columnFamilies, repairedAt));
+        requests.add(new StreamRequest(keyspace, ranges, columnFamilies));
     }
 
     /**
      * Set up transfer for specific keyspace/ranges/CFs
      *
-     * Used in repair - a streamed sstable in repair will be marked with the given repairedAt time
-     *
      * @param keyspace Transfer keyspace
      * @param ranges Transfer ranges
      * @param columnFamilies Transfer ColumnFamilies
      * @param flushTables flush tables?
-     * @param repairedAt the time the repair started.
      */
-    public void addTransferRanges(String keyspace, Collection<Range<Token>> ranges, Collection<String> columnFamilies, boolean flushTables, long repairedAt)
-    {
-        Collection<ColumnFamilyStore> stores = getColumnFamilyStores(keyspace, columnFamilies);
-        if (flushTables)
-            flushSSTables(stores);
-
-        List<Range<Token>> normalizedRanges = Range.normalize(ranges);
-        List<SSTableReader> sstables = getSSTablesForRanges(normalizedRanges, stores);
-        addTransferFiles(normalizedRanges, sstables, repairedAt);
-    }
-
-    private Collection<ColumnFamilyStore> getColumnFamilyStores(String keyspace, Collection<String> columnFamilies)
+    public void addTransferRanges(String keyspace, Collection<Range<Token>> ranges, Collection<String> columnFamilies, boolean flushTables)
     {
         Collection<ColumnFamilyStore> stores = new HashSet<>();
         // if columnfamilies are not specified, we add all cf under the keyspace
@@ -258,11 +244,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             for (String cf : columnFamilies)
                 stores.add(Keyspace.open(keyspace).getColumnFamilyStore(cf));
         }
-        return stores;
-    }
 
-    private List<SSTableReader> getSSTablesForRanges(Collection<Range<Token>> normalizedRanges, Collection<ColumnFamilyStore> stores)
-    {
+        if (flushTables)
+            flushSSTables(stores);
+
+        List<Range<Token>> normalizedRanges = Range.normalize(ranges);
         List<SSTableReader> sstables = Lists.newLinkedList();
         for (ColumnFamilyStore cfStore : stores)
         {
@@ -272,7 +258,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             ColumnFamilyStore.ViewFragment view = cfStore.markReferenced(rowBoundsList);
             sstables.addAll(view.sstables);
         }
-        return sstables;
+        addTransferFiles(normalizedRanges, sstables);
     }
 
     /**
@@ -281,21 +267,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
      *
      * @param ranges Transfer ranges
      * @param sstables Transfer files
-     * @param overriddenRepairedAt use this repairedAt time, for use in repair.
      */
-    public void addTransferFiles(Collection<Range<Token>> ranges, Collection<SSTableReader> sstables, long overriddenRepairedAt)
+    public void addTransferFiles(Collection<Range<Token>> ranges, Collection<SSTableReader> sstables)
     {
         List<SSTableStreamingSections> sstableDetails = new ArrayList<>(sstables.size());
         for (SSTableReader sstable : sstables)
-        {
-            long repairedAt = overriddenRepairedAt;
-            if (overriddenRepairedAt == ActiveRepairService.UNREPAIRED_SSTABLE)
-                repairedAt = sstable.getSSTableMetadata().repairedAt;
-            sstableDetails.add(new SSTableStreamingSections(sstable,
-                                                            sstable.getPositionsForRanges(ranges),
-                                                            sstable.estimatedKeysForRanges(ranges),
-                                                            repairedAt));
-        }
+            sstableDetails.add(new SSTableStreamingSections(sstable, sstable.getPositionsForRanges(ranges), sstable.estimatedKeysForRanges(ranges)));
 
         addTransferFiles(sstableDetails);
     }
@@ -318,7 +295,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
                 task = new StreamTransferTask(this, cfId);
                 transfers.put(cfId, task);
             }
-            task.addTransferFile(details.sstable, details.estimatedKeys, details.sections, details.repairedAt);
+            task.addTransferFile(details.sstable, details.estimatedKeys, details.sections);
         }
     }
 
@@ -327,14 +304,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         public final SSTableReader sstable;
         public final List<Pair<Long, Long>> sections;
         public final long estimatedKeys;
-        public final long repairedAt;
 
-        public SSTableStreamingSections(SSTableReader sstable, List<Pair<Long, Long>> sections, long estimatedKeys, long repairedAt)
+        public SSTableStreamingSections(SSTableReader sstable, List<Pair<Long, Long>> sections, long estimatedKeys)
         {
             this.sstable = sstable;
             this.sections = sections;
             this.estimatedKeys = estimatedKeys;
-            this.repairedAt = repairedAt;
         }
     }
 
@@ -344,8 +319,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
         if (finalState == State.FAILED)
         {
-            for (StreamTask task : Iterables.concat(receivers.values(), transfers.values()))
-                task.abort();
+            for (StreamReceiveTask srt : receivers.values())
+                srt.abort();
         }
 
         // Note that we shouldn't block on this close because this method is called on the handler
@@ -459,7 +434,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         // prepare tasks
         state(State.PREPARING);
         for (StreamRequest request : requests)
-            addTransferRanges(request.keyspace, request.ranges, request.columnFamilies, true, request.repairedAt); // always flush on stream request
+            addTransferRanges(request.keyspace, request.ranges, request.columnFamilies, true); // always flush on stream request
         for (StreamSummary summary : summaries)
             prepareReceiving(summary);
 
@@ -472,7 +447,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             handler.sendMessage(prepare);
         }
 
-        // if there are files to stream
+        // if there are files to stream and we've received all our prepare messages
         if (!maybeCompleted())
             startStreamingFiles();
     }
@@ -487,12 +462,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         long headerSize = header.size();
         StreamingMetrics.totalOutgoingBytes.inc(headerSize);
         metrics.outgoingBytes.inc(headerSize);
-        // schedule timeout for receiving ACK
-        StreamTransferTask task = transfers.get(header.cfId);
-        if (task != null)
-        {
-            task.scheduleTimeout(header.sequenceNumber, 12, TimeUnit.HOURS);
-        }
     }
 
     /**
@@ -512,7 +481,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     public void progress(Descriptor desc, ProgressInfo.Direction direction, long bytes, long total)
     {
-        ProgressInfo progress = new ProgressInfo(peer, desc.filenameFor(Component.DATA), direction, bytes, total);
+        ProgressInfo progress = new ProgressInfo(peer, index, desc.filenameFor(Component.DATA), direction, bytes, total);
         streamResult.handleProgress(progress);
     }
 
@@ -553,6 +522,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         }
     }
 
+    public synchronized boolean isComplete()
+    {
+        return completeSent;
+    }
+
     /**
      * Call back on receiving {@code StreamMessage.Type.SESSION_FAILED} message.
      */
@@ -583,7 +557,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         List<StreamSummary> transferSummaries = Lists.newArrayList();
         for (StreamTask transfer : transfers.values())
             transferSummaries.add(transfer.getSummary());
-        return new SessionInfo(peer, receivingSummaries, transferSummaries, state);
+        return new SessionInfo(peer, index, receivingSummaries, transferSummaries, state);
     }
 
     public synchronized void taskCompleted(StreamReceiveTask completedTask)
