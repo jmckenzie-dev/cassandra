@@ -34,20 +34,11 @@ public abstract class StreamMessage
     /** Streaming protocol version */
     public static final int CURRENT_VERSION = 1;
 
-    /** Session index associated with message */
-    public final int sessionIndex;
-
     public static void serialize(StreamMessage message, WritableByteChannel out, int version, StreamSession session) throws IOException
     {
-        ByteBuffer buff = ByteBuffer.allocate(4);
+        ByteBuffer buff = ByteBuffer.allocate(1);
         // message type
         buff.put(message.type.type);
-        buff.flip();
-        out.write(buff);
-
-        // session index
-        buff.clear();
-        buff.putInt(message.sessionIndex);
         buff.flip();
         out.write(buff);
 
@@ -61,11 +52,6 @@ public abstract class StreamMessage
         {
             buff.flip();
             Type type = Type.get(buff.get());
-
-            ByteBuffer idxBuff = ByteBuffer.allocate(4);
-            in.read(idxBuff);
-            idxBuff.flip();
-            assert(session.sessionIndex() == idxBuff.getInt());
 
             return type.inSerializer.deserialize(in, version, session);
         }
@@ -127,10 +113,9 @@ public abstract class StreamMessage
 
     public final Type type;
 
-    protected StreamMessage(Type type, int sessionIndex)
+    protected StreamMessage(Type type)
     {
         this.type = type;
-        this.sessionIndex = sessionIndex;
     }
 
     /**

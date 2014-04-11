@@ -34,7 +34,7 @@ public class RetryMessage extends StreamMessage
         public RetryMessage deserialize(ReadableByteChannel in, int version, StreamSession session) throws IOException
         {
             DataInput input = new DataInputStream(Channels.newInputStream(in));
-            return new RetryMessage(session.sessionIndex(), UUIDSerializer.serializer.deserialize(input, MessagingService.current_version), input.readInt());
+            return new RetryMessage(UUIDSerializer.serializer.deserialize(input, MessagingService.current_version), input.readInt());
         }
 
         public void serialize(RetryMessage message, WritableByteChannel out, int version, StreamSession session) throws IOException
@@ -48,9 +48,9 @@ public class RetryMessage extends StreamMessage
     public final UUID cfId;
     public final int sequenceNumber;
 
-    public RetryMessage(int sessionIndex, UUID cfId, int sequenceNumber)
+    public RetryMessage(UUID cfId, int sequenceNumber)
     {
-        super(Type.RETRY, sessionIndex);
+        super(Type.RETRY);
         this.cfId = cfId;
         this.sequenceNumber = sequenceNumber;
     }

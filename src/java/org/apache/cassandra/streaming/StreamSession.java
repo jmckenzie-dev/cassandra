@@ -295,7 +295,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
                 task = new StreamTransferTask(this, cfId);
                 transfers.put(cfId, task);
             }
-            task.addTransferFile(details.sstable, index, details.estimatedKeys, details.sections);
+            task.addTransferFile(details.sstable, details.estimatedKeys, details.sections);
         }
     }
 
@@ -400,7 +400,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
     {
         // send prepare message
         state(State.PREPARING);
-        PrepareMessage prepare = new PrepareMessage(index);
+        PrepareMessage prepare = new PrepareMessage();
         prepare.requests.addAll(requests);
         for (StreamTransferTask task : transfers.values())
             prepare.summaries.add(task.getSummary());
@@ -421,7 +421,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         logger.error("[Stream #{}] Streaming error occurred", planId(), e);
         // send session failure message
         if (handler.isOutgoingConnected())
-            handler.sendMessage(new SessionFailedMessage(index));
+            handler.sendMessage(new SessionFailedMessage());
         // fail session
         closeSession(State.FAILED);
     }
@@ -441,7 +441,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         // send back prepare message if prepare message contains stream request
         if (!requests.isEmpty())
         {
-            PrepareMessage prepare = new PrepareMessage(index);
+            PrepareMessage prepare = new PrepareMessage();
             for (StreamTransferTask task : transfers.values())
                 prepare.summaries.add(task.getSummary());
             handler.sendMessage(prepare);
@@ -475,7 +475,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         StreamingMetrics.totalIncomingBytes.inc(headerSize);
         metrics.incomingBytes.inc(headerSize);
         // send back file received message
-        handler.sendMessage(new ReceivedMessage(index, message.header.cfId, message.header.sequenceNumber));
+        handler.sendMessage(new ReceivedMessage(message.header.cfId, message.header.sequenceNumber));
         receivers.get(message.header.cfId).received(message.sstable);
     }
 
@@ -511,7 +511,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         {
             if (!completeSent)
             {
-                handler.sendMessage(new CompleteMessage(index));
+                handler.sendMessage(new CompleteMessage());
                 completeSent = true;
             }
             closeSession(State.COMPLETE);
@@ -543,7 +543,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         if (retries > DatabaseDescriptor.getMaxStreamingRetries())
             onError(new IOException("Too many retries for " + header, e));
         else
-            handler.sendMessage(new RetryMessage(index, header.cfId, header.sequenceNumber));
+            handler.sendMessage(new RetryMessage(header.cfId, header.sequenceNumber));
     }
 
     /**
@@ -609,7 +609,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             {
                 if (!completeSent)
                 {
-                    handler.sendMessage(new CompleteMessage(index));
+                    handler.sendMessage(new CompleteMessage());
                     completeSent = true;
                 }
                 closeSession(State.COMPLETE);
@@ -617,7 +617,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
             else
             {
                 // notify peer that this session is completed
-                handler.sendMessage(new CompleteMessage(index));
+                handler.sendMessage(new CompleteMessage());
                 completeSent = true;
                 state(State.WAIT_COMPLETE);
             }

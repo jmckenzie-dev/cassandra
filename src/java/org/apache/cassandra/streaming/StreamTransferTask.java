@@ -40,10 +40,10 @@ public class StreamTransferTask extends StreamTask
         super(session, cfId);
     }
 
-    public void addTransferFile(SSTableReader sstable, int sessionIndex, long estimatedKeys, List<Pair<Long, Long>> sections)
+    public void addTransferFile(SSTableReader sstable, long estimatedKeys, List<Pair<Long, Long>> sections)
     {
         assert sstable != null && cfId.equals(sstable.metadata.cfId);
-        OutgoingFileMessage message = new OutgoingFileMessage(sstable, sequenceNumber.getAndIncrement(), sessionIndex, estimatedKeys, sections);
+        OutgoingFileMessage message = new OutgoingFileMessage(sstable, sequenceNumber.getAndIncrement(), estimatedKeys, sections);
         files.put(message.header.sequenceNumber, message);
         totalSize += message.header.size();
     }
