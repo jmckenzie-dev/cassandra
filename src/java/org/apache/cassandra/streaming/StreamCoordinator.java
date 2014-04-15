@@ -27,7 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * {@link org.apache.cassandra.streaming.StreamCoordinator} is a helper class that abstracts away maintaining multiple
+ * {@link StreamCoordinator} is a helper class that abstracts away maintaining multiple
  * StreamSession and ProgressInfo instances per peer.
  *
  * This class coordinates multiple SessionStreams per peer in both the outgoing StreamPlan context and on the

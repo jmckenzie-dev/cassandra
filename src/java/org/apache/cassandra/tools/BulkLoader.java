@@ -47,7 +47,6 @@ public class BulkLoader
 {
     private static final String TOOL_NAME = "sstableloader";
     private static final String VERBOSE_OPTION  = "verbose";
-    private static final String DEBUG_OPTION  = "debug";
     private static final String HELP_OPTION  = "help";
     private static final String NOPROGRESS_OPTION  = "no-progress";
     private static final String IGNORE_NODES_OPTION  = "ignore";
@@ -70,7 +69,7 @@ public class BulkLoader
     public static void main(String args[])
     {
         LoaderOptions options = LoaderOptions.parseArgs(args);
-        OutputHandler handler = new OutputHandler.SystemOutput(options.verbose, options.debug);
+        OutputHandler handler = new OutputHandler.SystemOutput(options.verbose, true);
         SSTableLoader loader = new SSTableLoader(
                 options.directory,
                 new ExternalClient(
@@ -90,19 +89,22 @@ public class BulkLoader
             if (options.noProgress)
                 future = loader.stream(options.ignores);
             else
+            {
                 future = loader.stream(options.ignores, indicator);
+                indicator.SetFuture(future);
+            }
+
         }
         catch (Exception e)
         {
             System.err.println(e.getMessage());
             if (e.getCause() != null)
                 System.err.println(e.getCause());
-            if (options.debug)
-                e.printStackTrace(System.err);
-            else
-                System.err.println("Run with --debug to get full stack trace or --help to get help.");
+            e.printStackTrace(System.err);
             System.exit(1);
         }
+
+        handler.output(String.format("Streaming session ID: %s", future.planId));
 
         try
         {
@@ -120,8 +122,7 @@ public class BulkLoader
             System.err.println("Streaming to the following hosts failed:");
             System.err.println(loader.getFailedHosts());
             System.err.println(e);
-            if (options.debug)
-                e.printStackTrace(System.err);
+            e.printStackTrace(System.err);
             System.exit(1);
         }
     }
@@ -129,7 +130,7 @@ public class BulkLoader
     // Return true when everything is at 100%
     static class ProgressIndicator implements StreamEventHandler
     {
-        StreamCoordinator coordinator = new StreamCoordinator(0);
+        private StreamResultFuture future;
 
         private long start;
         private long lastProgress;
@@ -143,75 +144,75 @@ public class BulkLoader
             start = lastTime = System.nanoTime();
         }
 
+        public void SetFuture(StreamResultFuture future)
+        {
+            this.future = future;
+        }
+
         public void onSuccess(StreamState finalState) {}
         public void onFailure(Throwable t) {}
 
-        public void handleStreamEvent(StreamEvent event)
+        public synchronized void handleStreamEvent(StreamEvent event)
         {
-            if (event.eventType == StreamEvent.Type.STREAM_PREPARED)
+            // Protect against callbacks before future is set.  We need the future for access to the StreamCoordinator it
+            // maintains, however it needs to know about this class as an EventListener.
+            if (future == null)
+                return;
+
+            StreamCoordinator coordinator = future.coordinator;
+
+            long time = System.nanoTime();
+            long deltaTime = time - lastTime;
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("\rprogress: ");
+
+            long totalProgress = 0;
+            long totalSize = 0;
+
+            boolean updateTotalFiles = totalFiles == 0 ? true : false;
+            // recalculate progress across all sessions in all hosts and display
+            for (InetAddress peer : coordinator.getPeers())
             {
-                SessionInfo session = ((StreamEvent.SessionPreparedEvent) event).session;
-                coordinator.addSessionInfo(session);
-            }
-            else if (event.eventType == StreamEvent.Type.FILE_PROGRESS)
-            {
-                ProgressInfo progressInfo = ((StreamEvent.ProgressEvent) event).progress;
+                sb.append("[").append(peer.toString()).append("]");
 
-                long time = System.nanoTime();
-                long deltaTime = time - lastTime;
-
-                coordinator.updateProgress(progressInfo);
-
-                StringBuilder sb = new StringBuilder();
-                sb.append("\rprogress: ");
-
-                long totalProgress = 0;
-                long totalSize = 0;
-
-                boolean updateTotalFiles = totalFiles == 0 ? true : false;
-                // recalculate progress across all sessions in all hosts and display
-                for (InetAddress peer : coordinator.getPeers())
+                for (SessionInfo session : coordinator.getHostSessionInfo(peer))
                 {
-                    sb.append("[").append(peer.toString()).append("]");
+                    long size = session.getTotalSizeToSend();
+                    long current = 0;
+                    int completed = 0;
 
-                    for (SessionInfo session : coordinator.getHostSessionInfo(peer))
+                    for (ProgressInfo progress : coordinator.getSessionProgress(peer, session.sessionIndex))
                     {
-                        long size = session.getTotalSizeToSend();
-                        long current = 0;
-                        int completed = 0;
-
-                        for (ProgressInfo progress : coordinator.getSessionProgress(peer, session.sessionIndex))
-                        {
-                            if (progress.currentBytes == progress.totalBytes)
-                                completed++;
-                            current += progress.currentBytes;
-                        }
-                        totalProgress += current;
-
-                        totalSize += size;
-
-                        sb.append(session.sessionIndex).append(":");
-                        sb.append(completed).append("/").append(session.getTotalFilesToSend());
-                        sb.append(" ").append(String.format("%-3d", size == 0 ? 100L : current * 100L / size)).append("% ");
-
-                        if (updateTotalFiles)
-                            totalFiles += session.getTotalFilesToSend();
+                        if (progress.currentBytes == progress.totalBytes)
+                            completed++;
+                        current += progress.currentBytes;
                     }
+                    totalProgress += current;
+
+                    totalSize += size;
+
+                    sb.append(session.sessionIndex).append(":");
+                    sb.append(completed).append("/").append(session.getTotalFilesToSend());
+                    sb.append(" ").append(String.format("%-3d", size == 0 ? 100L : current * 100L / size)).append("% ");
+
+                    if (updateTotalFiles)
+                        totalFiles += session.getTotalFilesToSend();
                 }
-
-                lastTime = time;
-                long deltaProgress = totalProgress - lastProgress;
-                lastProgress = totalProgress;
-
-                sb.append("total: ").append(totalSize == 0 ? 100L : totalProgress * 100L / totalSize).append("% ");
-                sb.append(String.format("%-3d", mbPerSec(deltaProgress, deltaTime))).append("MB/s");
-                int average = mbPerSec(totalProgress, (time - start));
-                if (average > peak)
-                    peak = average;
-                sb.append("(avg: ").append(average).append(" MB/s)");
-
-                System.err.print(sb.toString());
             }
+
+            lastTime = time;
+            long deltaProgress = totalProgress - lastProgress;
+            lastProgress = totalProgress;
+
+            sb.append("total: ").append(totalSize == 0 ? 100L : totalProgress * 100L / totalSize).append("% ");
+            sb.append(String.format("%-3d", mbPerSec(deltaProgress, deltaTime))).append("MB/s");
+            int average = mbPerSec(totalProgress, (time - start));
+            if (average > peak)
+                peak = average;
+            sb.append("(avg: ").append(average).append(" MB/s)");
+
+            System.err.print(sb.toString());
         }
 
         private int mbPerSec(long bytes, long timeInNano)
@@ -394,7 +395,6 @@ public class BulkLoader
 
                 LoaderOptions opts = new LoaderOptions(dir);
 
-                opts.debug = cmd.hasOption(DEBUG_OPTION);
                 opts.verbose = cmd.hasOption(VERBOSE_OPTION);
                 opts.noProgress = cmd.hasOption(NOPROGRESS_OPTION);
 
@@ -563,7 +563,6 @@ public class BulkLoader
         private static CmdLineOptions getCmdLineOptions()
         {
             CmdLineOptions options = new CmdLineOptions();
-            options.addOption(null, DEBUG_OPTION,        "display stack traces");
             options.addOption("v",  VERBOSE_OPTION,      "verbose output");
             options.addOption("h",  HELP_OPTION,         "display this help message");
             options.addOption(null, NOPROGRESS_OPTION,   "don't display progress");

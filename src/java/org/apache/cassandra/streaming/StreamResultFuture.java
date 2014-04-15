@@ -172,6 +172,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
                               sessionInfo.getTotalFilesToSend(),
                               sessionInfo.getTotalSizeToSend());
         StreamEvent.SessionPreparedEvent event = new StreamEvent.SessionPreparedEvent(planId, sessionInfo);
+        coordinator.addSessionInfo(sessionInfo);
         fireStreamEvent(event);
     }
 
@@ -180,18 +181,16 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         logger.info("[Stream #{}] Session with {} is complete", session.planId(), session.peer);
 
         SessionInfo sessionInfo = session.getSessionInfo();
+        coordinator.addSessionInfo(sessionInfo);
         fireStreamEvent(new StreamEvent.SessionCompleteEvent(session));
-        maybeComplete(session);
+        maybeComplete();
     }
 
     public void handleProgress(ProgressInfo progress)
     {
+        System.err.println("idx: " + progress.sessionIndex + " file: " + progress.fileName + " bytes: " + progress.currentBytes + " total: " + progress.totalBytes);
+        coordinator.updateProgress(progress);
         fireStreamEvent(new StreamEvent.ProgressEvent(planId, progress));
-    }
-
-    public boolean checkComplete()
-    {
-        return !coordinator.hasActiveSessions();
     }
 
     synchronized void fireStreamEvent(StreamEvent event)
@@ -201,7 +200,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
             listener.handleStreamEvent(event);
     }
 
-    private synchronized void maybeComplete(StreamSession session)
+    private synchronized void maybeComplete()
     {
         if (!coordinator.hasActiveSessions())
         {
