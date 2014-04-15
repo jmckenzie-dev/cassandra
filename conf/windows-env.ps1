@@ -40,7 +40,7 @@ Function SetJavaOpts
     # kep multi-line for ease of use
     $rawOpts=@"
  -ea
- -javaagent:"$env:CASSANDRA_HOME/lib/jamm-0.2.6.jar"
+ -javaagent:"$env:CASSANDRA_HOME/lib/jamm-0.2.5.jar"
  -Xms2G
  -Xmx2G
  -XX:+HeapDumpOnOutOfMemoryError
@@ -54,8 +54,10 @@ Function SetJavaOpts
  -Dcom.sun.management.jmxremote.port=7199
  -Dcom.sun.management.jmxremote.ssl=false
  -Dcom.sun.management.jmxremote.authenticate=false
- -Dlogback.configurationFile=logback.xml
+ -Dlog4j.configuration=log4j-server.properties
+ -Dlog4j.defaultInitOverride=true
 "@
+
     # Strip back out newlines added above
     $env:JAVA_OPTS = $rawOpts -replace [Environment]::NewLine, ""
 }
