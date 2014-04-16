@@ -180,7 +180,7 @@ public class BulkLoader
                     long current = 0;
                     int completed = 0;
 
-                    for (ProgressInfo progress : coordinator.getSessionProgress(peer, session.sessionIndex))
+                    for (ProgressInfo progress : coordinator.getSessionProgress(peer, session.sessionIndex, ProgressInfo.Direction.OUT))
                     {
                         if (progress.currentBytes == progress.totalBytes)
                             completed++;

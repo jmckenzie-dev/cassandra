@@ -188,7 +188,6 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
 
     public void handleProgress(ProgressInfo progress)
     {
-        System.err.println("idx: " + progress.sessionIndex + " file: " + progress.fileName + " bytes: " + progress.currentBytes + " total: " + progress.totalBytes);
         coordinator.updateProgress(progress);
         fireStreamEvent(new StreamEvent.ProgressEvent(planId, progress));
     }

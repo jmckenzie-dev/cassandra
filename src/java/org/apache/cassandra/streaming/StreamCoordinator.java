@@ -21,6 +21,7 @@ import java.net.InetAddress;
 import java.util.*;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.utils.FBUtilities;
 import org.slf4j.Logger;
@@ -105,9 +106,9 @@ public class StreamCoordinator
         getHostData(info.peer).updateProgress(info);
     }
 
-    public synchronized Collection<ProgressInfo> getSessionProgress(InetAddress peer, int index)
+    public synchronized Collection<ProgressInfo> getSessionProgress(InetAddress peer, int index, ProgressInfo.Direction dir)
     {
-        return getHostData(peer).getSessionProgress(index);
+        return getHostData(peer).getSessionProgress(index, dir);
     }
 
     public synchronized void addSessionInfo(SessionInfo session)
@@ -282,18 +283,12 @@ public class StreamCoordinator
             sessionInfos.get(info.sessionIndex).updateProgress(info);
         }
 
-        public Collection<ProgressInfo> getSessionProgress(int index)
+        public Collection<ProgressInfo> getSessionProgress(int index, ProgressInfo.Direction dir)
         {
-            return null;
-            /*
-            return sessionInfos.get(index).pro
-            Map<String, ProgressInfo> progresses = progressInfos.get(index);
-            if (progresses == null)
-                return new ArrayList<>();
-
-            // return copy to prevent ConcurrentModificationException while iterating
-            return ImmutableList.copyOf(progressInfos.get(index).values());
-            */
+            SessionInfo info = sessionInfos.get(index);
+            return dir == ProgressInfo.Direction.IN ?
+                    info.getReceivingFiles() :
+                    info.getSendingFiles();
         }
 
         public void addSessionInfo(SessionInfo info)
