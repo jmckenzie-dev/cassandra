@@ -214,7 +214,6 @@ public class StreamCoordinator
     {
         private Map<Integer, StreamSession> streamSessions = new HashMap<>();
         private Map<Integer, SessionInfo> sessionInfos = new HashMap<>();
-        private Map<Integer, Map<String, ProgressInfo>> progressInfos = null;
 
         private int lastReturned = -1;
 
@@ -280,31 +279,21 @@ public class StreamCoordinator
 
         public void updateProgress(ProgressInfo info)
         {
-            // lazy init -> ProgressInfo not used on both sides of Stream
-            if (progressInfos == null)
-                progressInfos = new HashMap<>();
-
-            Map<String, ProgressInfo> progresses = progressInfos.get(info.sessionIndex);
-            if (progresses == null)
-            {
-                progresses = new HashMap<>();
-                progressInfos.put(info.sessionIndex, progresses);
-            }
-            progresses.put(info.fileName, info);
+            sessionInfos.get(info.sessionIndex).updateProgress(info);
         }
 
         public Collection<ProgressInfo> getSessionProgress(int index)
         {
-            // lazy init -> ProgressInfo not used on both sides of Stream
-            if (progressInfos == null)
-                progressInfos = new HashMap<>();
-
+            return null;
+            /*
+            return sessionInfos.get(index).pro
             Map<String, ProgressInfo> progresses = progressInfos.get(index);
             if (progresses == null)
                 return new ArrayList<>();
 
             // return copy to prevent ConcurrentModificationException while iterating
             return ImmutableList.copyOf(progressInfos.get(index).values());
+            */
         }
 
         public void addSessionInfo(SessionInfo info)

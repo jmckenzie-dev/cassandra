@@ -104,8 +104,6 @@ public class BulkLoader
             System.exit(1);
         }
 
-        handler.output(String.format("Streaming session ID: %s", future.planId));
-
         try
         {
             future.get();
