@@ -216,7 +216,7 @@ public class DatabaseDescriptor
         {
             conf.disk_access_mode = Config.DiskAccessMode.standard;
             indexAccessMode = conf.disk_access_mode;
-            logger.error("Windows environment detected.  DiskAccessMode set to {}, indexAccessMode {}", conf.disk_access_mode, indexAccessMode);
+            logger.info("Windows environment detected.  DiskAccessMode set to {}, indexAccessMode {}", conf.disk_access_mode, indexAccessMode);
         }
 
         /* Authentication and authorization backend, implementing IAuthenticator and IAuthorizer */
