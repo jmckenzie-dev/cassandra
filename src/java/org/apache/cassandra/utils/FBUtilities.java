@@ -70,10 +70,17 @@ public class FBUtilities
     public static final BigInteger TWO = new BigInteger("2");
     private static final String DEFAULT_TRIGGER_DIR = "triggers";
 
-    private static final String OPERATING_SYSTEM = System.getProperty("os.name").toLowerCase();
-
     private static volatile InetAddress localInetAddress;
     private static volatile InetAddress broadcastInetAddress;
+
+    private static boolean isUnix = false;
+
+    static
+    {
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("nix") || os.contains("nux") || os.contains("aix"))
+            isUnix = true;
+    }
 
     public static int getAvailableProcessors()
     {
@@ -691,6 +698,6 @@ public class FBUtilities
 
     public static boolean isUnix()
     {
-        return OPERATING_SYSTEM.contains("nix") || OPERATING_SYSTEM.contains("nux") || OPERATING_SYSTEM.contains("aix");
+        return isUnix;
     }
 }
