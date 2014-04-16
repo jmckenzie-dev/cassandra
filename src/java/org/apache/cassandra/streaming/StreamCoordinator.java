@@ -21,6 +21,7 @@ import java.net.InetAddress;
 import java.util.*;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.utils.FBUtilities;
@@ -119,7 +120,7 @@ public class StreamCoordinator
 
     public synchronized Collection<SessionInfo> getHostSessionInfo(InetAddress peer)
     {
-        return getHostData(peer).getAllSessionInfo();
+        return ImmutableSet.copyOf(getHostData(peer).getAllSessionInfo());
     }
 
     public synchronized Set<SessionInfo> getAllSessionInfo()
@@ -298,7 +299,7 @@ public class StreamCoordinator
 
         public Collection<SessionInfo> getAllSessionInfo()
         {
-            return new ArrayList<>(sessionInfos.values());
+            return sessionInfos.values();
         }
     }
 }

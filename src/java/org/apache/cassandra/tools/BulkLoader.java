@@ -91,7 +91,7 @@ public class BulkLoader
             else
             {
                 future = loader.stream(options.ignores, indicator);
-                indicator.SetFuture(future);
+                indicator.SetStreamCoordinator(future.coordinator);
             }
 
         }
@@ -128,7 +128,7 @@ public class BulkLoader
     // Return true when everything is at 100%
     static class ProgressIndicator implements StreamEventHandler
     {
-        private StreamResultFuture future;
+        private StreamCoordinator coordinator;
 
         private long start;
         private long lastProgress;
@@ -142,9 +142,9 @@ public class BulkLoader
             start = lastTime = System.nanoTime();
         }
 
-        public void SetFuture(StreamResultFuture future)
+        public void SetStreamCoordinator(StreamCoordinator coordinator)
         {
-            this.future = future;
+            this.coordinator = coordinator;
         }
 
         public void onSuccess(StreamState finalState) {}
@@ -152,65 +152,62 @@ public class BulkLoader
 
         public synchronized void handleStreamEvent(StreamEvent event)
         {
-            // Protect against callbacks before future is set.  We need the future for access to the StreamCoordinator it
-            // maintains, however it needs to know about this class as an EventListener.
-            if (future == null)
-                return;
-
-            StreamCoordinator coordinator = future.coordinator;
-
-            long time = System.nanoTime();
-            long deltaTime = time - lastTime;
-
-            StringBuilder sb = new StringBuilder();
-            sb.append("\rprogress: ");
-
-            long totalProgress = 0;
-            long totalSize = 0;
-
-            boolean updateTotalFiles = totalFiles == 0 ? true : false;
-            // recalculate progress across all sessions in all hosts and display
-            for (InetAddress peer : coordinator.getPeers())
+            if (event.eventType == StreamEvent.Type.FILE_PROGRESS || event.eventType == StreamEvent.Type.STREAM_COMPLETE)
             {
-                sb.append("[").append(peer.toString()).append("]");
+                // Protect against callbacks before coordinator is set.
+                if (coordinator == null)
+                    return;
 
-                for (SessionInfo session : coordinator.getHostSessionInfo(peer))
-                {
-                    long size = session.getTotalSizeToSend();
-                    long current = 0;
-                    int completed = 0;
+                long time = System.nanoTime();
+                long deltaTime = time - lastTime;
 
-                    for (ProgressInfo progress : coordinator.getSessionProgress(peer, session.sessionIndex, ProgressInfo.Direction.OUT))
-                    {
-                        if (progress.currentBytes == progress.totalBytes)
-                            completed++;
-                        current += progress.currentBytes;
+                StringBuilder sb = new StringBuilder();
+                sb.append("\rprogress: ");
+
+                long totalProgress = 0;
+                long totalSize = 0;
+
+                boolean updateTotalFiles = totalFiles == 0 ? true : false;
+                // recalculate progress across all sessions in all hosts and display
+                for (InetAddress peer : coordinator.getPeers()) {
+                    sb.append("[").append(peer.toString()).append("]");
+
+                    for (SessionInfo session : coordinator.getHostSessionInfo(peer)) {
+                        long size = session.getTotalSizeToSend();
+                        long current = 0;
+                        int completed = 0;
+
+                        for (ProgressInfo progress : coordinator.getSessionProgress(peer, session.sessionIndex, ProgressInfo.Direction.OUT)) {
+                            if (progress.currentBytes == progress.totalBytes)
+                                completed++;
+                            current += progress.currentBytes;
+                        }
+                        totalProgress += current;
+
+                        totalSize += size;
+
+                        sb.append(session.sessionIndex).append(":");
+                        sb.append(completed).append("/").append(session.getTotalFilesToSend());
+                        sb.append(" ").append(String.format("%-3d", size == 0 ? 100L : current * 100L / size)).append("% ");
+
+                        if (updateTotalFiles)
+                            totalFiles += session.getTotalFilesToSend();
                     }
-                    totalProgress += current;
-
-                    totalSize += size;
-
-                    sb.append(session.sessionIndex).append(":");
-                    sb.append(completed).append("/").append(session.getTotalFilesToSend());
-                    sb.append(" ").append(String.format("%-3d", size == 0 ? 100L : current * 100L / size)).append("% ");
-
-                    if (updateTotalFiles)
-                        totalFiles += session.getTotalFilesToSend();
                 }
+
+                lastTime = time;
+                long deltaProgress = totalProgress - lastProgress;
+                lastProgress = totalProgress;
+
+                sb.append("total: ").append(totalSize == 0 ? 100L : totalProgress * 100L / totalSize).append("% ");
+                sb.append(String.format("%-3d", mbPerSec(deltaProgress, deltaTime))).append("MB/s");
+                int average = mbPerSec(totalProgress, (time - start));
+                if (average > peak)
+                    peak = average;
+                sb.append("(avg: ").append(average).append(" MB/s)");
+
+                System.err.print(sb.toString());
             }
-
-            lastTime = time;
-            long deltaProgress = totalProgress - lastProgress;
-            lastProgress = totalProgress;
-
-            sb.append("total: ").append(totalSize == 0 ? 100L : totalProgress * 100L / totalSize).append("% ");
-            sb.append(String.format("%-3d", mbPerSec(deltaProgress, deltaTime))).append("MB/s");
-            int average = mbPerSec(totalProgress, (time - start));
-            if (average > peak)
-                peak = average;
-            sb.append("(avg: ").append(average).append(" MB/s)");
-
-            System.err.print(sb.toString());
         }
 
         private int mbPerSec(long bytes, long timeInNano)
