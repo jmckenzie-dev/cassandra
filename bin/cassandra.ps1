@@ -17,7 +17,7 @@ param (
     [switch]$install,
     [switch]$uninstall,
     [switch]$help,
-    # single switch args
+    [switch]$verbose,
     [switch]$f,
     [string]$p,
     [string]$H,
@@ -49,6 +49,7 @@ usage: cassandra.ps1 [-f] [-h] [-p pidfile] [-H dumpfile] [-E errorfile] [-insta
     -H              change JVM HeapDumpPath
     -E              change JVM ErrorFile
     -help           print this message
+    -verbose        Show detailed command-line parameters for cassandra run
 
     NOTE: installing cassandra as a service requires Commons Daemon Service Runner
         available at http://commons.apache.org/proper/commons-daemon/"
@@ -63,33 +64,13 @@ Function Main
 {
     ValidateArguments
 
-    # Order of preference on grabbing environment settings:
-    #   CASSANDRA_CONF
-    #   CASSANDRA_HOME
-    #   Relative to current working directory
-    if (Test-Path Env:\CASSANDRA_CONF)
+    . "./source-conf.ps1"
+    $conf = Find-Conf
+    if ($verbose)
     {
-        $file = "$env:CASSANDRA_CONF/windows-env.ps1"
+        echo "Sourcing cassandra config file: $conf"
     }
-    elseif (Test-Path Env:\CASSANDRA_HOME)
-    {
-        $file = "$env:CASSANDRA_HOME/conf/windows-env.ps1"
-    }
-    else
-    {
-        $file = [System.IO.Directory]::GetCurrentDirectory() + "/../conf/windows-env.ps1"
-    }
-    $file = $file -replace "\\", "/"
-
-    if (Test-Path $file)
-    {
-        . $file
-    }
-    else
-    {
-        echo "Error with environment file resolution.  Path: $file not found."
-        exit
-    }
+    . $conf
 
     SetCassandraEnvironment
 
@@ -160,13 +141,21 @@ $PRUNSRV //US//%SERVICE_JVM%
 }
 
 #-----------------------------------------------------------------------------
+
+        # file is there but empty
+        if ($a -eq $null)
+        {
+            Remove-Item $pidfile
+            return
+        }
+
 Function RunCassandra([string]$foreground)
 {
     echo "Starting cassandra server"
     $cmd = @"
-$env:JAVA_HOME/bin/java
+$env:JAVA_BIN
 "@
-    $arg1 = $env:JAVA_OPTS
+    $arg1 = $env:JVM_OPTS
     $arg2 = $env:CASSANDRA_PARAMS
     $arg3 = "-cp $env:CLASSPATH"
     $arg4 = @"
@@ -174,6 +163,12 @@ $env:JAVA_HOME/bin/java
 "@
 
     $proc = $null
+
+    if ($verbose)
+    {
+        echo "Running cassandra with: [$cmd $arg1 $arg2 $arg3 $arg4]"
+    }
+
     if ($foreground -ne "False")
     {
         # needed for arg list on Start-Process internals
@@ -206,6 +201,7 @@ $env:JAVA_HOME/bin/java
     if (-Not ($proc) -or $cassPid -eq "")
     {
         echo "Error starting cassandra."
+        echo "Run with -verbose for more information about runtime environment"
     }
     elseif ($foreground -eq "False")
     {

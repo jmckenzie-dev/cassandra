@@ -57,42 +57,5 @@ Function KillProcess
 }
 
 #-----------------------------------------------------------------------------
-Function Main
-{
-    ValidateArguments
-
-    # Order of preference on grabbing environment settings:
-    #   CASSANDRA_CONF
-    #   CASSANDRA_HOME
-    #   Relative to current working directory
-    if (Test-Path Env:\CASSANDRA_CONF)
-    {
-        $file = "$env:CASSANDRA_CONF/windows-env.ps1"
-    }
-    elseif (Test-Path Env:\CASSANDRA_HOME)
-    {
-        $file = "$env:CASSANDRA_HOME/conf/windows-env.ps1"
-    }
-    else
-    {
-        $file = [System.IO.Directory]::GetCurrentDirectory() + "/../conf/windows-env.ps1"
-    }
-    $file = $file -replace "\\", "/"
-
-    if (Test-Path $file)
-    {
-        . $file
-    }
-    else
-    {
-        echo "Error with environment file resolution.  Path: $file not found."
-        exit
-    }
-
-    SetCassandraEnvironment
-
-    KillProcess
-}
-
-#-----------------------------------------------------------------------------
-Main
+ValidateArguments
+KillProcess
