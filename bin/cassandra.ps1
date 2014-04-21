@@ -64,7 +64,7 @@ Function Main
 {
     ValidateArguments
 
-    . "./source-conf.ps1"
+    . "$env:CASSANDRA_HOME/bin/source-conf.ps1"
     $conf = Find-Conf
     if ($verbose)
     {
@@ -111,8 +111,9 @@ Function HandleInstallation
         $env:PRUNSRV="$PATH_PRUNSRV/prunsrv"
     }
 
-    echo "Attempting to delete service if already existing..."
-    & "$prunsrv //DS//$SERVICE_JVM"
+    echo "Attempting to delete existing $SERVICE_JVM service..."
+    Start-Sleep -s 2
+    $proc = Start-Process -FilePath "$env:PRUNSRV" -ArgumentList "//DS//$SERVICE_JVM" -PassThru -WindowStyle Hidden
 
     # Quit out if this is uninstall only
     if ($uninstall)
@@ -120,31 +121,33 @@ Function HandleInstallation
         return
     }
 
-    echo "Installing $SERVICE_JVM. If you get registry warnings, re-run as an Administrator"
-    & "$prunsrv //IS//$SERVICE_JVM"
+    echo "Installing [$SERVICE_JVM]. If you get registry warnings, re-run as an Administrator"
+    Start-Sleep -s 2
+    $proc = Start-Process -FilePath "$env:PRUNSRV" -ArgumentList "//IS//$SERVICE_JVM" -PassThru -WindowStyle Hidden
 
-    echo "Setting the parameters for $SERVICE_JVM"
+    echo "Setting the parameters for [$SERVICE_JVM]"
+    Start-Sleep -s 2
 
     # Broken multi-line for convenience - glued back together in a bit
-    $cmd = @"
-$PRUNSRV //US//%SERVICE_JVM%
+    $args = @"
+//US//$SERVICE_JVM
  --Jvm=auto --StdOutput auto --StdError auto
- --Classpath=$env:CASSANDRA_CLASSPATH
+ --Classpath=$env:CLASSPATH
  --StartMode=jvm --StartClass=$env:CASSANDRA_MAIN --StartMethod=main
  --StopMode=jvm --StopClass=$env:CASSANDRA_MAIN  --StopMethod=stop
  ++JvmOptions=$env:JAVA_OPTS ++JvmOptions=-DCassandra
  --PidFile pid.txt
 "@
-    $cmd = $cmd -replace [Environment]::NewLine, ""
-    & $cmd
+    $args = $args -replace [Environment]::NewLine, ""
+    $proc = Start-Process -FilePath "$env:PRUNSRV" -ArgumentList $args -PassThru -WindowStyle Hidden
 
-    echo "Installation of $SERVICE_JVM is complete"
+    echo "Installation of [$SERVICE_JVM] is complete"
 }
 
 #-----------------------------------------------------------------------------
 Function CleanOldRun
 {
-    $pidfile = "$env:CASSANDRA_HOME/cassandra.pid"
+    $pidfile = "$env:CASSANDRA_HOME/pid.txt"
 
     # see if we already have an instance of cassandra running from this folder
     if (Test-Path $pidfile)
@@ -211,13 +214,13 @@ $env:JAVA_BIN
         if ($cygwin)
         {
             # if running on cygwin, we cannot capture ctrl+c signals as mintty traps them and then
-            # SIGKILLs processes, so we'll need to record our cassandra.pid file for future
+            # SIGKILLs processes, so we'll need to record our pid.txt file for future
             # stop-server usage
             $env:CASSANDRA_PARAMS = $env:CASSANDRA_PARAMS + " -Dcassandra-pidfile=$p"
             "*****************************************************************************************"
             "*****************************************************************************************"
             "Warning!  Running cassandra.bat -f on cygwin breaks control+c functionality.  You'll need"
-            " to use stop-server.bat -p ../cassandra.pid to stop your server or kill the java.exe"
+            " to use stop-server.bat -p ../pid.txt to stop your server or kill the java.exe"
             " instance."
             "*****************************************************************************************"
             "*****************************************************************************************"
@@ -234,7 +237,7 @@ $env:JAVA_BIN
         $p = New-Object System.Diagnostics.Process
         $p.StartInfo = $pinfo
         $p.Start() | Out-Null
-        echo $p.Id > $env:CASSANDRA_HOME/cassandra.pid
+        echo $p.Id > $env:CASSANDRA_HOME/pid.txt
         $p.WaitForExit()
     }
     else
@@ -243,7 +246,7 @@ $env:JAVA_BIN
 
         # Always store the pid, even if we're not registering it with the server
         # The startup script uses this pid file as a protection against duplicate startup from the same folder
-        echo $proc.Id > $env:CASSANDRA_HOME/cassandra.pid
+        echo $proc.Id > $env:CASSANDRA_HOME/pid.txt
 
         $cassPid = $proc.Id
         if (-Not ($proc) -or $cassPid -eq "")

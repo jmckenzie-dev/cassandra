@@ -17,9 +17,9 @@
 @echo off
 if "%OS%" == "Windows_NT" setlocal
 
-set ARG=%1
-set INSTALL="INSTALL"
-set UNINSTALL="UNINSTALL"
+pushd %~dp0..
+if NOT DEFINED CASSANDRA_HOME set CASSANDRA_HOME=%CD%
+popd
 
 REM -----------------------------------------------------------------------------
 REM See if we have the capabilities of running the powershell scripts
@@ -30,7 +30,7 @@ goto runLegacy
 REM -----------------------------------------------------------------------------
 :runPowerShell
 echo Detected powershell execution permissions.  Running with enhanced startup scripts.
-powershell /file stop-server.ps1 %*
+powershell /file %CASSANDRA_HOME%/bin/stop-server.ps1 %*
 goto finally
 
 REM -----------------------------------------------------------------------------
