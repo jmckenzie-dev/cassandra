@@ -15,6 +15,7 @@
 # limitations under the License.
 param (
     [string]$p,
+    [switch]$f,
     [switch]$help
 )
 
@@ -35,8 +36,9 @@ Function ValidateArguments
 Function PrintUsage
 {
     echo @"
-usage: stop-server.ps1 -p pidfile [-help]
-    -p              pidfile tracked by server and removed on close
+usage: stop-server.ps1 -p pidfile -f[-help]
+    -p      pidfile tracked by server and removed on close
+    -f      force kill.
 "@
     exit
 }
@@ -49,11 +51,45 @@ Function KillProcess
         echo "Error - pidfile not found.  Aborting."
         exit
     }
-    # coerce to integer
-    $a = Get-Content $p
-    taskkill /pid $a
 
-    echo "Sent WM_CLOSE to cassandra"
+    $a = Get-Content $p
+    if (Get-Process -Id $a -EA SilentlyContinue)
+    {
+        $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+        $pinfo.FileName = "taskkill.exe"
+        $pinfo.RedirectStandardError = $true
+        $pinfo.RedirectStandardOutput = $true
+        $pinfo.UseShellExecute = $false
+        $pinfo.Arguments = "/pid $a"
+
+        if ($f)
+        {
+            $pinfo.Arguments = $pinfo.Arguments + " /f"
+        }
+
+        $killer = New-Object System.Diagnostics.Process
+        $killer.StartInfo = $pinfo
+        $killer.Start() | Out-Null
+        $killer.WaitForExit()
+        $stderr = $killer.StandardError.ReadToEnd()
+        if ($stderr.Contains("forcefully"))
+        {
+            echo "Failed to terminate process with pid $a.  Re-run with -f to forcefully terminate."
+            exit
+        }
+        elseif ($stderr -ne "")
+        {
+            echo $stderr
+            exit
+        }
+    }
+    else
+    {
+        echo "No cassandra process running with pid: $a.  Exiting."
+        exit
+    }
+
+    echo "Sent WM_CLOSE termination signal to cassandra with pid $a"
 }
 
 #-----------------------------------------------------------------------------

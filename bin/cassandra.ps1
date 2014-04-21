@@ -94,6 +94,7 @@ Function Main
     }
     else
     {
+        CleanOldRun
         RunCassandra($f)
     }
 }
@@ -141,6 +142,14 @@ $PRUNSRV //US//%SERVICE_JVM%
 }
 
 #-----------------------------------------------------------------------------
+Function CleanOldRun
+{
+    $pidfile = "$env:CASSANDRA_HOME/cassandra.pid"
+
+    # see if we already have an instance of cassandra running from this folder
+    if (Test-Path $pidfile)
+    {
+        $a = Get-Content $pidfile
 
         # file is there but empty
         if ($a -eq $null)
@@ -149,6 +158,20 @@ $PRUNSRV //US//%SERVICE_JVM%
             return
         }
 
+        $proc = Get-Process -Id $a -ErrorAction SilentlyContinue
+        if ($proc)
+        {
+            echo "ERROR!  There is already an instance of cassandra running from this folder with pid: $a.  Please use stop-server.bat to stop this instance before starting cassandra."
+            exit
+        }
+        else
+        {
+            Remove-Item $pidfile
+        }
+    }
+}
+
+#-----------------------------------------------------------------------------
 Function RunCassandra([string]$foreground)
 {
     echo "Starting cassandra server"
@@ -162,6 +185,9 @@ $env:JAVA_BIN
 "$env:CASSANDRA_MAIN"
 "@
 
+    # needed for arg list on Start-Process internals
+    $env:TMP=''
+    $env:TEMP=''
     $proc = $null
 
     if ($verbose)
@@ -171,41 +197,64 @@ $env:JAVA_BIN
 
     if ($foreground -ne "False")
     {
-        # needed for arg list on Start-Process internals
-        $env:TMP=''
-        $env:TEMP=''
-        $proc = Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -NoNewWindow
-    }
-    else
-    {
+        $cygwin = $false
         try
         {
-            echo "About to start"
-            # needed for arg list on Start-Process internals
-            $env:TMP=''
-            $env:TEMP=''
-            $proc = Start-Process -FilePath "$cmd" -RedirectStandardIn "stdin.txt" -RedirectStandardOut "stdout.txt" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -PassThru -WindowStyle Hidden
-            echo "Started"
+            $uname = uname -o
+            $cygwin = $true
         }
         catch
         {
-            echo "Error during launch.  If you received a printed message about ""Key in dictionary"", unset the corresponding environment variable in this shell before launching cassandra.bat"
-            return
+            # Failed at uname call, not in cygwin
         }
-    }
 
-    # store the pid
-    echo $proc.Id > $env:CASSANDRA_HOME/cassandra.pid
+        if ($cygwin)
+        {
+            # if running on cygwin, we cannot capture ctrl+c signals as mintty traps them and then
+            # SIGKILLs processes, so we'll need to record our cassandra.pid file for future
+            # stop-server usage
+            $env:CASSANDRA_PARAMS = $env:CASSANDRA_PARAMS + " -Dcassandra-pidfile=$p"
+            "*****************************************************************************************"
+            "*****************************************************************************************"
+            "Warning!  Running cassandra.bat -f on cygwin breaks control+c functionality.  You'll need"
+            " to use stop-server.bat -p ../cassandra.pid to stop your server or kill the java.exe"
+            " instance."
+            "*****************************************************************************************"
+            "*****************************************************************************************"
 
-    $cassPid = $proc.Id
-    if (-Not ($proc) -or $cassPid -eq "")
-    {
-        echo "Error starting cassandra."
-        echo "Run with -verbose for more information about runtime environment"
+            # Note: we can't pause here and force user confirmation for the same reason - input is
+            # intercepted by cygwin and not passed to the script
+        }
+
+        $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+        $pinfo.FileName = "$env:JAVA_BIN"
+        $pinfo.RedirectStandardInput = $true
+        $pinfo.UseShellExecute = $false
+        $pinfo.Arguments = $arg1,$arg2,$arg3,$arg4
+        $p = New-Object System.Diagnostics.Process
+        $p.StartInfo = $pinfo
+        $p.Start() | Out-Null
+        echo $p.Id > $env:CASSANDRA_HOME/cassandra.pid
+        $p.WaitForExit()
     }
-    elseif ($foreground -eq "False")
+    else
     {
-        echo "Started cassandra successfully with pid: $cassPid"
+        $proc = Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -PassThru -WindowStyle Hidden
+
+        # Always store the pid, even if we're not registering it with the server
+        # The startup script uses this pid file as a protection against duplicate startup from the same folder
+        echo $proc.Id > $env:CASSANDRA_HOME/cassandra.pid
+
+        $cassPid = $proc.Id
+        if (-Not ($proc) -or $cassPid -eq "")
+        {
+            echo "Error starting cassandra."
+            echo "Run with -verbose for more information about runtime environment"
+        }
+        elseif ($foreground -eq "False")
+        {
+            echo "Started cassandra successfully with pid: $cassPid"
+        }
     }
 }
 
