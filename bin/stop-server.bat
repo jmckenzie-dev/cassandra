@@ -29,8 +29,16 @@ goto runLegacy
 
 REM -----------------------------------------------------------------------------
 :runPowerShell
-echo Detected powershell execution permissions.  Running with enhanced startup scripts.
-powershell /file %CASSANDRA_HOME%/bin/stop-server.ps1 %*
+REM Need to generate a random title for this command-prompt to determine its pid.
+REM We detach and re-attach the console in stop-server.ps1 to send ctrl+c to the
+REM running cassandra process and need to re-attach here to print results.
+set /A rand=%random% %% (100000 - 1 + 1) + 1
+TITLE %rand%
+FOR /F "tokens=2 delims= " %%A IN ('TASKLIST /FI ^"WINDOWTITLE eq %rand%^" /NH') DO set PID=%%A
+
+REM Start with /B -> the control+c event we generate in stop-server.ps1 percolates
+REM up and hits this external batch file if we call powershell directly.
+start /B powershell /file %CASSANDRA_HOME%/bin/stop-server.ps1 -batchpid %PID% %*
 goto finally
 
 REM -----------------------------------------------------------------------------

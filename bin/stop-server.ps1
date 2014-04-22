@@ -15,7 +15,9 @@
 # limitations under the License.
 param (
     [string]$p,
+    [string]$batchpid,
     [switch]$f,
+    [switch]$silent,
     [switch]$help
 )
 
@@ -36,8 +38,10 @@ Function ValidateArguments
 Function PrintUsage
 {
     echo @"
+
 usage: stop-server.ps1 -p pidfile -f[-help]
-    -p      pidfile tracked by server and removed on close
+    -p      pidfile tracked by server and removed on close.
+    -s      Silent.  Don't print success/failure data.
     -f      force kill.
 "@
     exit
@@ -48,48 +52,117 @@ Function KillProcess
 {
     if (-Not (Test-Path $p))
     {
-        echo "Error - pidfile not found.  Aborting."
+        if (-Not ($silent))
+        {
+            echo "Error - pidfile not found.  Aborting."
+        }
         exit
     }
+
+    $t = @"
+    using System;
+    using System.Diagnostics;
+    using System.IO;
+    using System.Runtime.InteropServices;
+    using System.Threading;
+
+    namespace PowerStopper
+    {
+        public static class Stopper
+        {
+            delegate bool ConsoleCtrlDelegate(CtrlTypes CtrlType);
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            static extern bool AttachConsole(uint dwProcessId);
+
+            [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
+            static extern bool FreeConsole();
+
+            enum CtrlTypes : uint
+            {
+                CTRL_C_EVENT = 0,
+                CTRL_BREAK_EVENT,
+                CTRL_CLOSE_EVENT,
+                CTRL_LOGOFF_EVENT = 5,
+                CTRL_SHUTDOWN_EVENT
+            }
+
+            [DllImport("kernel32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            private static extern bool GenerateConsoleCtrlEvent(CtrlTypes dwCtrlEvent, uint dwProcessGroupId);
+
+            [DllImport("kernel32.dll")]
+            static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate HandlerRoutine, bool Add);
+
+            // Our output gets swallowed on ms-dos as we can't re-attach our console to the output of the cmd
+            // running the batch file.
+            public static void StopProgram(int pidToKill, int consolePid, bool silent)
+            {
+                if (!FreeConsole())
+                {
+                    if (!silent)
+                        System.Console.WriteLine("Failed to FreeConsole to attach to running cassandra process.  Aborting.");
+                    return;
+                }
+
+                Process proc = null;
+                try
+                {
+                    proc = Process.GetProcessById(pidToKill);
+                }
+                catch (ArgumentException)
+                {
+                    if (!silent)
+                        System.Console.WriteLine("Process " + pidToKill + " not found.  Aborting.");
+                    return;
+                }
+
+                if (AttachConsole((uint)pidToKill))
+                {
+                    //Disable Ctrl-C handling for our program
+                    SetConsoleCtrlHandler(null, true);
+                    GenerateConsoleCtrlEvent(CtrlTypes.CTRL_C_EVENT, 0);
+
+                    // Must wait here. If we don't and re-enable Ctrl-C
+                    // handling below too fast, we might terminate ourselves.
+                    proc.WaitForExit(2000);
+                    FreeConsole();
+
+                    // Re-attach to current console to write output
+                    if (consolePid >= 0)
+                        AttachConsole((uint)consolePid);
+
+                    // Re-enable Ctrl-C handling or any subsequently started
+                    // programs will inherit the disabled state.
+                    SetConsoleCtrlHandler(null, false);
+
+                    if (!silent)
+                        System.Console.WriteLine("Successfully sent ctrl+c to process with id: " + pidToKill + ".");
+                }
+                else
+                {
+                    if (!silent)
+                    {
+                        string errorMsg = new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()).Message;
+                        System.Console.WriteLine("Error attaching to pid: " + pidToKill + ": " + Marshal.GetLastWin32Error() + " - " + errorMsg);
+                    }
+                }
+            }
+        }
+    }
+"@
+    Add-Type -TypeDefinition $t
 
     $a = Get-Content $p
-    if (Get-Process -Id $a -EA SilentlyContinue)
+    # If run in cygwin, we don't get the TITLE / pid combo in stop-server.bat but also don't need
+    # to worry about reattaching console output as it gets stderr/stdout even after the C#/C++
+    # FreeConsole calls.
+    if ($batchpid -eq "No")
     {
-        $pinfo = New-Object System.Diagnostics.ProcessStartInfo
-        $pinfo.FileName = "taskkill.exe"
-        $pinfo.RedirectStandardError = $true
-        $pinfo.RedirectStandardOutput = $true
-        $pinfo.UseShellExecute = $false
-        $pinfo.Arguments = "/pid $a"
-
-        if ($f)
-        {
-            $pinfo.Arguments = $pinfo.Arguments + " /f"
-        }
-
-        $killer = New-Object System.Diagnostics.Process
-        $killer.StartInfo = $pinfo
-        $killer.Start() | Out-Null
-        $killer.WaitForExit()
-        $stderr = $killer.StandardError.ReadToEnd()
-        if ($stderr.Contains("forcefully"))
-        {
-            echo "Failed to terminate process with pid $a.  Re-run with -f to forcefully terminate."
-            exit
-        }
-        elseif ($stderr -ne "")
-        {
-            echo $stderr
-            exit
-        }
-    }
-    else
-    {
-        echo "No cassandra process running with pid: $a.  Exiting."
-        exit
+        $batchpid = -1
     }
 
-    echo "Sent WM_CLOSE termination signal to cassandra with pid $a"
+    [PowerStopper.Stopper]::StopProgram($a, $batchpid, $silent)
 }
 
 #-----------------------------------------------------------------------------

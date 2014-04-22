@@ -242,7 +242,19 @@ $env:JAVA_BIN
     }
     else
     {
-        $proc = Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -PassThru -WindowStyle Hidden
+        $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+        $pinfo.FileName = "$cmd"
+        $pinfo.RedirectStandardInput = $true
+        $pinfo.RedirectStandardError = $true
+        $pinfo.RedirectStandardOutput = $true
+        $pinfo.UseShellExecute = $false
+        $pinfo.Arguments = $arg1,$arg2,$arg3,"$arg4"
+
+        $proc = New-Object System.Diagnostics.Process
+        $proc.StartInfo = $pinfo
+        $proc.Start() | Out-Null
+
+        #$proc = Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -PassThru -WindowStyle Hidden
 
         # Always store the pid, even if we're not registering it with the server
         # The startup script uses this pid file as a protection against duplicate startup from the same folder
