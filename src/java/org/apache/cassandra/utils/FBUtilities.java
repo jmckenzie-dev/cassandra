@@ -73,14 +73,7 @@ public class FBUtilities
     private static volatile InetAddress localInetAddress;
     private static volatile InetAddress broadcastInetAddress;
 
-    private static boolean isUnix = false;
-
-    static
-    {
-        String os = System.getProperty("os.name").toLowerCase();
-        if (os.contains("nix") || os.contains("nux") || os.contains("aix"))
-            isUnix = true;
-    }
+    private static final boolean isWindows = System.getProperty("os.name").startsWith("Windows");
 
     public static int getAvailableProcessors()
     {
@@ -698,6 +691,7 @@ public class FBUtilities
 
     public static boolean isUnix()
     {
-        return isUnix;
+        logger.error("isWindows check - property: " + System.getProperty("os.name"));
+        return !isWindows;
     }
 }
