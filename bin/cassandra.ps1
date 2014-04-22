@@ -220,13 +220,11 @@ $env:JAVA_BIN
             "*****************************************************************************************"
             "*****************************************************************************************"
             "Warning!  Running cassandra.bat -f on cygwin breaks control+c functionality.  You'll need"
-            " to use stop-server.bat -p ../pid.txt to stop your server or kill the java.exe"
-            " instance."
+            " to use stop-server.bat -p ../pid.txt to stop your server or kill the java.exe instance."
             "*****************************************************************************************"
             "*****************************************************************************************"
-
-            # Note: we can't pause here and force user confirmation for the same reason - input is
-            # intercepted by cygwin and not passed to the script
+            # Note: we can't pause here and force user confirmation for a similar reason as there's a
+            # layer of indirection between powershell and stdin.
         }
 
         $pinfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -242,19 +240,7 @@ $env:JAVA_BIN
     }
     else
     {
-        $pinfo = New-Object System.Diagnostics.ProcessStartInfo
-        $pinfo.FileName = "$cmd"
-        $pinfo.RedirectStandardInput = $true
-        $pinfo.RedirectStandardError = $true
-        $pinfo.RedirectStandardOutput = $true
-        $pinfo.UseShellExecute = $false
-        $pinfo.Arguments = $arg1,$arg2,$arg3,"$arg4"
-
-        $proc = New-Object System.Diagnostics.Process
-        $proc.StartInfo = $pinfo
-        $proc.Start() | Out-Null
-
-        #$proc = Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -PassThru -WindowStyle Hidden
+        $proc = Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -PassThru -WindowStyle Hidden
 
         # Always store the pid, even if we're not registering it with the server
         # The startup script uses this pid file as a protection against duplicate startup from the same folder
