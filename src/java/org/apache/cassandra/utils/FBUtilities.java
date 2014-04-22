@@ -691,7 +691,6 @@ public class FBUtilities
 
     public static boolean isUnix()
     {
-        logger.error("isWindows check - property: " + System.getProperty("os.name"));
         return !isWindows;
     }
 }
