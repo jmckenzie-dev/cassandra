@@ -98,13 +98,6 @@ Function KillProcess
             // running the batch file.
             public static void StopProgram(int pidToKill, int consolePid, bool silent)
             {
-                if (!FreeConsole())
-                {
-                    if (!silent)
-                        System.Console.WriteLine("Failed to FreeConsole to attach to running cassandra process.  Aborting.");
-                    return;
-                }
-
                 Process proc = null;
                 try
                 {
@@ -114,6 +107,13 @@ Function KillProcess
                 {
                     if (!silent)
                         System.Console.WriteLine("Process " + pidToKill + " not found.  Aborting.");
+                    return;
+                }
+
+                if (!FreeConsole())
+                {
+                    if (!silent)
+                        System.Console.WriteLine("Failed to FreeConsole to attach to running cassandra process.  Aborting.");
                     return;
                 }
 
