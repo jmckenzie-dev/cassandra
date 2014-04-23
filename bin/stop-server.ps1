@@ -151,7 +151,15 @@ Function KillProcess
         }
     }
 "@
+    # cygwin assumes environment variables are case sensitive which causes problems when
+    # the type dictionary references 'tmp' or 'temp' and throws a System.ArgumentException
+    $oldTmp = $env:TMP
+    $oldTemp = $env:Temp
+    $env:TMP=''
+    $env:TEMP=''
     Add-Type -TypeDefinition $t
+    $env:TMP = $oldTmp
+    $env:TEMP = $oldTemp
 
     $a = Get-Content $p
     # If run in cygwin, we don't get the TITLE / pid combo in stop-server.bat but also don't need

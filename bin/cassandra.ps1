@@ -188,7 +188,9 @@ $env:JAVA_BIN
 "$env:CASSANDRA_MAIN"
 "@
 
-    # needed for arg list on Start-Process internals
+    # Start-Process internals uses 'tmp' and 'temp' as Dictionary keys which causes issues
+    # when these are already defined as environment variables.  Throws a System.ArgumentException
+    # unless we clear these variables before calling Start-Process.
     $env:TMP=''
     $env:TEMP=''
     $proc = $null
