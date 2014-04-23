@@ -65,7 +65,7 @@ Function CalculateHeapSizes
         exit 1
     }
 
-    $memObject = Get-Ciminstance -class "cim_physicalmemory"
+    $memObject = Get-WMIObject -class win32_physicalmemory
     $memory = ($memObject | Measure-Object Capacity -Sum).sum
     $memoryMB = $memory / (1024*1024)
 
