@@ -77,11 +77,11 @@ Function Main
     # Other command line params
     if ($H)
     {
-        $env:JAVA_OPTS = $env:JAVA_OPTS + " -XX:HeapDumpPath=$H"
+        $env:JVM_OPTS = $env:JVM_OPTS + " -XX:HeapDumpPath=$H"
     }
     if ($E)
     {
-        $env:JAVA_OPTS = $env:JAVA_OPTS + " -XX:ErrorFile=$E"
+        $env:JVM_OPTS = $env:JVM_OPTS + " -XX:ErrorFile=$E"
     }
     if ($p)
     {
@@ -135,7 +135,7 @@ Function HandleInstallation
  --Classpath=$env:CLASSPATH
  --StartMode=jvm --StartClass=$env:CASSANDRA_MAIN --StartMethod=main
  --StopMode=jvm --StopClass=$env:CASSANDRA_MAIN  --StopMethod=stop
- ++JvmOptions=$env:JAVA_OPTS ++JvmOptions=-DCassandra
+ ++JvmOptions=$env:JVM_OPTS ++JvmOptions=-DCassandra
  --PidFile pid.txt
 "@
     $args = $args -replace [Environment]::NewLine, ""
