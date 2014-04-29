@@ -188,11 +188,6 @@ $env:JAVA_BIN
 "$env:CASSANDRA_MAIN"
 "@
 
-    # Start-Process internals uses 'tmp' and 'temp' as Dictionary keys which causes issues
-    # when these are already defined as environment variables.  Throws a System.ArgumentException
-    # unless we clear these variables before calling Start-Process.
-    $env:TMP=''
-    $env:TEMP=''
     $proc = $null
 
     if ($verbose)
@@ -218,13 +213,14 @@ $env:JAVA_BIN
             # if running on cygwin, we cannot capture ctrl+c signals as mintty traps them and then
             # SIGKILLs processes, so we'll need to record our pid.txt file for future
             # stop-server usage
-            $env:CASSANDRA_PARAMS = $env:CASSANDRA_PARAMS + " -Dcassandra-pidfile=$p"
-            "*****************************************************************************************"
-            "*****************************************************************************************"
-            "Warning!  Running cassandra.bat -f on cygwin breaks control+c functionality.  You'll need"
-            " to use stop-server.bat -p ../pid.txt to stop your server or kill the java.exe instance."
-            "*****************************************************************************************"
-            "*****************************************************************************************"
+            $arg2 = $arg2 + " -Dcassandra-pidfile=$p"
+            "*********************************************************************"
+            "*********************************************************************"
+            "Warning!  Running cassandra.bat -f on cygwin usually breaks control+c"
+            "functionality.  You'll need to use stop-server.bat -p ../pid.txt to"
+            "stop your server or kill the java.exe instance."
+            "*********************************************************************"
+            "*********************************************************************"
             # Note: we can't pause here and force user confirmation for a similar reason as there's a
             # layer of indirection between powershell and stdin.
         }
@@ -242,7 +238,7 @@ $env:JAVA_BIN
     }
     else
     {
-        $proc = Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,"$arg4" -PassThru -WindowStyle Hidden
+        $proc = Start-Process -FilePath "$cmd" -ArgumentList $arg1,$arg2,$arg3,$arg4 -PassThru -WindowStyle Hidden
 
         # Always store the pid, even if we're not registering it with the server
         # The startup script uses this pid file as a protection against duplicate startup from the same folder
