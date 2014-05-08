@@ -254,10 +254,10 @@ public class CliTest extends SchemaLoader
             // System.out.println("Result:\n" + result);
             if (statement.startsWith("show schema"))
             {
-                String newLineString = FBUtilities.isUnix() ? "\n" : "\r\n";
+                String nl = FBUtilities.isUnix() ? "\n" : "\r\n";
                 assertEquals(errStream.toString() + "processing" + statement,
-                             "\nWARNING: CQL3 tables are intentionally omitted from 'show schema' output." + newLineString
-                             + "See https://issues.apache.org/jira/browse/CASSANDRA-4377 for details.\n" + newLineString,
+                             "\nWARNING: CQL3 tables are intentionally omitted from 'show schema' output." + nl
+                             + "See https://issues.apache.org/jira/browse/CASSANDRA-4377 for details.\n" + nl,
                              errStream.toString());
             }
             else
