@@ -22,6 +22,7 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.service.EmbeddedCassandraService;
 import org.apache.cassandra.thrift.*;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.thrift.TException;
 import org.junit.Test;
 
@@ -252,10 +253,13 @@ public class CliTest extends SchemaLoader
             String result = outStream.toString();
             // System.out.println("Result:\n" + result);
             if (statement.startsWith("show schema"))
+            {
+                String newLineString = FBUtilities.isUnix() ? "\n" : "\r\n";
                 assertEquals(errStream.toString() + "processing" + statement,
-                             "\nWARNING: CQL3 tables are intentionally omitted from 'show schema' output.\n"
-                             + "See https://issues.apache.org/jira/browse/CASSANDRA-4377 for details.\n\n",
+                             "\nWARNING: CQL3 tables are intentionally omitted from 'show schema' output." + newLineString
+                             + "See https://issues.apache.org/jira/browse/CASSANDRA-4377 for details.\n" + newLineString,
                              errStream.toString());
+            }
             else
                 assertEquals(errStream.toString() + " processing " + statement, "", errStream.toString());
 
