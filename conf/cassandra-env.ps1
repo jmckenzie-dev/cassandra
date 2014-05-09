@@ -187,7 +187,7 @@ Function SetCassandraEnvironment
     }
     SetCassandraHome
     $env:CASSANDRA_CONF = "$env:CASSANDRA_HOME/conf"
-    $env:CASSANDRA_PARAMS="-Dcassandra -Dcassandra-foreground=yes"
+    $env:CASSANDRA_PARAMS="-Dcassandra -Dlogback.configurationFile=logback.xml"
     SetCassandraMain
     BuildClassPath
 

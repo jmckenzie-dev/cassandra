@@ -233,6 +233,8 @@ to stop your server or kill the java.exe instance.
             # layer of indirection between powershell and stdin.
         }
 
+        $arg2 = $arg2 + " -Dcassandra-foreground=yes"
+
         $pinfo = New-Object System.Diagnostics.ProcessStartInfo
         $pinfo.FileName = "$env:JAVA_BIN"
         $pinfo.RedirectStandardInput = $true
