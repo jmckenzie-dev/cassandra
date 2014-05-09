@@ -24,6 +24,8 @@ param (
     [string]$E
 )
 
+$pidfile = "pid.txt"
+
 #-----------------------------------------------------------------------------
 Function ValidateArguments
 {
@@ -73,6 +75,7 @@ Function Main
     . $conf
 
     SetCassandraEnvironment
+    $pidfile = "$env:CASSANDRA_HOME/$pidfile"
 
     # Other command line params
     if ($H)
@@ -85,7 +88,8 @@ Function Main
     }
     if ($p)
     {
-        $env:CASSANDRA_PARAMS = $env:CASSANDRA_PARAMS + " -Dcassandra-pidfile=$p"
+        $pidfile = "$p"
+        $env:CASSANDRA_PARAMS = $env:CASSANDRA_PARAMS + " -Dcassandra-pidfile=$pidfile"
     }
 
     if ($install -or $uninstall)
@@ -136,7 +140,7 @@ Function HandleInstallation
  --StartMode=jvm --StartClass=$env:CASSANDRA_MAIN --StartMethod=main
  --StopMode=jvm --StopClass=$env:CASSANDRA_MAIN  --StopMethod=stop
  ++JvmOptions=$env:JVM_OPTS ++JvmOptions=-DCassandra
- --PidFile pid.txt
+ --PidFile $pidfile
 "@
     $args = $args -replace [Environment]::NewLine, ""
     $proc = Start-Process -FilePath "$env:PRUNSRV" -ArgumentList $args -PassThru -WindowStyle Hidden
@@ -147,8 +151,6 @@ Function HandleInstallation
 #-----------------------------------------------------------------------------
 Function CleanOldRun
 {
-    $pidfile = "$env:CASSANDRA_HOME/pid.txt"
-
     # see if we already have an instance of cassandra running from this folder
     if (Test-Path $pidfile)
     {
@@ -211,16 +213,22 @@ $env:JAVA_BIN
         if ($cygwin)
         {
             # if running on cygwin, we cannot capture ctrl+c signals as mintty traps them and then
-            # SIGKILLs processes, so we'll need to record our pid.txt file for future
+            # SIGKILLs processes, so we'll need to record our $pidfile file for future
             # stop-server usage
-            $arg2 = $arg2 + " -Dcassandra-pidfile=$p"
-            "*********************************************************************"
-            "*********************************************************************"
-            "Warning!  Running cassandra.bat -f on cygwin usually breaks control+c"
-            "functionality.  You'll need to use stop-server.bat -p ../pid.txt to"
-            "stop your server or kill the java.exe instance."
-            "*********************************************************************"
-            "*********************************************************************"
+            if (!$p)
+            {
+                $arg2 = $arg2 + " -Dcassandra-pidfile=$pidfile"
+            }
+            echo @"
+*********************************************************************
+*********************************************************************
+Warning!  Running cassandra.bat -f on cygwin usually breaks control+c
+functionality.  You'll need to use:
+    stop-server.bat -p $pidfile
+to stop your server or kill the java.exe instance.
+*********************************************************************
+*********************************************************************"
+"@
             # Note: we can't pause here and force user confirmation for a similar reason as there's a
             # layer of indirection between powershell and stdin.
         }
@@ -233,7 +241,7 @@ $env:JAVA_BIN
         $p = New-Object System.Diagnostics.Process
         $p.StartInfo = $pinfo
         $p.Start() | Out-Null
-        echo $p.Id > $env:CASSANDRA_HOME/pid.txt
+        echo $p.Id > $pidfile
         $p.WaitForExit()
     }
     else
@@ -242,7 +250,17 @@ $env:JAVA_BIN
 
         # Always store the pid, even if we're not registering it with the server
         # The startup script uses this pid file as a protection against duplicate startup from the same folder
-        echo $proc.Id > $env:CASSANDRA_HOME/pid.txt
+        try
+        {
+            echo $proc.Id > $pidfile
+        }
+        catch
+        {
+            echo @"
+WARNING! Failed to write pidfile to $pidfile.  stop-server.bat and
+    startup protection will not be available.
+"@
+        }
 
         $cassPid = $proc.Id
         if (-Not ($proc) -or $cassPid -eq "")
