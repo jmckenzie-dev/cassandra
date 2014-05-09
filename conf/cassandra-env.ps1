@@ -23,7 +23,7 @@ Function SetCassandraHome()
     {
         $cwd = [System.IO.Directory]::GetCurrentDirectory()
         $cwd = Split-Path $cwd -parent
-        $env:CASSANDRA_HOME = $cwd -replace "\\", "/"
+        $env:CASSANDRA_HOME= $cwd -replace "\\", "/"
     }
 }
 
@@ -186,7 +186,7 @@ Function SetCassandraEnvironment
         exit
     }
     SetCassandraHome
-    $env:CASSANDRA_CONF = "$env:CASSANDRA_HOME/conf"
+    $env:CASSANDRA_CONF= "$env:CASSANDRA_HOME/conf"
     $env:CASSANDRA_PARAMS="-Dcassandra -Dlogback.configurationFile=logback.xml"
     SetCassandraMain
     BuildClassPath
