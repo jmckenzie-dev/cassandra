@@ -23,7 +23,7 @@ Function SetCassandraHome()
     {
         $cwd = [System.IO.Directory]::GetCurrentDirectory()
         $cwd = Split-Path $cwd -parent
-        $env:CASSANDRA_HOME = $cwd -replace "\\", "/"
+        $env:CASSANDRA_HOME= $cwd -replace "\\", "/"
     }
 }
 
