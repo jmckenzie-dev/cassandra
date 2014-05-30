@@ -21,7 +21,6 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.collect.*;
 import org.slf4j.Logger;
@@ -108,7 +107,7 @@ import org.apache.cassandra.utils.Pair;
  *       session is done is is closed (closeSession()). Otherwise, the node switch to the WAIT_COMPLETE state and
  *       send a CompleteMessage to the other side.
  */
-public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDetectionEventListener
+public class StreamSession implements IEndpointStateChangeSubscriber
 {
     private static final Logger logger = LoggerFactory.getLogger(StreamSession.class);
     public final InetAddress peer;
@@ -128,8 +127,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
     public final ConnectionHandler handler;
 
     private int retries;
-
-    private AtomicBoolean isAborted = new AtomicBoolean(false);
 
     public static enum State
     {
@@ -181,10 +178,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
     public void init(StreamResultFuture streamResult)
     {
         this.streamResult = streamResult;
-
-        // register to gossiper/FD to fail on node failure
-        Gossiper.instance.register(this);
-        FailureDetector.instance.registerFailureDetectionEventListener(this);
     }
 
     public void start()
@@ -342,26 +335,21 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
         }
     }
 
-    private synchronized void closeSession(State finalState)
+    private void closeSession(State finalState)
     {
-        if (isAborted.compareAndSet(false, true))
+        state(finalState);
+
+        if (finalState == State.FAILED)
         {
-            state(finalState);
-
-            if (finalState == State.FAILED)
-            {
-                for (StreamTask task : Iterables.concat(receivers.values(), transfers.values()))
-                    task.abort();
-            }
-
-            // Note that we shouldn't block on this close because this method is called on the handler
-            // incoming thread (so we would deadlock).
-            handler.close();
-
-            Gossiper.instance.unregister(this);
-            FailureDetector.instance.unregisterFailureDetectionEventListener(this);
-            streamResult.handleSessionComplete(this);
+            for (StreamTask task : Iterables.concat(receivers.values(), transfers.values()))
+                task.abort();
         }
+
+        // Note that we shouldn't block on this close because this method is called on the handler
+        // incoming thread (so we would deadlock).
+        handler.close();
+
+        streamResult.handleSessionComplete(this);
     }
 
     /**
@@ -613,23 +601,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDe
 
     public void onRemove(InetAddress endpoint)
     {
-        convict(endpoint, Double.MAX_VALUE);
+        closeSession(State.FAILED);
     }
 
     public void onRestart(InetAddress endpoint, EndpointState epState)
     {
-        convict(endpoint, Double.MAX_VALUE);
-    }
-
-    public void convict(InetAddress endpoint, double phi)
-    {
-        if (!endpoint.equals(peer))
-            return;
-
-        // We want a higher confidence in the failure detection than usual because failing a streaming wrongly has a high cost.
-        if (phi < 2 * DatabaseDescriptor.getPhiConvictThreshold())
-            return;
-
         closeSession(State.FAILED);
     }
 
