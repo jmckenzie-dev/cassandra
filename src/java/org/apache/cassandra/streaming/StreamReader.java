@@ -122,9 +122,18 @@ public class StreamReader
     protected void drain(InputStream dis, long bytesRead) throws IOException
     {
         long toSkip = totalSize() - bytesRead;
-        toSkip = toSkip - dis.skip(toSkip);
+        long skipped = dis.skip(toSkip);
+        if (skipped == -1)
+            return;
+
+        toSkip = toSkip - skipped;
         while (toSkip > 0)
-            toSkip = toSkip - dis.skip(toSkip);
+        {
+            skipped = dis.skip(toSkip);
+            if (skipped == -1)
+                break;
+            toSkip = toSkip - skipped;
+        }
     }
 
     protected long totalSize()
