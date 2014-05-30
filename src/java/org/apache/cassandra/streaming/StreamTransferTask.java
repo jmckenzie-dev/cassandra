@@ -99,7 +99,7 @@ public class StreamTransferTask extends StreamTask
         return new ArrayList<>(files.values());
     }
 
-    public OutgoingFileMessage createMessageForRetry(int sequenceNumber)
+    public synchronized OutgoingFileMessage createMessageForRetry(int sequenceNumber)
     {
         // remove previous time out task to be rescheduled later
         ScheduledFuture future = timeoutTasks.get(sequenceNumber);
