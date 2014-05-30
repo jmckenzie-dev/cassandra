@@ -103,7 +103,8 @@ public class StreamTransferTask extends StreamTask
     {
         // remove previous time out task to be rescheduled later
         ScheduledFuture future = timeoutTasks.get(sequenceNumber);
-        future.cancel(false);
+        if (future != null)
+            future.cancel(false);
         return files.get(sequenceNumber);
     }
 
