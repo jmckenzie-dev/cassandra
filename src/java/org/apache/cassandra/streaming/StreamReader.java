@@ -122,6 +122,8 @@ public class StreamReader
     protected void drain(InputStream dis, long bytesRead) throws IOException
     {
         long toSkip = totalSize() - bytesRead;
+
+        // InputStream.skip returns -1 during an exception call where the stream is no longer valid
         long skipped = dis.skip(toSkip);
         if (skipped == -1)
             return;
