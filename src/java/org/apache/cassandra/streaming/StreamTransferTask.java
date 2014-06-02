@@ -20,7 +20,6 @@ package org.apache.cassandra.streaming;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.streaming.messages.OutgoingFileMessage;
@@ -34,7 +33,6 @@ public class StreamTransferTask extends StreamTask
     private final ScheduledExecutorService timeoutExecutor = Executors.newSingleThreadScheduledExecutor();
 
     private final AtomicInteger sequenceNumber = new AtomicInteger(0);
-    private AtomicBoolean aborted = new AtomicBoolean(false);
 
     private final Map<Integer, OutgoingFileMessage> files = new ConcurrentHashMap<>();
 
@@ -77,15 +75,11 @@ public class StreamTransferTask extends StreamTask
 
     public void abort()
     {
-        // Prevent releasing reference multiple times
-        if (aborted.compareAndSet(false, true))
+        for (OutgoingFileMessage file : files.values())
         {
-            for (OutgoingFileMessage file : files.values())
-            {
-                file.sstable.releaseReference();
-            }
-            timeoutExecutor.shutdownNow();
+            file.sstable.releaseReference();
         }
+        timeoutExecutor.shutdownNow();
     }
 
     public int getTotalNumberOfFiles()

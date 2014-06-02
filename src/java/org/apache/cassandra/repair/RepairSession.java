@@ -312,7 +312,6 @@ public class RepairSession extends WrappedRunnable implements IEndpointStateChan
         {
             // mark this session as terminated
             terminate();
-
             ActiveRepairService.instance.removeFromActiveSessions(this);
 
             // If we've reached here in an exception state without completing Merkle Tree sync, we'll still be registered
