@@ -110,24 +110,37 @@ Function Main
 #-----------------------------------------------------------------------------
 Function HandleInstallation
 {
-    If (-NOT ([Security.Principal.WindowsPrincipal]
-    [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(`[Security.Principal.WindowsBuiltInRole] "Administrator"))
+    $SERVICE_JVM = "cassandra"
+    $PATH_PRUNSRV = "$env:CASSANDRA_HOME\bin\daemon"
+    $PR_LOGPATH = $serverPath
+
+    if (-Not (Test-Path $PATH_PRUNSRV\prunsrv.exe))
+    {
+        Write-Warning "Cannot find $PATH_PRUNSRV\prunsrv.exe.  Please download package from http://www.apache.org/dist/commons/daemon/binaries/windows/ to install as a service."
+        Break
+    }
+
+    If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
     {
         Write-Warning "Cannot perform installation without admin credentials.  Please re-run as administrator."
         Break
     }
-    $SERVICE_JVM = "cassandra"
-    $PATH_PRUNSRV = "$env:CASSANDRA_HOME/bin/daemon/"
-    $PR_LOGPATH = $serverPath
-
     if (!$env:PRUNSRV)
     {
         $env:PRUNSRV="$PATH_PRUNSRV/prunsrv"
     }
 
+    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\"
+
     echo "Attempting to delete existing $SERVICE_JVM service..."
     Start-Sleep -s 2
     $proc = Start-Process -FilePath "$env:PRUNSRV" -ArgumentList "//DS//$SERVICE_JVM" -PassThru -WindowStyle Hidden
+
+    if (Test-Path $regPath\KeepAliveTime)
+    {
+        echo "Reverting to default TCP keepalive settings (2 hour timeout)"
+        Remove-ItemProperty -Path $regPath -Name KeepAliveTime
+    }
 
     # Quit out if this is uninstall only
     if ($uninstall)
@@ -135,12 +148,21 @@ Function HandleInstallation
         return
     }
 
-    echo "Installing [$SERVICE_JVM]. If you get registry warnings, re-run as an Administrator"
+    echo "Installing [$SERVICE_JVM]."
     Start-Sleep -s 2
     $proc = Start-Process -FilePath "$env:PRUNSRV" -ArgumentList "//IS//$SERVICE_JVM" -PassThru -WindowStyle Hidden
 
-    echo "Setting the parameters for [$SERVICE_JVM]"
+    echo "Setting launch parameters for [$SERVICE_JVM]"
     Start-Sleep -s 2
+
+    echo "Setting up params with JVM_OPTS: $env:JVM_OPTS"
+
+    # Change delim from " -" to ";-" in JVM_OPTS for prunsrv
+    $env:JVM_OPTS = $env:JVM_OPTS -replace " -", ";-"
+    $env:JVM_OPTS = $env:JVM_OPTS -replace " -", ";-"
+
+    # Strip off leading ; if it's there
+    $env:JVM_OPTS = $env:JVM_OPTS.TrimStart(";")
 
     # Broken multi-line for convenience - glued back together in a bit
     $args = @"
@@ -153,10 +175,11 @@ Function HandleInstallation
  --PidFile $pidfile
 "@
     $args = $args -replace [Environment]::NewLine, ""
+    echo "installing service with command: [$env:PRUNSRV $args]"
     $proc = Start-Process -FilePath "$env:PRUNSRV" -ArgumentList $args -PassThru -WindowStyle Hidden
 
-    echo "Setting KeepAliveTimer to 5 minutes for TCP keepalive timeout"
-    Set-ItemProperty -Path "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\ -Name KeepAliveTime -Value 1200000
+    echo "Setting KeepAliveTimer to 5 minutes for TCP keepalive"
+    Set-ItemProperty -Path $regPath -Name KeepAliveTime -Value 300000
 
     echo "Installation of [$SERVICE_JVM] is complete"
 }
