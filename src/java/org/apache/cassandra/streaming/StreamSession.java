@@ -108,7 +108,7 @@ import org.apache.cassandra.utils.Pair;
  *       session is done is is closed (closeSession()). Otherwise, the node switch to the WAIT_COMPLETE state and
  *       send a CompleteMessage to the other side.
  */
-public class StreamSession implements IEndpointStateChangeSubscriber
+public class StreamSession implements IEndpointStateChangeSubscriber, IFailureDetectionEventListener
 {
     private static final Logger logger = LoggerFactory.getLogger(StreamSession.class);
     public final InetAddress peer;
@@ -181,6 +181,10 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     public void init(StreamResultFuture streamResult)
     {
         this.streamResult = streamResult;
+
+        // register to gossiper/FD to fail on node failure
+        Gossiper.instance.register(this);
+        FailureDetector.instance.registerFailureDetectionEventListener(this);
     }
 
     public void start()
@@ -354,6 +358,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             // incoming thread (so we would deadlock).
             handler.close();
 
+            Gossiper.instance.unregister(this);
+            FailureDetector.instance.unregisterFailureDetectionEventListener(this);
             streamResult.handleSessionComplete(this);
         }
     }
@@ -607,11 +613,23 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public void onRemove(InetAddress endpoint)
     {
-        closeSession(State.FAILED);
+        convict(endpoint, Double.MAX_VALUE);
     }
 
     public void onRestart(InetAddress endpoint, EndpointState epState)
     {
+        convict(endpoint, Double.MAX_VALUE);
+    }
+
+    public void convict(InetAddress endpoint, double phi)
+    {
+        if (!endpoint.equals(peer))
+            return;
+
+        // We want a higher confidence in the failure detection than usual because failing a streaming wrongly has a high cost.
+        if (phi < 2 * DatabaseDescriptor.getPhiConvictThreshold())
+            return;
+
         closeSession(State.FAILED);
     }
 

@@ -52,10 +52,6 @@ public interface UpdateFunction<V> extends Function<V, V>
         {
             return INSTANCE;
         }
-        
-        private NoOp()
-        {
-        }
 
         public V apply(V replacing, V update)
         {

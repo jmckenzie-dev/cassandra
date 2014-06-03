@@ -108,7 +108,7 @@ public class FileCacheService
             }
         };
 
-        cache = CacheBuilder.newBuilder()
+        cache = CacheBuilder.<String, Queue<RandomAccessReader>>newBuilder()
                 .expireAfterAccess(AFTER_ACCESS_EXPIRATION, TimeUnit.MILLISECONDS)
                 .concurrencyLevel(DatabaseDescriptor.getConcurrentReaders())
                 .removalListener(onRemove)

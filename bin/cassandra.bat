@@ -26,6 +26,8 @@ pushd %~dp0..
 if NOT DEFINED CASSANDRA_HOME set CASSANDRA_HOME=%CD%
 popd
 
+goto runLegacy
+
 REM -----------------------------------------------------------------------------
 REM See if we have access to run unsigned powershell scripts
 for /F "delims=" %%i in ('powershell Get-ExecutionPolicy') do set PERMISSION=%%i
@@ -118,14 +120,13 @@ echo Installing %SERVICE_JVM%. If you get registry warnings, re-run as an Admini
 "%PRUNSRV%" //IS//%SERVICE_JVM%
 echo Setting the parameters for %SERVICE_JVM%
 rem set PR_CLASSPATH=%CASSANDRA_CLASSPATH%
-echo "Installing with delim jvm opts as: [%JAVA_OPTS_DELM%]"
-rem "%PRUNSRV%" //US//%SERVICE_JVM% ^
-rem  --Jvm=auto --StdOutput auto --StdError auto ^
-rem  --Classpath=%CASSANDRA_CLASSPATH% ^
-rem  --StartMode=jvm --StartClass=%CASSANDRA_MAIN% --StartMethod=main ^
-rem  --StopMode=jvm --StopClass=%CASSANDRA_MAIN%  --StopMethod=stop ^
-rem  ++JvmOptions=%JAVA_OPTS_DELM% ++JvmOptions=-DCassandra ^
-rem  --PidFile pid.txt
+"%PRUNSRV%" //US//%SERVICE_JVM% ^
+ --Jvm=auto --StdOutput auto --StdError auto ^
+ --Classpath=%CASSANDRA_CLASSPATH% ^
+ --StartMode=jvm --StartClass=%CASSANDRA_MAIN% --StartMethod=main ^
+ --StopMode=jvm --StopClass=%CASSANDRA_MAIN%  --StopMethod=stop ^
+ ++JvmOptions=%JAVA_OPTS_DELM% ++JvmOptions=-DCassandra ^
+ --PidFile pid.txt
 
 echo Installation of %SERVICE_JVM% is complete
 goto finally

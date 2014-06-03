@@ -135,6 +135,7 @@ public class ActiveRepairService
 
     public void removeFromActiveSessions(RepairSession session)
     {
+        FailureDetector.instance.unregisterFailureDetectionEventListener(session);
         Gossiper.instance.unregister(session);
         sessions.remove(session.getId());
     }
