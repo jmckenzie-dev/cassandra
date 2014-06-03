@@ -26,8 +26,6 @@ pushd %~dp0..
 if NOT DEFINED CASSANDRA_HOME set CASSANDRA_HOME=%CD%
 popd
 
-goto runLegacy
-
 REM -----------------------------------------------------------------------------
 REM See if we have access to run unsigned powershell scripts
 for /F "delims=" %%i in ('powershell Get-ExecutionPolicy') do set PERMISSION=%%i
@@ -37,7 +35,7 @@ goto runLegacy
 REM -----------------------------------------------------------------------------
 :runPowerShell
 echo Detected powershell execution permissions.  Running with enhanced startup scripts.
-powershell /file %CASSANDRA_HOME%/bin/cassandra.ps1 %*
+powershell /file %CASSANDRA_HOME%\bin\cassandra.ps1 %*
 goto finally
 
 REM -----------------------------------------------------------------------------
