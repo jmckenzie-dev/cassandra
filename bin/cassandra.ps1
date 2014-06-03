@@ -110,6 +110,12 @@ Function Main
 #-----------------------------------------------------------------------------
 Function HandleInstallation
 {
+    If (-NOT ([Security.Principal.WindowsPrincipal]
+    [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(`[Security.Principal.WindowsBuiltInRole] "Administrator"))
+    {
+        Write-Warning "Cannot perform installation without admin credentials.  Please re-run as administrator."
+        Break
+    }
     $SERVICE_JVM = "cassandra"
     $PATH_PRUNSRV = "$env:CASSANDRA_HOME/bin/daemon/"
     $PR_LOGPATH = $serverPath
@@ -148,6 +154,9 @@ Function HandleInstallation
 "@
     $args = $args -replace [Environment]::NewLine, ""
     $proc = Start-Process -FilePath "$env:PRUNSRV" -ArgumentList $args -PassThru -WindowStyle Hidden
+
+    echo "Setting KeepAliveTimer to 5 minutes for TCP keepalive timeout"
+    Set-ItemProperty -Path "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\ -Name KeepAliveTime -Value 1200000
 
     echo "Installation of [$SERVICE_JVM] is complete"
 }
