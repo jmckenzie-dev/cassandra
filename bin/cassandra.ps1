@@ -131,7 +131,6 @@ Function HandleInstallation
     }
 
     $regPath = "HKLM:\SYSTEM\CurrentControlSet\services\Tcpip\Parameters\"
-    $regKey = $regPath + "\KeepAliveTime"
 
     echo "Attempting to delete existing $SERVICE_JVM service..."
     Start-Sleep -s 2
