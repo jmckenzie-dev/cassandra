@@ -38,6 +38,11 @@ public class CompressedPoolingSegmentedFile extends PoolingSegmentedFile impleme
             super(writer);
         }
 
+        public Builder()
+        {
+            super(null);
+        }
+
         public void addPotentialBoundary(long boundary)
         {
             // only one segment in a standard-io file

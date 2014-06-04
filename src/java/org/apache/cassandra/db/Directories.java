@@ -259,20 +259,6 @@ public class Directories
     {
         File path = getWriteableLocationAsFile();
 
-        // Requesting GC has a chance to free space only if we're using mmap and a non SUN jvm
-        if (path == null
-            && (DatabaseDescriptor.getDiskAccessMode() == Config.DiskAccessMode.mmap || DatabaseDescriptor.getIndexAccessMode() == Config.DiskAccessMode.mmap)
-            && !FileUtils.isCleanerAvailable())
-        {
-            logger.info("Forcing GC to free up disk space.  Upgrade to the Oracle JVM to avoid this");
-            StorageService.instance.requestGC();
-            // retry after GCing has forced unmap of compacted SSTables so they can be deleted
-            // Note: GCInspector will do this already, but only sun JVM supports GCInspector so far
-            SSTableDeletingTask.rescheduleFailedTasks();
-            Uninterruptibles.sleepUninterruptibly(10, TimeUnit.SECONDS);
-            path = getWriteableLocationAsFile();
-        }
-
         return path;
     }
 

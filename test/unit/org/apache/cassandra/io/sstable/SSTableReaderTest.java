@@ -34,6 +34,8 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 
 import com.google.common.collect.Sets;
+import org.apache.cassandra.io.util.BufferedPoolingSegmentedFile;
+import org.apache.cassandra.io.util.CompressedPoolingSegmentedFile;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -62,7 +64,6 @@ import org.apache.cassandra.dht.LocalToken;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.util.FileDataInput;
-import org.apache.cassandra.io.util.MmappedSegmentedFile;
 import org.apache.cassandra.io.util.SegmentedFile;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.StorageService;
@@ -126,8 +127,6 @@ public class SSTableReaderTest extends SchemaLoader
     @Test
     public void testSpannedIndexPositions() throws IOException, ExecutionException, InterruptedException
     {
-        MmappedSegmentedFile.MAX_SEGMENT_SIZE = 40; // each index entry is ~11 bytes, so this will generate lots of segments
-
         Keyspace keyspace = Keyspace.open("Keyspace1");
         ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard1");
 
@@ -294,10 +293,10 @@ public class SSTableReaderTest extends SchemaLoader
         SSTableReader sstable = indexCfs.getSSTables().iterator().next();
         assert sstable.first.getToken() instanceof LocalToken;
 
-        SegmentedFile.Builder ibuilder = SegmentedFile.getBuilder(DatabaseDescriptor.getIndexAccessMode());
+        SegmentedFile.Builder ibuilder = new BufferedPoolingSegmentedFile.Builder();
         SegmentedFile.Builder dbuilder = sstable.compression
-                                          ? SegmentedFile.getCompressedBuilder()
-                                          : SegmentedFile.getBuilder(DatabaseDescriptor.getDiskAccessMode());
+                                          ? new CompressedPoolingSegmentedFile.Builder()
+                                          : new BufferedPoolingSegmentedFile.Builder();
         sstable.saveSummary(ibuilder, dbuilder);
 
         SSTableReader reopened = SSTableReader.open(sstable.descriptor);

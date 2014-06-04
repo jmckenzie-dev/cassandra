@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.google.common.collect.Sets;
+import org.apache.cassandra.io.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,12 +57,6 @@ import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.sstable.metadata.MetadataComponent;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
-import org.apache.cassandra.io.util.DataOutputPlus;
-import org.apache.cassandra.io.util.DataOutputStreamAndChannel;
-import org.apache.cassandra.io.util.FileMark;
-import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.io.util.SegmentedFile;
-import org.apache.cassandra.io.util.SequentialWriter;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FilterFactory;
@@ -139,12 +134,12 @@ public class SSTableWriter extends SSTable
                                              descriptor.filenameFor(Component.COMPRESSION_INFO),
                                              metadata.compressionParameters(),
                                              sstableMetadataCollector);
-            dbuilder = SegmentedFile.getCompressedBuilder((CompressedSequentialWriter) dataFile);
+            dbuilder = new CompressedPoolingSegmentedFile.Builder((CompressedSequentialWriter) dataFile);
         }
         else
         {
             dataFile = SequentialWriter.open(new File(getFilename()), new File(descriptor.filenameFor(Component.CRC)));
-            dbuilder = SegmentedFile.getBuilder(DatabaseDescriptor.getDiskAccessMode());
+            dbuilder = new BufferedPoolingSegmentedFile.Builder();
         }
 
         this.sstableMetadataCollector = sstableMetadataCollector;
@@ -543,7 +538,7 @@ public class SSTableWriter extends SSTable
         IndexWriter(long keyCount)
         {
             indexFile = SequentialWriter.open(new File(descriptor.filenameFor(Component.PRIMARY_INDEX)));
-            builder = SegmentedFile.getBuilder(DatabaseDescriptor.getIndexAccessMode());
+            builder = new BufferedPoolingSegmentedFile.Builder();
             summary = new IndexSummaryBuilder(keyCount, metadata.getMinIndexInterval(), Downsampling.BASE_SAMPLING_LEVEL);
             bf = FilterFactory.getFilter(keyCount, metadata.getBloomFilterFpChance(), true);
         }

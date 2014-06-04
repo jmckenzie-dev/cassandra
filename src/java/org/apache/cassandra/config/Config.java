@@ -54,7 +54,6 @@ public class Config
     public volatile Integer max_hint_window_in_ms = 3600 * 1000; // one hour
 
     public SeedProviderDef seed_provider;
-    public DiskAccessMode disk_access_mode = DiskAccessMode.auto;
 
     public DiskFailurePolicy disk_failure_policy = DiskFailurePolicy.ignore;
 
@@ -279,10 +278,7 @@ public class Config
 
     public static enum DiskAccessMode
     {
-        auto,
-        mmap,
-        mmap_index_only,
-        standard,
+        standard
     }
 
     public static enum MemtableAllocationType

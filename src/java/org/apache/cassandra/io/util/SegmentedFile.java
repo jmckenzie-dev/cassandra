@@ -64,26 +64,6 @@ public abstract class SegmentedFile
         this.onDiskLength = onDiskLength;
     }
 
-    /**
-     * @return A SegmentedFile.Builder.
-     */
-    public static Builder getBuilder(Config.DiskAccessMode mode)
-    {
-        return mode == Config.DiskAccessMode.mmap
-               ? new MmappedSegmentedFile.Builder()
-               : new BufferedPoolingSegmentedFile.Builder();
-    }
-
-    public static Builder getCompressedBuilder()
-    {
-        return getCompressedBuilder(null);
-    }
-
-    public static Builder getCompressedBuilder(CompressedSequentialWriter writer)
-    {
-        return new CompressedPoolingSegmentedFile.Builder(writer);
-    }
-
     public abstract FileDataInput getSegment(long position);
 
     /**
@@ -125,12 +105,12 @@ public abstract class SegmentedFile
 
         public void serializeBounds(DataOutput out) throws IOException
         {
-            out.writeUTF(DatabaseDescriptor.getDiskAccessMode().name());
+            out.writeUTF(Config.DiskAccessMode.standard.name());
         }
 
         public void deserializeBounds(DataInput in) throws IOException
         {
-            if (!in.readUTF().equals(DatabaseDescriptor.getDiskAccessMode().name()))
+            if (!in.readUTF().equals(Config.DiskAccessMode.standard))
                 throw new IOException("Cannot deserialize SSTable Summary component because the DiskAccessMode was changed!");
         }
     }
