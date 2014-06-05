@@ -257,9 +257,7 @@ public class Directories
 
     public File getDirectoryForNewSSTables()
     {
-        File path = getWriteableLocationAsFile();
-
-        return path;
+        return getWriteableLocationAsFile();
     }
 
     public File getWriteableLocationAsFile()

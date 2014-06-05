@@ -34,8 +34,6 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 
 import com.google.common.collect.Sets;
-import org.apache.cassandra.io.util.BufferedPoolingSegmentedFile;
-import org.apache.cassandra.io.util.CompressedPoolingSegmentedFile;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -63,6 +61,8 @@ import org.apache.cassandra.dht.LocalPartitioner;
 import org.apache.cassandra.dht.LocalToken;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.io.util.BufferedPoolingSegmentedFile;
+import org.apache.cassandra.io.util.CompressedPoolingSegmentedFile;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.SegmentedFile;
 import org.apache.cassandra.service.CacheService;
