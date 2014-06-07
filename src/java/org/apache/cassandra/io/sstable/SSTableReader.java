@@ -747,7 +747,7 @@ public class SSTableReader extends SSTable
     {
         SegmentedFile.Builder ibuilder = new BufferedPoolingSegmentedFile.Builder();
         SegmentedFile.Builder dbuilder = compression
-                                         ? new CompressedPoolingSegmentedFile.Builder(null)
+                                         ? new CompressedPoolingSegmentedFile.Builder()
                                          : new BufferedPoolingSegmentedFile.Builder();
 
         boolean summaryLoaded = loadSummary(ibuilder, dbuilder);
@@ -1002,7 +1002,7 @@ public class SSTableReader extends SSTable
 
                 SegmentedFile.Builder ibuilder = new BufferedPoolingSegmentedFile.Builder();
                 SegmentedFile.Builder dbuilder = compression
-                                                ? new CompressedPoolingSegmentedFile.Builder(null)
+                                                ? new CompressedPoolingSegmentedFile.Builder()
                                                 : new BufferedPoolingSegmentedFile.Builder();
                 saveSummary(ibuilder, dbuilder, newSummary);
             }
