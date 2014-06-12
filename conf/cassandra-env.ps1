@@ -120,7 +120,6 @@ Function CalculateHeapSizes
     # If on 32-bit JVM, limit heap to 1.5G and young gen to 1/4 that amount
     if ($env:JVM_ARCH.CompareTo("32-bit") -eq 0)
     {
-        echo "MATCHED [32-bit] against: [$env:JVM_ARCH]"
         echo "WARNING!  32-bit architecture supported, limiting heap to 1.5G."
         echo "64-bit JVM recommended for production."
         if ($maxHeapMB -gt 1500)
