@@ -100,18 +100,42 @@ Function CalculateHeapSizes
     }
     $env:MAX_HEAP_SIZE = [System.Convert]::ToString($maxHeapMB) + "M"
 
-    # Young gen: min(max_sensible_per_modern_cpu_core * num_cores, 1/4
+    # Young gen: min(max_sensible_per_modern_cpu_core * num_cores, 1/4)
     $maxYGPerCore = 100
     $maxYGTotal = $maxYGPerCore * $systemCores
     $desiredYG = [Math]::Truncate($maxHeapMB / 4)
 
+    $newGen = 0
     if ($desiredYG -gt $maxYGTotal)
     {
         $env:HEAP_NEWSIZE = [System.Convert]::ToString($maxYGTotal) + "M"
+        $newGen = $maxYGTotal
     }
     else
     {
         $env:HEAP_NEWSIZE = [System.Convert]::ToString($desiredYG) + "M"
+        $newGen = $desiredYG
+    }
+
+    # If on 32-bit JVM, limit heap to 1.5G and young gen to 1/4 that amount
+    if ($env:JVM_ARCH.CompareTo("32-bit") -eq 0)
+    {
+        echo "MATCHED [32-bit] against: [$env:JVM_ARCH]"
+        echo "WARNING!  32-bit architecture supported, limiting heap to 1.5G."
+        echo "64-bit JVM recommended for production."
+        if ($maxHeapMB -gt 1500)
+        {
+            $oldHeap = $maxHeapMB
+            $env:MAX_HEAP_SIZE = "1500M"
+            $maxHeapMB = 1500
+            echo "   Limiting max heap to $env:MAX_HEAP_SIZE (was: $oldHeap)"
+        }
+        if ($newGen -gt ($maxHeapMB / 4))
+        {
+            $oldNewGen = $newGen
+            $env:HEAP_NEWSIZE = [System.Convert]::ToString([Math]::Truncate($maxHeapMB / 4)) + "M"
+            echo "   Limiting young gen to $env:HEAP_NEWSIZE (was: $newGen)"
+        }
     }
 }
 
@@ -206,11 +230,12 @@ Function SetCassandraEnvironment
     # times. If in doubt, and if you do not particularly want to tweak, go
     # 100 MB per physical CPU core.
 
+    ParseJVMInfo
+
     #$env:MAX_HEAP_SIZE="4G"
     #$env:HEAP_NEWSIZE="800M"
     CalculateHeapSizes
 
-    ParseJVMInfo
     # add the jamm javaagent
     if (($env:JVM_VENDOR -ne "OpenJDK") -or ($env:JVM_VERSION.CompareTo("1.6.0") -eq 1) -or
         (($env:JVM_VERSION -eq "1.6.0") -and ($env:JVM_PATCH_VERSION.CompareTo("22") -eq 1)))
