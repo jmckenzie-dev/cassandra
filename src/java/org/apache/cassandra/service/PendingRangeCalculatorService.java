@@ -24,8 +24,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
-import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
-import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
@@ -41,45 +39,82 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.Collection;
-import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class PendingRangeCalculatorService
 {
     public static final PendingRangeCalculatorService instance = new PendingRangeCalculatorService();
 
     private static Logger logger = LoggerFactory.getLogger(PendingRangeCalculatorService.class);
-    private final JMXEnabledThreadPoolExecutor executor = new JMXEnabledThreadPoolExecutor(1, Integer.MAX_VALUE, TimeUnit.SECONDS,
-            new LinkedBlockingQueue<Runnable>(1), new NamedThreadFactory("PendingRangeCalculator"), "internal");
+
+    private final AtomicBoolean updateInProgress = new AtomicBoolean(false);
+    private final PendingRangeThread updateThread = new PendingRangeThread();
 
     public PendingRangeCalculatorService()
     {
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
+        updateThread.run();
     }
 
-    private static class PendingRangeTask implements Runnable
+    private static class PendingRangeThread extends Thread
     {
+        private final Lock lock = new ReentrantLock();
+        private final Condition updating = lock.newCondition();
+
         public void run()
         {
-            long start = System.currentTimeMillis();
-            for (String keyspaceName : Schema.instance.getNonSystemKeyspaces())
+            try
             {
-                calculatePendingRanges(Keyspace.open(keyspaceName).getReplicationStrategy(), keyspaceName);
+                logger.info("Starting PendingRangeCalculatorService.");
+                while (true)
+                {
+                    System.err.println("Awaiting on updating.");
+                    updating.await();
+                    System.err.println("calculating pending ranges for all keyspaces.");
+                    long start = System.currentTimeMillis();
+                    for (String keyspaceName : Schema.instance.getNonSystemKeyspaces())
+                    {
+                        calculatePendingRanges(Keyspace.open(keyspaceName).getReplicationStrategy(), keyspaceName);
+                    }
+                    System.err.println("Signaling complete.");
+                    PendingRangeCalculatorService.instance.completeUpdate();
+                    logger.debug("finished calculation for {} keyspaces in {}ms", Schema.instance.getNonSystemKeyspaces().size(), System.currentTimeMillis() - start);
+                }
             }
-            logger.debug("finished calculation for {} keyspaces in {}ms", Schema.instance.getNonSystemKeyspaces().size(), System.currentTimeMillis() - start);
+            catch (InterruptedException e)
+            {
+                logger.info("Shutting down PendingRangeCalculatorService.");
+            }
+        }
+
+        public void requestUpdate()
+        {
+            updating.signalAll();
         }
     }
 
-    public Future<?> update()
+    private void completeUpdate()
     {
-        return executor.submit(new PendingRangeTask());
+        updateInProgress.compareAndSet(true, false);
+    }
+
+    public void update()
+    {
+        System.err.println("update() called.");
+        // Only signal for a new update if we don't already have one in progress
+        if (updateInProgress.compareAndSet(false, true))
+        {
+            System.err.println("updateInProgress was false - starting it.");
+            updateThread.requestUpdate();
+        }
     }
 
     public void blockUntilFinished()
     {
-        while (true)
+        while (updateInProgress.get() == true)
         {
-            if (executor.getActiveCount() + executor.getPendingTasks() == 0)
-                break;
             try
             {
                 Thread.sleep(100);

@@ -110,6 +110,9 @@ public class MoveTest
         ss.onChange(hosts.get(MOVING_NODE), ApplicationState.STATUS, valueFactory.moving(newToken));
         PendingRangeCalculatorService.instance.blockUntilFinished();
 
+        // sleep briefly to prevent race w/move completing
+        Thread.sleep(100);
+
         assertTrue(tmd.isMoving(hosts.get(MOVING_NODE)));
 
         AbstractReplicationStrategy strategy;
