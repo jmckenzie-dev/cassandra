@@ -107,11 +107,9 @@ public class MoveTest
         Token newToken = positionToken(MOVING_NODE);
 
         // Third node leaves
+        PendingRangeCalculatorService.instance.blockUntilFinished();
         ss.onChange(hosts.get(MOVING_NODE), ApplicationState.STATUS, valueFactory.moving(newToken));
         PendingRangeCalculatorService.instance.blockUntilFinished();
-
-        // sleep briefly to prevent race w/move completing
-        Thread.sleep(100);
 
         assertTrue(tmd.isMoving(hosts.get(MOVING_NODE)));
 
@@ -140,11 +138,12 @@ public class MoveTest
                 	numMoved++;
                 }
             }
-            assertEquals("mismatched number of moved token", numMoved, 1);
+            assertEquals("mismatched number of moved token", 1, numMoved);
         }
 
         // moving endpoint back to the normal state
         ss.onChange(hosts.get(MOVING_NODE), ApplicationState.STATUS, valueFactory.normal(Collections.singleton(newToken)));
+        PendingRangeCalculatorService.instance.blockUntilFinished();
     }
 
     /*
@@ -194,6 +193,8 @@ public class MoveTest
         ss.onChange(boot1,
                     ApplicationState.STATUS,
                     valueFactory.bootstrapping(Collections.<Token>singleton(keyTokens.get(5))));
+        PendingRangeCalculatorService.instance.blockUntilFinished();
+
         InetAddress boot2 = InetAddress.getByName("127.0.1.2");
         Gossiper.instance.initializeNodeUnsafe(boot2, UUID.randomUUID(), 1);
         Gossiper.instance.injectApplicationState(boot2, ApplicationState.TOKENS, valueFactory.tokens(Collections.singleton(keyTokens.get(7))));
