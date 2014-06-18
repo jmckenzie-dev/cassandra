@@ -54,10 +54,7 @@ public class PendingRangeCalculatorService
 
     private AtomicBoolean isUpdating = new AtomicBoolean(false);
 
-    public PendingRangeCalculatorService()
-    {
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
-    }
+    public PendingRangeCalculatorService() { }
 
     private static class PendingRangeTask implements Runnable
     {
