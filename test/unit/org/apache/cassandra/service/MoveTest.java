@@ -80,7 +80,6 @@ public class MoveTest
         final int RING_SIZE = 10;
         final int MOVING_NODE = 3; // index of the moving node
 
-        // PendingRangeCalculatorService.instance.blockUntilFinished();
         TokenMetadata tmd = ss.getTokenMetadata();
         tmd.clearUnsafe();
         VersionedValue.VersionedValueFactory valueFactory = new VersionedValue.VersionedValueFactory(partitioner);
@@ -192,7 +191,7 @@ public class MoveTest
         ss.onChange(boot1,
                     ApplicationState.STATUS,
                     valueFactory.bootstrapping(Collections.<Token>singleton(keyTokens.get(5))));
-        // PendingRangeCalculatorService.instance.blockUntilFinished();
+        PendingRangeCalculatorService.instance.blockUntilFinished();
 
         InetAddress boot2 = InetAddress.getByName("127.0.1.2");
         Gossiper.instance.initializeNodeUnsafe(boot2, UUID.randomUUID(), 1);
