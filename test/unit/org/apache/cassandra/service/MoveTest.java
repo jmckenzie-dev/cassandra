@@ -29,6 +29,7 @@ import static org.junit.Assert.*;
 
 import org.apache.cassandra.gms.Gossiper;
 import org.junit.AfterClass;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -69,6 +70,13 @@ public class MoveTest
         SchemaLoader.stopGossiper();
     }
 
+    @Before
+    public void clearTokenMetadata()
+    {
+        PendingRangeCalculatorService.instance.blockUntilFinished();
+        StorageService.instance.getTokenMetadata().clearUnsafe();
+    }
+
     /*
      * Test whether write endpoints is correct when the node is moving. Uses
      * StorageService.onChange and does not manipulate token metadata directly.
@@ -81,7 +89,6 @@ public class MoveTest
         final int MOVING_NODE = 3; // index of the moving node
 
         TokenMetadata tmd = ss.getTokenMetadata();
-        tmd.clearUnsafe();
         VersionedValue.VersionedValueFactory valueFactory = new VersionedValue.VersionedValueFactory(partitioner);
 
         ArrayList<Token> endpointTokens = new ArrayList<Token>();
@@ -153,7 +160,6 @@ public class MoveTest
         StorageService ss = StorageService.instance;
         final int RING_SIZE = 10;
         TokenMetadata tmd = ss.getTokenMetadata();
-        tmd.clearUnsafe();
         IPartitioner partitioner = new RandomPartitioner();
         VersionedValue.VersionedValueFactory valueFactory = new VersionedValue.VersionedValueFactory(partitioner);
 
@@ -496,7 +502,6 @@ public class MoveTest
     {
         StorageService ss = StorageService.instance;
         TokenMetadata tmd = ss.getTokenMetadata();
-        tmd.clearUnsafe();
         IPartitioner partitioner = new RandomPartitioner();
         VersionedValue.VersionedValueFactory valueFactory = new VersionedValue.VersionedValueFactory(partitioner);
 
