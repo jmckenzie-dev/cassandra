@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.fullcontact.sstable.hadoop.mapreduce;
+package org.apache.cassandra.hadoop.mapreduce;
 
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.Text;
@@ -31,16 +31,15 @@ import java.util.Arrays;
  *
  * @author ben <ben.vanberg@fullcontact.com>
  */
-public class SSTableSplit extends InputSplit implements Writable {
-
+public class SSTableSplit extends InputSplit implements Writable
+{
     private long start;
     private long end;
     private long length;
     private Path file;
     private String[] hosts;
 
-    public SSTableSplit() {
-    }
+    public SSTableSplit() { }
 
     /**
      * Constructs a split with host information
@@ -48,11 +47,13 @@ public class SSTableSplit extends InputSplit implements Writable {
      * @param file  the file name
      * @param hosts the list of hosts containing the block, possibly null
      */
-    public SSTableSplit(Path file, long[] offsets, long length, String[] hosts) {
+    public SSTableSplit(Path file, long[] offsets, long length, String[] hosts)
+    {
         this(file, offsets[0], offsets[offsets.length - 1], length, hosts);
     }
 
-    public SSTableSplit(Path file, long start, long end, long length, String[] hosts) {
+    public SSTableSplit(Path file, long start, long end, long length, String[] hosts)
+    {
         this.file = file;
         this.length = length;
         this.start = start;
@@ -61,7 +62,8 @@ public class SSTableSplit extends InputSplit implements Writable {
     }
 
     @Override
-    public String toString() {
+    public String toString()
+    {
         return "SSTableSplit{" +
                 "start=" + start +
                 ", end=" + end +
@@ -71,17 +73,20 @@ public class SSTableSplit extends InputSplit implements Writable {
                 '}';
     }
 
-    public long getOffsetCount() {
+    public long getOffsetCount()
+    {
         return end - start;
     }
 
     @Override
-    public long getLength() throws IOException, InterruptedException {
+    public long getLength() throws IOException, InterruptedException
+    {
         return length;
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
+    public void write(DataOutput out) throws IOException
+    {
         Text.writeString(out, file.toString());
         out.writeLong(length);
         out.writeLong(start);
@@ -89,7 +94,8 @@ public class SSTableSplit extends InputSplit implements Writable {
     }
 
     @Override
-    public void readFields(DataInput in) throws IOException {
+    public void readFields(DataInput in) throws IOException
+    {
         file = new Path(Text.readString(in));
         length = in.readLong();
         start = in.readLong();
@@ -98,27 +104,35 @@ public class SSTableSplit extends InputSplit implements Writable {
     }
 
     @Override
-    public String[] getLocations() throws IOException {
-        if (this.hosts == null) {
+    public String[] getLocations() throws IOException
+    {
+        if (this.hosts == null)
+        {
             return new String[]{};
-        } else {
+        }
+        else
+        {
             return this.hosts;
         }
     }
 
-    public Path getPath() {
+    public Path getPath()
+    {
         return file;
     }
 
-    public long getStart() {
+    public long getStart()
+    {
         return start;
     }
 
-    public long getEnd() {
+    public long getEnd()
+    {
         return end;
     }
 
-    public int getSize() {
+    public int getSize()
+    {
         return (int) (end - start);
     }
 }

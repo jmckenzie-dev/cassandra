@@ -392,7 +392,9 @@
           <dependency groupId="com.clearspring.analytics" artifactId="stream" version="2.5.2" />
           <dependency groupId="com.datastax.cassandra" artifactId="cassandra-driver-core" version="2.0.1" />
           <dependency groupId="net.sf.supercsv" artifactId="super-csv" version="2.1.0" />
-	  <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations" version="1.2.0" />
+          <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations" version="1.2.0" />
+          <dependency groupId="it.unimi.dsi" artifactId="fastutil" version="6.5.15" />
+          <dependency groupId="net.sf.trove4j" artifactId="trove4j" version="3.0.3" />
         </dependencyManagement>
         <developer id="alakshman" name="Avinash Lakshman"/>
         <developer id="antelder" name="Anthony Elder"/>
@@ -425,6 +427,8 @@
       	<dependency groupId="com.google.code.findbugs" artifactId="jsr305"/>
         <dependency groupId="org.antlr" artifactId="antlr"/>
         <dependency groupId="com.datastax.cassandra" artifactId="cassandra-driver-core"/>
+        <dependency groupId="it.unimi.dsi" artifactId="fastutil" version="6.5.15" />
+        <dependency groupId="net.sf.trove4j" artifactId="trove4j" version="3.0.3" />
 	<dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations"/>
       </artifact:pom>
 
@@ -446,6 +450,7 @@
         <!-- do NOT remove this, it breaks pig-test -->
         <dependency groupId="org.slf4j" artifactId="slf4j-log4j12" version="1.7.2"/>
         <dependency groupId="joda-time" artifactId="joda-time" version="2.3" />
+        <dependency groupId="it.unimi.dsi" artifactId="fastutil" version="6.5.15" />
       </artifact:pom>
 
       <!-- now the pom's for artifacts being deployed to Maven Central -->
@@ -495,6 +500,7 @@
         <dependency groupId="org.apache.hadoop" artifactId="hadoop-minicluster" optional="true"/>
         <dependency groupId="org.apache.pig" artifactId="pig" optional="true"/>
       	<dependency groupId="com.datastax.cassandra" artifactId="cassandra-driver-core" optional="true"/>
+        <dependency groupId="it.unimi.dsi" artifactId="fastutil" version="6.5.15" optional="true"/>
 
         <!-- don't need jna to run, but nice to have -->
         <dependency groupId="net.java.dev.jna" artifactId="jna" version="4.0.0"/>

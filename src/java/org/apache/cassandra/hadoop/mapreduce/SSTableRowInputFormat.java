@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.fullcontact.sstable.hadoop.mapreduce;
+package org.apache.cassandra.hadoop.mapreduce;
 
 import org.apache.cassandra.io.sstable.SSTableIdentityIterator;
 import org.apache.hadoop.mapreduce.InputSplit;
@@ -28,8 +28,8 @@ import java.nio.ByteBuffer;
  *
  * @author ben <ben.vanberg@fullcontact.com>
  */
-public class SSTableRowInputFormat extends SSTableInputFormat<ByteBuffer, SSTableIdentityIterator> {
-
+public class SSTableRowInputFormat extends SSTableInputFormat<ByteBuffer, SSTableIdentityIterator>
+{
     @Override
     public RecordReader<ByteBuffer, SSTableIdentityIterator> createRecordReader(InputSplit split, TaskAttemptContext taskAttempt) {
         return new SSTableRowRecordReader();

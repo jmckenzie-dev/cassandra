@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.fullcontact.sstable.hadoop;
+package org.apache.cassandra.hadoop;
 
 import com.google.common.base.Function;
 import org.apache.hadoop.fs.Path;

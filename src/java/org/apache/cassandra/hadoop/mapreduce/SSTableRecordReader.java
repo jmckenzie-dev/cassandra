@@ -13,19 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.fullcontact.sstable.hadoop.mapreduce;
+package org.apache.cassandra.hadoop.mapreduce;
 
-import com.fullcontact.cassandra.io.compress.CompressedRandomAccessReader;
-import com.fullcontact.cassandra.io.compress.CompressionMetadata;
-import com.fullcontact.cassandra.io.util.RandomAccessReader;
 import com.google.common.base.Preconditions;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cql3.QueryProcessor;
-import org.apache.cassandra.cql3.statements.CreateColumnFamilyStatement;
+import org.apache.cassandra.cql3.statements.CreateTableStatement;
 import org.apache.cassandra.db.ColumnFamilyType;
 import org.apache.cassandra.dht.AbstractPartitioner;
 import org.apache.cassandra.dht.RandomPartitioner;
 import org.apache.cassandra.exceptions.RequestValidationException;
+import org.apache.cassandra.io.compress.CompressedRandomAccessReader;
+import org.apache.cassandra.io.compress.CompressionMetadata;
+import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapreduce.InputSplit;
@@ -36,12 +36,13 @@ import java.io.IOException;
 
 /**
  * Handle reading individual records from an Cassandra SSTable.
- *
+ * <p/>
  * Uses an SSTableSplit in combination with a CompressedRandomAccessReader to read a section of each SSTable.
  *
  * @author ben <ben.vanberg@fullcontact.com>
  */
-public abstract class SSTableRecordReader<K, V> extends RecordReader<K, V> {
+public abstract class SSTableRecordReader<K, V> extends RecordReader<K, V>
+{
 
     private SSTableSplit split;
     private CompressedRandomAccessReader reader;
@@ -52,13 +53,15 @@ public abstract class SSTableRecordReader<K, V> extends RecordReader<K, V> {
     private CFMetaData cfMetaData;
 
     @Override
-    public void initialize(InputSplit inputSplit, TaskAttemptContext context) throws IOException, InterruptedException {
+    public void initialize(InputSplit inputSplit, TaskAttemptContext context) throws IOException, InterruptedException
+    {
         this.split = (SSTableSplit) inputSplit;
 
         final FileSystem fileSystem = FileSystem.get(context.getConfiguration());
         final CompressionMetadata compressionMetadata =
                 CompressionMetadata.create(split.getPath().toString(), fileSystem);
-        if (compressionMetadata == null) {
+        if (compressionMetadata == null)
+        {
             throw new IOException("Compression metadata for file " + split.getPath() + " not found, cannot run");
         }
 
@@ -70,64 +73,81 @@ public abstract class SSTableRecordReader<K, V> extends RecordReader<K, V> {
     }
 
     @Override
-    public K getCurrentKey() throws IOException, InterruptedException {
+    public K getCurrentKey() throws IOException, InterruptedException
+    {
         return key;
     }
 
-    protected void setCurrentKey(K key) {
+    protected void setCurrentKey(K key)
+    {
         this.key = key;
     }
 
     @Override
-    public V getCurrentValue() throws IOException, InterruptedException {
+    public V getCurrentValue() throws IOException, InterruptedException
+    {
         return value;
     }
 
-    protected void setCurrentValue(V value) {
+    protected void setCurrentValue(V value)
+    {
         this.value = value;
     }
 
     @Override
-    public float getProgress() throws IOException, InterruptedException {
-        if (split.getSize() == 0) {
+    public float getProgress() throws IOException, InterruptedException
+    {
+        if (split.getSize() == 0)
+        {
             return 0.0f;
-        } else {
+        }
+        else
+        {
             return Math.min(1.0f, (reader.getFilePointer() - split.getStart()) / (float) (split.getSize()));
         }
     }
 
     @Override
-    public void close() throws IOException {
-        if (reader != null) {
+    public void close() throws IOException
+    {
+        if (reader != null)
+        {
             reader.close();
         }
     }
 
-    protected RandomAccessReader getReader() {
+    protected RandomAccessReader getReader()
+    {
         return reader;
     }
 
-    protected Path getDataPath() {
+    protected Path getDataPath()
+    {
         return split.getPath();
     }
 
-    protected boolean hasMore() {
+    protected boolean hasMore()
+    {
         return reader.getFilePointer() < split.getEnd();
     }
 
-    private static CFMetaData initializeCfMetaData(TaskAttemptContext context) {
+    private static CFMetaData initializeCfMetaData(TaskAttemptContext context)
+    {
         final String cql = context.getConfiguration().get(HadoopSSTableConstants.HADOOP_SSTABLE_CQL);
         Preconditions.checkNotNull(cql, "Cannot proceed without CQL definition.");
 
-        final CreateColumnFamilyStatement statement = getCreateColumnFamilyStatement(cql);
+        final CreateTableStatement statement = getCreateTableStatement(cql);
 
         final String keyspace = context.getConfiguration().get(HadoopSSTableConstants.HADOOP_SSTABLE_KEYSPACE, "default");
         final String columnFamily = context.getConfiguration().get(HadoopSSTableConstants.HADOOP_SSTABLE_COLUMN_FAMILY_NAME, "default");
-        final CFMetaData cfMetaData = new CFMetaData(keyspace, columnFamily, ColumnFamilyType.Standard, statement.comparator, null);
+        final CFMetaData cfMetaData = new CFMetaData(keyspace, columnFamily, ColumnFamilyType.Standard, statement.comparator);
 
-        try {
+        try
+        {
             statement.applyPropertiesTo(cfMetaData);
-        } catch (RequestValidationException e) {
+        }
+        catch (RequestValidationException e)
+        {
             // Cannot proceed if an error occurs
             throw new RuntimeException("Error configuring SSTable reader. Cannot proceed", e);
         }
@@ -135,22 +155,28 @@ public abstract class SSTableRecordReader<K, V> extends RecordReader<K, V> {
         return cfMetaData;
     }
 
-    private static CreateColumnFamilyStatement getCreateColumnFamilyStatement(String cql) {
-        CreateColumnFamilyStatement statement;
-        try {
-            statement = (CreateColumnFamilyStatement) QueryProcessor.parseStatement(cql).prepare().statement;
-        } catch (RequestValidationException e) {
+    private static CreateTableStatement getCreateTableStatement(String cql)
+    {
+        CreateTableStatement statement;
+        try
+        {
+            statement = (CreateTableStatement) QueryProcessor.parseStatement(cql).prepare().statement;
+        }
+        catch (RequestValidationException e)
+        {
             // Cannot proceed if an error occurs
             throw new RuntimeException("Error configuring SSTable reader. Cannot proceed", e);
         }
         return statement;
     }
 
-    protected AbstractPartitioner getPartitioner() {
+    protected AbstractPartitioner getPartitioner()
+    {
         return new RandomPartitioner();
     }
 
-    protected CFMetaData getCfMetaData() {
+    protected CFMetaData getCfMetaData()
+    {
         return this.cfMetaData;
     }
 }

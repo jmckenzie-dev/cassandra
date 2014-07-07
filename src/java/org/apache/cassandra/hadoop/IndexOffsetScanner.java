@@ -13,15 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.fullcontact.sstable.hadoop;
-
-import com.fullcontact.cassandra.io.util.FileUtils;
-import com.google.common.io.Closer;
-import it.unimi.dsi.fastutil.io.FastBufferedInputStream;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
+package org.apache.cassandra.hadoop;
 
 import java.io.BufferedInputStream;
 import java.io.Closeable;
@@ -31,26 +23,39 @@ import java.io.FileInputStream;
 import java.io.IOError;
 import java.io.IOException;
 
+import it.unimi.dsi.fastutil.io.FastBufferedInputStream;
+import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+
+import com.google.common.io.Closer;
+
 /**
  * Index scanner reads offsets from an SSTable index.
  */
-public class IndexOffsetScanner implements Closeable {
-
+public class IndexOffsetScanner implements Closeable
+{
     private final DataInput input;
     private final Closer closer;
 
     /**
      * Hadoop fs based version.
      *
-     * @param filename File name.
+     * @param filename   File name.
      * @param fileSystem File system.
      */
-    public IndexOffsetScanner(final String filename, final FileSystem fileSystem) {
+    public IndexOffsetScanner(final String filename, final FileSystem fileSystem)
+    {
         closer = Closer.create();
-        try {
+        try
+        {
             final FSDataInputStream inputStream = fileSystem.open(new Path(filename));
             this.input = closer.register(new DataInputStream(new FastBufferedInputStream(inputStream)));
-        } catch (IOException e) {
+        }
+        catch (IOException e)
+        {
             throw new IOError(e);
         }
     }
@@ -58,15 +63,19 @@ public class IndexOffsetScanner implements Closeable {
     /**
      * Hadoop fs based version.
      *
-     * @param path File path.
+     * @param path       File path.
      * @param fileSystem File system.
      */
-    public IndexOffsetScanner(final Path path, final FileSystem fileSystem) {
+    public IndexOffsetScanner(final Path path, final FileSystem fileSystem)
+    {
         closer = Closer.create();
-        try {
+        try
+        {
             final FSDataInputStream inputStream = fileSystem.open(path);
             this.input = closer.register(new DataInputStream(new FastBufferedInputStream(inputStream)));
-        } catch (IOException e) {
+        }
+        catch (IOException e)
+        {
             throw new IOError(e);
         }
     }
@@ -76,11 +85,15 @@ public class IndexOffsetScanner implements Closeable {
      *
      * @param filename File name.
      */
-    public IndexOffsetScanner(final String filename) {
+    public IndexOffsetScanner(final String filename)
+    {
         closer = Closer.create();
-        try {
+        try
+        {
             this.input = closer.register(new DataInputStream(new BufferedInputStream(new FileInputStream(filename), 65536 * 10)));
-        } catch (IOException e) {
+        }
+        catch (IOException e)
+        {
             throw new IOError(e);
         }
     }
@@ -88,32 +101,44 @@ public class IndexOffsetScanner implements Closeable {
     /**
      * Close any and all resources.
      */
-    public void close() {
-        try {
+    public void close()
+    {
+        try
+        {
             closer.close();
-        } catch (IOException e) {
+        }
+        catch (IOException e)
+        {
             // ignore
         }
     }
 
     /**
      * Determine if we have a next record.
+     *
      * @return Flag indicating whether we have another record.
      */
-    public boolean hasNext() {
-        try {
+    public boolean hasNext()
+    {
+        try
+        {
             return ((DataInputStream) input).available() != 0;
-        } catch (IOException e) {
+        }
+        catch (IOException e)
+        {
             throw new IOError(e);
         }
     }
 
     /**
      * Get the next offset from the SSTable index.
+     *
      * @return SSTable offset.
      */
-    public long next() {
-        try {
+    public long next()
+    {
+        try
+        {
             ByteBufferUtil.readWithShortLength(input);
 
             final long offset = input.readLong();
@@ -122,19 +147,24 @@ public class IndexOffsetScanner implements Closeable {
             skipPromotedIndex(input);
 
             return offset;
-        } catch (IOException e) {
+        }
+        catch (IOException e)
+        {
             throw new IOError(e);
         }
     }
 
     /**
      * Convenience method for skipping promoted index from SSTable index file.
+     *
      * @param in DataInput.
      * @throws IOException
      */
-    private void skipPromotedIndex(final DataInput in) throws IOException {
+    private void skipPromotedIndex(final DataInput in) throws IOException
+    {
         final int size = in.readInt();
-        if (size <= 0) {
+        if (size <= 0)
+        {
             return;
         }
 

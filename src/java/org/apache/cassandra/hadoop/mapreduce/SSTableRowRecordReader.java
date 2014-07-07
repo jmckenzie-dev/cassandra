@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-package com.fullcontact.sstable.hadoop.mapreduce;
+package org.apache.cassandra.hadoop.mapreduce;
 
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.db.ColumnSerializer;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.io.IColumnSerializer;
 import org.apache.cassandra.io.sstable.SSTableIdentityIterator;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -30,7 +30,8 @@ import java.nio.ByteBuffer;
  *
  * @author ben <ben.vanberg@fullcontact.com>
  */
-public class SSTableRowRecordReader extends SSTableRecordReader<ByteBuffer, SSTableIdentityIterator> {
+public class SSTableRowRecordReader extends SSTableRecordReader<ByteBuffer, SSTableIdentityIterator>
+{
 
     @Override
     public boolean nextKeyValue() throws IOException, InterruptedException {
@@ -59,7 +60,7 @@ public class SSTableRowRecordReader extends SSTableRecordReader<ByteBuffer, SSTa
         final CFMetaData cfMetaData = getCfMetaData();
 
         return new SSTableIdentityIterator(cfMetaData, getReader(), getDataPath().toString(), decoratedKey,
-                getReader().getFilePointer(), dataSize, IColumnSerializer.Flag.LOCAL);
+                getReader().getFilePointer(), false, dataSize, ColumnSerializer.Flag.LOCAL);
     }
 
     private DecoratedKey getDecoratedKey(final ByteBuffer keyBytes) {

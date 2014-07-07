@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.fullcontact.sstable.hadoop.mapreduce;
+package org.apache.cassandra.hadoop.mapreduce;
 
 /**
  * @author ben <ben.vanberg@fullcontact.com>
