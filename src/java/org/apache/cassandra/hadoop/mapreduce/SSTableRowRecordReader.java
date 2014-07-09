@@ -58,9 +58,8 @@ public class SSTableRowRecordReader extends SSTableRecordReader<ByteBuffer, SSTa
     private SSTableIdentityIterator getIdentityIterator(final ByteBuffer keyBytes, final long dataSize) {
         final DecoratedKey decoratedKey = getDecoratedKey(keyBytes);
         final CFMetaData cfMetaData = getCfMetaData();
-
         return new SSTableIdentityIterator(cfMetaData, getReader(), getDataPath().toString(), decoratedKey,
-                getReader().getFilePointer(), false, dataSize, ColumnSerializer.Flag.LOCAL);
+                getReader().getFilePointer(), false, null, ColumnSerializer.Flag.LOCAL);
     }
 
     private DecoratedKey getDecoratedKey(final ByteBuffer keyBytes) {

@@ -65,7 +65,7 @@ public class SSTableIdentityIterator implements Comparable<SSTableIdentityIterat
 
     // sstable may be null *if* checkData is false
     // If it is null, we assume the data is in the current file format
-    private SSTableIdentityIterator(CFMetaData metadata,
+    public SSTableIdentityIterator(CFMetaData metadata,
                                     DataInput in,
                                     String filename,
                                     DecoratedKey key,

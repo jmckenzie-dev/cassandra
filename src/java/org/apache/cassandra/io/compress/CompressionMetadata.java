@@ -51,6 +51,7 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.Memory;
 import org.apache.cassandra.utils.Pair;
+import org.apache.hadoop.fs.FileSystem;
 
 /**
  * Holds metadata about compressed file
@@ -78,8 +79,12 @@ public class CompressionMetadata
      */
     public static CompressionMetadata create(String dataFilePath)
     {
+        return create(dataFilePath, new File(dataFilePath).length());
+    }
+    public static CompressionMetadata create(String dataFilePath, long compressedLength)
+    {
         Descriptor desc = Descriptor.fromFilename(dataFilePath);
-        return new CompressionMetadata(desc.filenameFor(Component.COMPRESSION_INFO), new File(dataFilePath).length(), desc.version.hasPostCompressionAdlerChecksums);
+        return new CompressionMetadata(desc.filenameFor(Component.COMPRESSION_INFO), compressedLength, desc.version.hasPostCompressionAdlerChecksums);
     }
 
     @VisibleForTesting

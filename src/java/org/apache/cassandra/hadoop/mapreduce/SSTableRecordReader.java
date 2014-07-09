@@ -23,6 +23,7 @@ import org.apache.cassandra.db.ColumnFamilyType;
 import org.apache.cassandra.dht.AbstractPartitioner;
 import org.apache.cassandra.dht.RandomPartitioner;
 import org.apache.cassandra.exceptions.RequestValidationException;
+import org.apache.cassandra.hadoop.io.HadoopCompressedRandomAccessReader;
 import org.apache.cassandra.io.compress.CompressedRandomAccessReader;
 import org.apache.cassandra.io.compress.CompressionMetadata;
 import org.apache.cassandra.io.util.RandomAccessReader;
@@ -45,7 +46,7 @@ public abstract class SSTableRecordReader<K, V> extends RecordReader<K, V>
 {
 
     private SSTableSplit split;
-    private CompressedRandomAccessReader reader;
+    private HadoopCompressedRandomAccessReader reader;
 
     private K key;
     private V value;
@@ -58,15 +59,18 @@ public abstract class SSTableRecordReader<K, V> extends RecordReader<K, V>
         this.split = (SSTableSplit) inputSplit;
 
         final FileSystem fileSystem = FileSystem.get(context.getConfiguration());
+
+        String filePath = split.getPath().toString();
         final CompressionMetadata compressionMetadata =
-                CompressionMetadata.create(split.getPath().toString(), fileSystem);
+                CompressionMetadata.create(filePath, fileSystem.getFileStatus(new Path(filePath)).getLen());
+
         if (compressionMetadata == null)
         {
             throw new IOException("Compression metadata for file " + split.getPath() + " not found, cannot run");
         }
 
         // open the file and seek to the start of the split
-        this.reader = CompressedRandomAccessReader.open(split.getPath(), compressionMetadata, false, fileSystem);
+        this.reader = HadoopCompressedRandomAccessReader.open(split.getPath(), compressionMetadata, false, fileSystem);
         this.reader.seek(split.getStart());
 
         this.cfMetaData = initializeCfMetaData(context);
