@@ -69,7 +69,7 @@ public class YamlConfigurationLoader implements ConfigurationLoader
             if (url == null)
             {
                 String required = "file:" + File.separator + File.separator;
-                if (!configUrl.contains(required))
+                if (!configUrl.startsWith(required))
                     throw new ConfigurationException("Expecting URI in variable: [cassandra.config].  Please prefix the file with " + required + File.separator +
                             " for local files or " + required + "<server>" + File.separator + " for remote files.  Aborting.");
                 throw new ConfigurationException("Cannot locate " + configUrl);
