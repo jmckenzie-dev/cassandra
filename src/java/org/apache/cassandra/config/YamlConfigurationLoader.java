@@ -19,6 +19,7 @@ package org.apache.cassandra.config;
 
 import java.beans.IntrospectionException;
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.io.IOException;
 import java.net.URL;
@@ -66,7 +67,13 @@ public class YamlConfigurationLoader implements ConfigurationLoader
             ClassLoader loader = DatabaseDescriptor.class.getClassLoader();
             url = loader.getResource(configUrl);
             if (url == null)
+            {
+                String required = "file:" + File.separator + File.separator;
+                if (!configUrl.contains(required))
+                    throw new ConfigurationException("Expecting URI in variable: [cassandra.config].  Please prefix the file with " + required + File.separator +
+                            " for local files or " + required + "<server>" + File.separator + " for remote files.  Aborting.");
                 throw new ConfigurationException("Cannot locate " + configUrl);
+            }
         }
 
         return url;
