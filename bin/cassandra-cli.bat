@@ -17,6 +17,7 @@
 @echo off
 if "%OS%" == "Windows_NT" setlocal
 
+pushd "%~dp0"
 call cassandra.in.bat
 
 if NOT DEFINED CASSANDRA_HOME set CASSANDRA_HOME=%~dp0..

@@ -16,6 +16,7 @@
 @echo off
 if "%OS%" == "Windows_NT" setlocal
 
+pushd "%~dp0"
 call cassandra.in.bat
 if NOT DEFINED STRESS_HOME set STRESS_HOME=%CD%\..
 "%JAVA_HOME%\bin\java" -cp %CASSANDRA_CLASSPATH% org.apache.cassandra.stress.Stress %*

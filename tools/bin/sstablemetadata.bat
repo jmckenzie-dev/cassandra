@@ -17,6 +17,7 @@
 
 if "%OS%" == "Windows_NT" setlocal
 
+pushd "%~dp0"
 call cassandra.in.bat
 
 "%JAVA_HOME%\bin\java" -cp %CLASSPATH% org.apache.cassandra.tools.SSTableMetadataViewer %*
