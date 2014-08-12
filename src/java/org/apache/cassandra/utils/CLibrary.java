@@ -66,7 +66,7 @@ public final class CLibrary
         catch (UnsatisfiedLinkError e)
         {
             logger.warn("JNA link failure, one or more native method will be unavailable.");
-            logger.debug("JNA link failure details: {}", e.getMessage());
+            logger.warn("JNA link failure details: {}", e.getMessage());
         }
         catch (NoSuchMethodError e)
         {
@@ -120,6 +120,7 @@ public final class CLibrary
         catch (UnsatisfiedLinkError e)
         {
             // this will have already been logged by CLibrary, no need to repeat it
+            logger.warn("EXPLORE: failed tryMlockall");
         }
         catch (RuntimeException e)
         {
@@ -161,8 +162,10 @@ public final class CLibrary
 
     public static void trySkipCache(int fd, long offset, int len)
     {
-        if (fd < 0)
+        if (fd < 0) {
+            logger.warn("EXPLORE: fd < 0 on trySkipCache");
             return;
+        }
 
         try
         {
@@ -170,9 +173,14 @@ public final class CLibrary
             {
                 posix_fadvise(fd, offset, len, POSIX_FADV_DONTNEED);
             }
+            else
+            {
+                logger.warn("EXPLORE: wrong os name on trySkipCache");
+            }
         }
         catch (UnsatisfiedLinkError e)
         {
+            logger.warn("EXPLORE: UnsatisfiedLinkError on trySkipCache");
             // if JNA is unavailable just skipping Direct I/O
             // instance of this class will act like normal RandomAccessFile
         }
@@ -197,6 +205,7 @@ public final class CLibrary
         catch (UnsatisfiedLinkError e)
         {
             // if JNA is unavailable just skipping
+            logger.warn("EXPLORE: UnsatisfiedLinkError on tryFcntl");
         }
         catch (RuntimeException e)
         {
@@ -220,6 +229,7 @@ public final class CLibrary
         catch (UnsatisfiedLinkError e)
         {
             // JNA is unavailable just skipping Direct I/O
+            logger.warn("EXPLORE: UnsatisfiedLinkError on tryOpenDirectory");
         }
         catch (RuntimeException e)
         {
@@ -244,6 +254,7 @@ public final class CLibrary
         catch (UnsatisfiedLinkError e)
         {
             // JNA is unavailable just skipping Direct I/O
+            logger.warn("EXPLORE: UnsatisfiedLinkError on trySync");
         }
         catch (RuntimeException e)
         {
@@ -256,8 +267,10 @@ public final class CLibrary
 
     public static void tryCloseFD(int fd)
     {
-        if (fd == -1)
+        if (fd == -1) {
+            logger.warn("EXPLORE: fd -1 on tryCloseFD");
             return;
+        }
 
         try
         {
@@ -266,6 +279,7 @@ public final class CLibrary
         catch (UnsatisfiedLinkError e)
         {
             // JNA is unavailable just skipping Direct I/O
+            logger.warn("EXPLORE: UnsatisfiedLinkError on tryCloseFD");
         }
         catch (RuntimeException e)
         {
@@ -285,8 +299,10 @@ public final class CLibrary
     {
         Field field = FBUtilities.getProtectedField(descriptor.getClass(), "fd");
 
-        if (field == null)
+        if (field == null) {
+            logger.warn("EXPLORE: field == null on getfd");
             return -1;
+        }
 
         try
         {
@@ -311,6 +327,7 @@ public final class CLibrary
         catch (Throwable t)
         {
             // ignore
+            logger.warn("EXPLORE: thrown on getfd");
             return -1;
         }
         finally
