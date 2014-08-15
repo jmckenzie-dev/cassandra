@@ -257,7 +257,7 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
 
             if (!directorySynced)
             {
-                CLibrary.trySync(directoryFD);
+                CLibrary.trySyncDirectory(directoryFD);
                 directorySynced = true;
             }
 

@@ -232,7 +232,7 @@ public final class CLibrary
         return fd;
     }
 
-    public static void trySync(int fd)
+    public static void trySyncDirectory(int fd)
     {
         if (fd == -1)
             return;
