@@ -59,8 +59,7 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
     protected long current = 0, bufferOffset;
     protected int validBufferBytes;
 
-    protected RandomAccessFile out;
-    protected final String fileName;
+    protected final RandomAccessFile out;
 
     // whether to do trickling fsync() to avoid sudden bursts of dirty buffer flushing by kernel causing read
     // latency spikes
@@ -75,11 +74,6 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
     {
         try
         {
-            // Cache file name on Windows for use during sync
-            if (!FBUtilities.isUnix())
-                fileName = file.getAbsolutePath();
-            else
-                fileName = null;
             out = new RandomAccessFile(file, "rw");
         }
         catch (FileNotFoundException e)
@@ -269,26 +263,7 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
 
             if (!directorySynced)
             {
-                if (FBUtilities.isUnix())
-                {
-                    CLibrary.trySyncDirectory(directoryFD);
-                }
-                else
-                {
-                    // Close and re-open the file on Windows to force sync of directory MFT attributes for the file
-                    // see CASSANDRA-7772
-                    try
-                    {
-                        long pos = out.getFilePointer();
-                        out.close();
-                        out = new RandomAccessFile(fileName, "rw");
-                        out.seek(pos);
-                    }
-                    catch (IOException e)
-                    {
-                        logger.warn("Failed to sync directory metadata for file: " + fileName + ".");
-                    }
-                }
+                CLibrary.trySyncDirectory(directoryFD);
                 directorySynced = true;
             }
 
