@@ -275,17 +275,14 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
                 }
                 else
                 {
-                    // Close and re-open the file on Windows to force sync directory MFT attributes for the file
+                    // Close and re-open the file on Windows to force sync of directory MFT attributes for the file
                     // see CASSANDRA-7772
                     try
                     {
-                        logger.warn("CASSANDRA-7772: Closing and re-opening file on windows to sync MFT");
-                        logger.warn("CASSANDRA-7772: Position prior to close: " + out.getFilePointer());
                         long pos = out.getFilePointer();
                         out.close();
                         out = new RandomAccessFile(fileName, "rw");
                         out.seek(pos);
-                        logger.warn("CASSANDRA-7772: position after re-open: " + out.getFilePointer());
                     }
                     catch (IOException e)
                     {
