@@ -22,6 +22,9 @@ import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.FSWriteError;
@@ -31,6 +34,7 @@ import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CLibrary;
+import org.apache.cassandra.utils.FBUtilities;
 
 /**
  * Adds buffering, mark, and fsyncing to OutputStream.  We always fsync on close; we may also
@@ -38,6 +42,8 @@ import org.apache.cassandra.utils.CLibrary;
  */
 public class SequentialWriter extends OutputStream implements WritableByteChannel
 {
+    private static final Logger logger = LoggerFactory.getLogger(SequentialWriter.class);
+
     // isDirty - true if this.buffer contains any un-synced bytes
     protected boolean isDirty = false, syncNeeded = false;
 
@@ -53,7 +59,8 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
     protected long current = 0, bufferOffset;
     protected int validBufferBytes;
 
-    protected final RandomAccessFile out;
+    protected RandomAccessFile out;
+    protected final String fileName;
 
     // whether to do trickling fsync() to avoid sudden bursts of dirty buffer flushing by kernel causing read
     // latency spikes
@@ -68,6 +75,11 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
     {
         try
         {
+            // Cache file name on Windows for use during sync
+            if (!FBUtilities.isUnix())
+                fileName = file.getAbsolutePath();
+            else
+                fileName = null;
             out = new RandomAccessFile(file, "rw");
         }
         catch (FileNotFoundException e)
@@ -257,7 +269,29 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
 
             if (!directorySynced)
             {
-                CLibrary.trySyncDirectory(directoryFD);
+                if (FBUtilities.isUnix())
+                {
+                    CLibrary.trySyncDirectory(directoryFD);
+                }
+                else
+                {
+                    // Close and re-open the file on Windows to force sync directory MFT attributes for the file
+                    // see CASSANDRA-7772
+                    try
+                    {
+                        logger.warn("CASSANDRA-7772: Closing and re-opening file on windows to sync MFT");
+                        logger.warn("CASSANDRA-7772: Position prior to close: " + out.getFilePointer());
+                        long pos = out.getFilePointer();
+                        out.close();
+                        out = new RandomAccessFile(fileName, "rw");
+                        out.seek(pos);
+                        logger.warn("CASSANDRA-7772: position after re-open: " + out.getFilePointer());
+                    }
+                    catch (IOException e)
+                    {
+                        logger.warn("Failed to sync directory metadata for file: " + fileName + ".");
+                    }
+                }
                 directorySynced = true;
             }
 
