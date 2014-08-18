@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 
 import static org.apache.cassandra.tracing.Tracing.isTracing;
 
@@ -156,7 +157,7 @@ public abstract class AbstractTracingAwareExecutorService implements TracingAwar
             this(Executors.callable(runnable, result));
         }
 
-        public void run() throws RuntimeException
+        public void run()
         {
             try
             {
@@ -164,10 +165,10 @@ public abstract class AbstractTracingAwareExecutorService implements TracingAwar
             }
             catch (Throwable t)
             {
+                JVMStabilityInspector.inspectThrowable(t);
                 logger.warn("Uncaught exception on thread {}: {}", Thread.currentThread(), t);
                 result = t;
                 failure = true;
-                throw new RuntimeException(t);
             }
             finally
             {
