@@ -692,10 +692,10 @@
         The build target builds all the .class files
     -->
     <target name="build"
-        depends="maven-ant-tasks-retrieve-build,build-project" description="Compile Cassandra classes"/>
+        depends="maven-ant-tasks-retrieve-build,build-project,swallow-check" description="Compile Cassandra classes"/>
     <target name="codecoverage" depends="cobertura-instrument,test,cobertura-report" description="Create code coverage report"/>
 
-    <target depends="init,gen-cli-grammar,gen-cql2-grammar,gen-cql3-grammar,swallow-check"
+    <target depends="init,gen-cli-grammar,gen-cql2-grammar,gen-cql3-grammar"
             name="build-project">
         <echo message="${ant.project.name}: ${ant.file}"/>
         <!-- Order matters! -->

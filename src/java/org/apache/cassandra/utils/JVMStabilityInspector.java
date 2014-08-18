@@ -32,7 +32,6 @@ public class JVMStabilityInspector
      */
     public static void inspectThrowable(Throwable t)
     {
-        long start = System.nanoTime();
         boolean isUnstable = false;
         if (t instanceof OutOfMemoryError)
             isUnstable = true;
@@ -43,7 +42,5 @@ public class JVMStabilityInspector
             logger.error("JVM state determined to be unstable.  Exiting forcefully due to {}", t);
             System.exit(100);
         }
-        long end = System.nanoTime();
-        logger.warn("Duration of inspectThrowable: " + (end - start));
     }
 }
