@@ -156,7 +156,7 @@ public abstract class AbstractTracingAwareExecutorService implements TracingAwar
             this(Executors.callable(runnable, result));
         }
 
-        public void run()
+        public void run() throws RuntimeException
         {
             try
             {
@@ -167,6 +167,7 @@ public abstract class AbstractTracingAwareExecutorService implements TracingAwar
                 logger.warn("Uncaught exception on thread {}: {}", Thread.currentThread(), t);
                 result = t;
                 failure = true;
+                throw new RuntimeException(t);
             }
             finally
             {

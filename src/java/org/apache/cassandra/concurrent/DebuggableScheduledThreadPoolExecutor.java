@@ -77,6 +77,7 @@ public class DebuggableScheduledThreadPoolExecutor extends ScheduledThreadPoolEx
             catch (Throwable e)
             {
                 DebuggableThreadPoolExecutor.handleOrLog(e);
+                throw e;
             }
         }
     }

@@ -329,6 +329,7 @@ public class CommitLogReplayer
                         continue;
                     }
 
+                    Throwable exceptionCondition = null;
                     /* deserialize the commit log entry */
                     FastByteArrayInputStream bufIn = new FastByteArrayInputStream(buffer, 0, serializedSize);
                     final Mutation mutation;
@@ -371,7 +372,7 @@ public class CommitLogReplayer
                         String st = String.format("Unexpected error deserializing mutation; saved to %s and ignored.  This may be caused by replaying a mutation against a table with the same name but incompatible schema.  Exception follows: ",
                                                   f.getAbsolutePath());
                         logger.error(st, t);
-                        continue;
+                        throw t;
                     }
 
                     if (logger.isDebugEnabled())

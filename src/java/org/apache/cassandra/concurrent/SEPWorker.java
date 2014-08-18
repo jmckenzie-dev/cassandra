@@ -138,6 +138,7 @@ final class SEPWorker extends AtomicReference<SEPWorker.Work> implements Runnabl
                 logger.error("Failed to execute task, unexpected exception killed worker: {}", t);
             else
                 logger.error("Unexpected exception killed worker: {}", t);
+            throw t;
         }
     }
 
