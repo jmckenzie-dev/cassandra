@@ -21,6 +21,7 @@ import java.io.FileNotFoundException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.cassandra.service.StorageService;
 
 public class JVMStabilityInspector
 {
@@ -39,7 +40,8 @@ public class JVMStabilityInspector
             isUnstable = true;
         if (isUnstable)
         {
-            logger.error("JVM state determined to be unstable.  Exiting forcefully due to {}", t);
+            logger.error("JVM state determined to be unstable.  Exiting forcefully due to:", t);
+            StorageService.instance.removeShutdownHook();
             System.exit(100);
         }
     }
