@@ -695,7 +695,7 @@
         depends="maven-ant-tasks-retrieve-build,build-project" description="Compile Cassandra classes"/>
     <target name="codecoverage" depends="cobertura-instrument,test,cobertura-report" description="Create code coverage report"/>
 
-    <target depends="init,gen-cli-grammar,gen-cql2-grammar,gen-cql3-grammar"
+    <target depends="init,gen-cli-grammar,gen-cql2-grammar,gen-cql3-grammar,swallow-check"
             name="build-project">
         <echo message="${ant.project.name}: ${ant.file}"/>
         <!-- Order matters! -->
@@ -1463,6 +1463,27 @@
 	p.perform();
 	  			    
 ]]> </script>
+  </target>
+
+  <!-- Analyze the code base and see if there are any swallowed Throwables -->
+  <target name="swallow-check" description="Analyze the code base to find swallowed exceptions">
+    <exec executable="python" resultproperty="swallowed_exceptions" failonerror="false">
+      <arg line="${basedir}/tools/bin/findSwallowedExceptions.py"/>
+    </exec>
+    <script language="javascript"><![CDATA[
+      var swallowed = parseInt(project.getProperty('swallowed_exceptions'));
+      if (swallowed != 0) {
+        project.setProperty('fail_swallowed', true);
+      }
+  ]]></script>
+    <fail message="${swallowed_exceptions} swallowed exceptions found.  'ant swallow-print' for details." if="fail_swallowed"/>
+  </target>
+
+  <!-- Print swallowed exceptions if requested -->
+  <target name="swallow-print" description="Print swallowed exceptions from the code base">
+    <exec executable="python">
+      <arg line="${basedir}/tools/bin/findSwallowedExceptions.py -p"/>
+    </exec>
   </target>
 
   <!-- Generate Eclipse project description files -->
