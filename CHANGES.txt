@@ -16,6 +16,8 @@
  * Configurable client timeout for cqlsh (CASSANDRA-7516)
  * Include snippet of CQL query near syntax error in messages (CASSANDRA-7111)
 Merged from 2.0:
+ * Throw InvalidRequestException when queries contain relations on entire
+   collection columns (CASSANDRA-7506)
  * (cqlsh) enable CTRL-R history search with libedit (CASSANDRA-7577)
  * (Hadoop) allow ACFRW to limit nodes to local DC (CASSANDRA-7252)
  * (cqlsh) cqlsh should automatically disable tracing when selecting
@@ -33,9 +35,9 @@ Merged from 2.0:
 2.1.0
  * Fix ordering of static cells (CASSANDRA-7763)
 Merged from 2.0:
+ * Fix PRSI handling of CQL3 row markers for row cleanup (CASSANDRA-7787)
  * Fix dropping collection when it's the last regular column (CASSANDRA-7744)
  * Properly reject operations on list index with conditions (CASSANDRA-7499)
- * (Hadoop) allow ACFRW to limit nodes to local DC (CASSANDRA-7252)
 
 
 2.1.0-rc6
