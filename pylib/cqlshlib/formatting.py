@@ -14,13 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
-import time
 import calendar
 import math
-from collections import defaultdict
+import re
+import time
+import sys
+from collections import defaultdict, namedtuple
 from . import wcwidth
 from .displaying import colorme, FormattedValue, DEFAULT_VALUE_COLORS
+from datetime import datetime, timedelta
 from cassandra.cqltypes import EMPTY
 
 unicode_controlchars_re = re.compile(r'[\x00-\x31\x7f-\xa0]')
@@ -45,13 +47,12 @@ def _make_turn_bits_red_f(color1, color2):
     return _turn_bits_red
 
 default_null_placeholder = 'null'
-default_time_format = ''
 default_float_precision = 3
 default_colormap = DEFAULT_VALUE_COLORS
 empty_colormap = defaultdict(lambda: '')
 
 def format_by_type(cqltype, val, encoding, colormap=None, addcolor=False,
-                   nullval=None, time_format=None, float_precision=None):
+                   nullval=None, date_time_format=None, float_precision=None):
     if nullval is None:
         nullval = default_null_placeholder
     if val is None:
@@ -60,12 +61,12 @@ def format_by_type(cqltype, val, encoding, colormap=None, addcolor=False,
         colormap = empty_colormap
     elif colormap is None:
         colormap = default_colormap
-    if time_format is None:
-        time_format = default_time_format
+    if date_time_format is None:
+        date_time_format = DateTimeFormat()
     if float_precision is None:
         float_precision = default_float_precision
     return format_value(cqltype, val, encoding=encoding, colormap=colormap,
-                        time_format=time_format, float_precision=float_precision,
+                        date_time_format=date_time_format, float_precision=float_precision,
                         nullval=nullval)
 
 def color_text(bval, colormap, displaywidth=None):
@@ -85,6 +86,16 @@ def color_text(bval, colormap, displaywidth=None):
     if colormap['text']:
         displaywidth -= bval.count(r'\\')
     return FormattedValue(bval, coloredval, displaywidth)
+
+DEFAULT_NANOTIME_FORMAT = '%H:%M:%S.%N'
+DEFAULT_DATE_FORMAT = '%Y-%m-%d'
+DEFAULT_TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S%z'
+
+class DateTimeFormat():
+    def __init__(self, timestamp_format=DEFAULT_TIMESTAMP_FORMAT, date_format=DEFAULT_DATE_FORMAT, nanotime_format=DEFAULT_NANOTIME_FORMAT):
+        self.timestamp_format=timestamp_format
+        self.date_format=date_format
+        self.nanotime_format=nanotime_format
 
 def format_value_default(val, colormap, **_):
     val = str(val)
@@ -157,9 +168,51 @@ def format_integer_type(val, colormap, **_):
 formatter_for('long')(format_integer_type)
 formatter_for('int')(format_integer_type)
 
+@formatter_for('SimpleDate')
+def format_value_date(val, colormap, quote=False, **_):
+    date_string = None
+    try:
+        # negative utcfromtimestamp fails on windows - use timedelta instead
+        # Shift date to be relative to epoch @ 0 for datetime call
+        parsed_date = datetime(1970, 1, 1) + timedelta(days=val.value - 2**31)
+        tokens = str(parsed_date).split(" ")
+        date_string = tokens[0]
+    except Exception as e:
+        print 'Warning!  Non-ISO 8601 dates detected (< 1-1-1 or > 9999-12-31).  Returning raw days since epoch.'
+        date_string = str(val.value)
+    if quote:
+        date_string = "'%s'" % date_string
+    return colorme(date_string, colormap, 'date')
+
+@formatter_for('Time')
+def format_value_time(val, colormap, date_time_format, quote=False, **_):
+    raw_time = val.value
+    # base-case, handle default format that includes nano as %N
+    # TODO: Consider making this more flexible to handle variable %N placement and formatting, using
+    # strftime on the non-nanosecond portion of the time string
+    if date_time_format.nanotime_format == DEFAULT_NANOTIME_FORMAT:
+        base_time = datetime.utcfromtimestamp(raw_time / (1000L * 1000L * 1000L))
+        nano_raw = raw_time % (1000L * 1000L * 1000L)
+
+        nano_string = str(nano_raw)
+        # left-pad to 9 digits
+        while len(nano_string) < 9:
+            nano_string = "0" + nano_string
+
+        time_string = str(base_time.time()) + "." + nano_string
+    else:
+        # any other case, convert to microseconds and use strftime
+        epoch = datetime(1970, 1, 1)
+        raw_time /= 1000
+        delta = timedelta(microseconds=raw_time)
+        time_string = datetime.strftime(epoch + delta, date_time_format.nanotime_format)
+    if quote:
+        time_string = "'%s'" % time_string
+    return colorme(time_string, colormap, 'time')
+
 @formatter_for('date')
-def format_value_timestamp(val, colormap, time_format, quote=False, **_):
-    bval = strftime(time_format, calendar.timegm(val.utctimetuple()))
+def format_value_timestamp(val, colormap, date_time_format, quote=False, **_):
+    bval = strftime(date_time_format.timestamp_format, calendar.timegm(val.utctimetuple()))
     if quote:
         bval = "'%s'" % bval
     return colorme(bval, colormap, 'timestamp')
@@ -199,9 +252,9 @@ def format_value_text(val, encoding, colormap, quote=False, **_):
 formatter_for('unicode')(format_value_text)
 
 def format_simple_collection(val, lbracket, rbracket, encoding,
-                             colormap, time_format, float_precision, nullval):
+                             colormap, date_time_format, float_precision, nullval):
     subs = [format_value(type(sval), sval, encoding=encoding, colormap=colormap,
-                         time_format=time_format, float_precision=float_precision,
+                         date_time_format=date_time_format, float_precision=float_precision,
                          nullval=nullval, quote=True)
             for sval in val]
     bval = lbracket + ', '.join(sval.strval for sval in subs) + rbracket
@@ -212,28 +265,28 @@ def format_simple_collection(val, lbracket, rbracket, encoding,
     return FormattedValue(bval, coloredval, displaywidth)
 
 @formatter_for('list')
-def format_value_list(val, encoding, colormap, time_format, float_precision, nullval, **_):
+def format_value_list(val, encoding, colormap, date_time_format, float_precision, nullval, **_):
     return format_simple_collection(val, '[', ']', encoding, colormap,
-                                    time_format, float_precision, nullval)
+                                    date_time_format, float_precision, nullval)
 
 @formatter_for('tuple')
-def format_value_tuple(val, encoding, colormap, time_format, float_precision, nullval, **_):
+def format_value_tuple(val, encoding, colormap, date_time_format, float_precision, nullval, **_):
     return format_simple_collection(val, '(', ')', encoding, colormap,
-                                    time_format, float_precision, nullval)
+                                    date_time_format, float_precision, nullval)
 
 @formatter_for('set')
-def format_value_set(val, encoding, colormap, time_format, float_precision, nullval, **_):
+def format_value_set(val, encoding, colormap, date_time_format, float_precision, nullval, **_):
     return format_simple_collection(sorted(val), '{', '}', encoding, colormap,
-                                    time_format, float_precision, nullval)
+                                    date_time_format, float_precision, nullval)
 formatter_for('frozenset')(format_value_set)
 formatter_for('sortedset')(format_value_set)
 
 
 @formatter_for('dict')
-def format_value_map(val, encoding, colormap, time_format, float_precision, nullval, **_):
+def format_value_map(val, encoding, colormap, date_time_format, float_precision, nullval, **_):
     def subformat(v):
         return format_value(type(v), v, encoding=encoding, colormap=colormap,
-                            time_format=time_format, float_precision=float_precision,
+                            date_time_format=date_time_format, float_precision=float_precision,
                             nullval=nullval, quote=True)
 
     subs = [(subformat(k), subformat(v)) for (k, v) in sorted(val.items())]
@@ -249,12 +302,12 @@ formatter_for('OrderedDict')(format_value_map)
 formatter_for('OrderedMap')(format_value_map)
 
 
-def format_value_utype(val, encoding, colormap, time_format, float_precision, nullval, **_):
+def format_value_utype(val, encoding, colormap, date_time_format, float_precision, nullval, **_):
     def format_field_value(v):
         if v is None:
             return colorme(nullval, colormap, 'error')
         return format_value(type(v), v, encoding=encoding, colormap=colormap,
-                            time_format=time_format, float_precision=float_precision,
+                            date_time_format=date_time_format, float_precision=float_precision,
                             nullval=nullval, quote=True)
 
     def format_field_name(name):
