@@ -55,7 +55,7 @@ public class JVMStabilityInspector
 
         // Check for file handle exhaustion
         if (t instanceof FileNotFoundException || t instanceof SocketException)
-            if (t.getMessage().contains("Too many files open"))
+            if (t.getMessage().contains("Too many open files"))
                 isUnstable = true;
 
         if (isUnstable)

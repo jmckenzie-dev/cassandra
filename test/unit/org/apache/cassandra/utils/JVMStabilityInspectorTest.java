@@ -72,57 +72,15 @@ public class JVMStabilityInspectorTest
             assertFalse(killerForTests.wasKilled());
 
             killerForTests.reset();
-            JVMStabilityInspector.inspectThrowable(new SocketException("Too many files open"));
+            JVMStabilityInspector.inspectThrowable(new SocketException("Too many open files"));
             assertTrue(killerForTests.wasKilled());
 
             killerForTests.reset();
-            JVMStabilityInspector.inspectCommitLogThrowable(new FileNotFoundException("Too many files open"));
+            JVMStabilityInspector.inspectCommitLogThrowable(new FileNotFoundException("Too many open files"));
             assertTrue(killerForTests.wasKilled());
         }
         finally
         {
-            JVMStabilityInspector.replaceKiller(originalKiller);
-        }
-    }
-
-    @Test
-    public void socketTest()
-    {
-        JVMStabilityInspector.KillerForTests killerForTests = new JVMStabilityInspector.KillerForTests();
-        JVMStabilityInspector.Killer originalKiller = JVMStabilityInspector.replaceKiller(killerForTests);
-
-        ArrayList<ServerSocket> sockets;
-        try
-        {
-            killerForTests.reset();
-            sockets = new ArrayList<ServerSocket>();
-            try
-            {
-                for (int i = 0; i < 20000; ++i) {
-                    sockets.add(new ServerSocket(10000 + i));
-                }
-            }
-            catch (Exception e)
-            {
-                System.err.println("Got an exception: " + e);
-                JVMStabilityInspector.inspectThrowable(e);
-            }
-            finally
-            {
-                System.err.println("Number of sockets opened: " + sockets.size());
-                for (ServerSocket s : sockets)
-                {
-                    s.close();
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            System.err.println("HIT ERROR ON socketTest");
-        }
-        finally
-        {
-            assertTrue(killerForTests.wasKilled());
             JVMStabilityInspector.replaceKiller(originalKiller);
         }
     }
