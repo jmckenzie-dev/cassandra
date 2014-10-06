@@ -111,9 +111,10 @@ Function CalculateHeapSizes
             echo "    WARNING!  $PageFileCount swap file(s) detected"
             for ($i = 0; $i -lt $PageFileCount; $i++)
             {
-                $toPrint = "        Name: " + $files[$i] + " Size: " + $sizes[$i]
+                $toPrint = "        Name: " + $files[$i]
                 if ($hasSizes)
                 {
+                    $toPrint = $toPrint + " Size: " + $sizes[$i]
                     $toPrint = $toPrint -replace [Environment]::NewLine, ""
                 }
                 echo $toPrint
