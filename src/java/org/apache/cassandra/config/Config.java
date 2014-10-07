@@ -196,8 +196,6 @@ public class Config
 
     public String memory_allocator = NativeAllocator.class.getSimpleName();
 
-    private static boolean isClientMode = false;
-
     public Integer file_cache_size_in_mb;
 
     public boolean inter_dc_tcp_nodelay = true;
@@ -223,16 +221,6 @@ public class Config
     public static void setOutboundBindAny(boolean value)
     {
         outboundBindAny = value;
-    }
-
-    public static boolean isClientMode()
-    {
-       return isClientMode;
-    }
-
-    public static void setClientMode(boolean clientMode)
-    {
-        isClientMode = clientMode;
     }
 
     public void configHintedHandoff() throws ConfigurationException

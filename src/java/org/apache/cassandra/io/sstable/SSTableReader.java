@@ -498,9 +498,8 @@ public class SSTableReader extends SSTable
 
         deletingTask = new SSTableDeletingTask(this);
 
-        // Don't track read rates for tables in the system keyspace and don't bother trying to load or persist
-        // the read meter when in client mode
-        if (Keyspace.SYSTEM_KS.equals(desc.ksname) || Config.isClientMode())
+        // Don't track read rates for tables in the system keyspace
+        if (Keyspace.SYSTEM_KS.equals(desc.ksname))
         {
             readMeter = null;
             readMeterSyncFuture = null;
