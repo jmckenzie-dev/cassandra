@@ -198,7 +198,7 @@ public class CassandraDaemon
 
         SigarLibrary sigarLibrary = new SigarLibrary();
         if (sigarLibrary.initialized())
-            sigarLibrary.warnIfRunningInDegradedMode() :
+            sigarLibrary.warnIfRunningInDegradedMode();
         else
             logger.info("Sigar could not be initialized");
 
