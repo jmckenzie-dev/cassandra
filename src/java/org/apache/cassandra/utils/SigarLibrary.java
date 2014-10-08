@@ -21,14 +21,13 @@ import org.hyperic.sigar.*;
 import org.slf4j.LoggerFactory;
 import org.slf4j.Logger;
 
-
 public class SigarLibrary
 {
     private Logger logger = LoggerFactory.getLogger(SigarLibrary.class);
 
     private Sigar sigar;
     private FileSystemMap mounts = null;
-    private boolean sigarInitialized = false;
+    private boolean initialized = false;
     private long INFINITY = -1;
     private long EXPECTED_MIN_NOFILE = 10000l; // number of files that can be opened
     private long EXPECTED_NPROC = 32768l; // number of processes
@@ -40,18 +39,12 @@ public class SigarLibrary
 
     public SigarLibrary()
     {
-    }
-
-    // don't throw exception here, because this is not an error condition
-    // we will just not use SIGAR if it is not found
-    public boolean init()
-    {
         logger.info("Initializing SIGAR library");
         try
         {
             sigar = new Sigar();
             mounts = sigar.getFileSystemMap();
-            sigarInitialized = true;
+            initialized = true;
         }
         catch (SigarException e)
         {
@@ -61,16 +54,15 @@ public class SigarLibrary
         {
             logger.info("Could not initialize SIGAR library {} ", linkError.getMessage());
         }
-        return sigarInitialized;
     }
 
     /**
      *
      * @return true or false indicating if sigar was successfully initialized
      */
-    public boolean isSigarInitialized()
+    public boolean initialized()
     {
-        return sigarInitialized;
+        return initialized;
     }
 
     private boolean hasAcceptableProcNumber()
@@ -92,7 +84,6 @@ public class SigarLibrary
             logger.warn("Could not determine if max processes was acceptable. Error message: " + sigarException);
             return false;
         }
-
     }
 
     private boolean hasAcceptableFileLimits()
@@ -114,7 +105,6 @@ public class SigarLibrary
             logger.warn("Could not determine if max open file handle limit is correctly configured. Error message: " + sigarException);
             return false;
         }
-
     }
 
     private boolean hasAcceptableAddressSpace()
@@ -140,7 +130,6 @@ public class SigarLibrary
             logger.warn("Could not determine if VirtualMemoryMax was acceptable. Error message: " + sigarException);
             return false;
         }
-
     }
 
     private boolean isSwapEnabled()
@@ -149,7 +138,7 @@ public class SigarLibrary
         {
             Swap swap = sigar.getSwap();
             long swapSize = swap.getTotal();
-            if (swapSize>0l)
+            if (swapSize > 0)
             {
                 return false;
             }
@@ -165,12 +154,9 @@ public class SigarLibrary
         }
     }
 
-    /**
-     * Logs a warning if are certain that ulimit values are not
-     * as suggested in the documentation or if swap is enabled.
-     */
-    public void warnIfRunningInDegradedMode(){
-        if (sigarInitialized)
+    public void warnIfRunningInDegradedMode()
+    {
+        if (initialized)
         {
             boolean swapEnabled = isSwapEnabled();
             boolean goodAddressSpace = hasAcceptableAddressSpace();
