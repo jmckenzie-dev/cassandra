@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.transport.messages.*;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 
 /**
  * A message from the CQL binary protocol.
@@ -440,8 +441,9 @@ public abstract class Message
                 response.attach(connection);
                 connection.applyStateTransition(request.type, response.type);
             }
-            catch (Throwable ex)
+            catch (Throwable t)
             {
+                JVMStabilityInspector.inspectThrowable(t);
                 UnexpectedChannelExceptionHandler handler = new UnexpectedChannelExceptionHandler(ctx.channel(), true);
                 flush(new FlushItem(ctx, ErrorMessage.fromException(ex, handler).setStreamId(request.getStreamId()), request.getSourceFrame()));
                 return;
