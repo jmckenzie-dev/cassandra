@@ -17,15 +17,27 @@
  */
 package org.apache.cassandra.utils;
 
+import org.apache.cassandra.config.Config;
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.io.FSError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.google.common.annotations.VisibleForTesting;
+
+import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.service.StorageService;
 
+/**
+ + * Responsible for deciding whether to kill the JVM if it gets in an "unstable" state (think OOM).
+ + * Also responsible for actually killing the current JVM.
+ + */
 public class JVMStabilityInspector
 {
     private static final Logger logger = LoggerFactory.getLogger(JVMStabilityInspector.class);
+    private static Killer killer = new Killer();
+
     /**
-     * Certain Throwables and Exceptions represent "Stop" conditions for the server.
+     * Certain Throwables and Exceptions represent "Die" conditions for the server.
      * @param t
      *      The Throwable to check for server-stop conditions
      */
@@ -34,12 +46,38 @@ public class JVMStabilityInspector
         boolean isUnstable = false;
         if (t instanceof OutOfMemoryError)
             isUnstable = true;
+        if (t instanceof CorruptSSTableException || t instanceof FSError)
+        {
+            if (DatabaseDescriptor.getDiskFailurePolicy() == Config.DiskFailurePolicy.die) {
+                isUnstable = true;
+            }
+        }
         if (isUnstable)
+            killer.killCurrentJVM(t);
+    }
+
+    @VisibleForTesting
+    public static class Killer
+    {
+        /**
+        * Certain situations represent "Die" conditions for the server, and if so, the reason is logged and the current JVM is killed.
+        *
+        * @param t
+        *      The Throwable to log before killing the current JVM
+        */
+        public void killCurrentJVM(Throwable t)
         {
             t.printStackTrace(System.err);
             logger.error("JVM state determined to be unstable.  Exiting forcefully due to:", t);
             StorageService.instance.removeShutdownHook();
             System.exit(100);
         }
+    }
+
+    @VisibleForTesting
+    public static Killer replaceKiller(Killer killer) {
+        Killer oldKiller = JVMStabilityInspector.killer;
+        JVMStabilityInspector.killer = killer;
+        return oldKiller;
     }
 }
