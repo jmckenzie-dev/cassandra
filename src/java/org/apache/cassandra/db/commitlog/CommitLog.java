@@ -24,10 +24,11 @@ import java.util.*;
 
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
-
-import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.commons.lang3.StringUtils;
+
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
@@ -36,6 +37,7 @@ import org.apache.cassandra.io.util.DataOutputByteBuffer;
 import org.apache.cassandra.metrics.CommitLogMetrics;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.PureJavaCrc32;
 
 import static org.apache.cassandra.db.commitlog.CommitLogSegment.*;
@@ -353,8 +355,10 @@ public class CommitLog implements CommitLogMBean
     {
         switch (DatabaseDescriptor.getCommitFailurePolicy())
         {
+            case die:
             case stop:
                 StorageService.instance.stopTransports();
+                JVMStabilityInspector.inspectThrowable(t);
             case stop_commit:
                 logger.error(String.format("%s. Commit disk failure policy is %s; terminating thread", message, DatabaseDescriptor.getCommitFailurePolicy()), t);
                 return false;
