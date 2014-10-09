@@ -28,6 +28,8 @@ import java.util.zip.CRC32;
 import java.util.zip.Checksum;
 
 import com.google.common.util.concurrent.Uninterruptibles;
+import org.apache.cassandra.utils.JVMStabilityInspector;
+import org.apache.cassandra.utils.KillerForTests;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -298,6 +300,36 @@ public class CommitLogTest extends SchemaLoader
         finally
         {
             commitDir.setWritable(true);
+        }
+    }
+
+    @Test
+    public void testCommitFailurePolicy_die()
+    {
+        File commitDir = new File(DatabaseDescriptor.getCommitLogLocation());
+        KillerForTests killerForTests = new KillerForTests();
+        JVMStabilityInspector.Killer originalKiller = JVMStabilityInspector.replaceKiller(killerForTests);
+
+        Config.CommitFailurePolicy oldPolicy = DatabaseDescriptor.getCommitFailurePolicy();
+        try
+        {
+            DatabaseDescriptor.setCommitFailurePolicy(Config.CommitFailurePolicy.die);
+            commitDir.setWritable(false);
+            Mutation rm = new Mutation("Keyspace1", bytes("k"));
+            rm.add("Standard1", Util.cellname("c1"), ByteBuffer.allocate(100), 0);
+
+            // Adding it twice (won't change segment)
+            CommitLog.instance.add(rm);
+            Uninterruptibles.sleepUninterruptibly((int) DatabaseDescriptor.getCommitLogSyncBatchWindow(), TimeUnit.MILLISECONDS);
+            Assert.assertFalse(StorageService.instance.isRPCServerRunning());
+            Assert.assertFalse(StorageService.instance.isNativeTransportRunning());
+            Assert.assertFalse(StorageService.instance.isInitialized());
+        }
+        finally
+        {
+            commitDir.setWritable(true);
+            DatabaseDescriptor.setCommitFailurePolicy(oldPolicy);
+            JVMStabilityInspector.replaceKiller(originalKiller);
         }
     }
 
