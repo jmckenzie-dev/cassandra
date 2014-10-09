@@ -28,9 +28,9 @@ import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.service.StorageService;
 
 /**
- + * Responsible for deciding whether to kill the JVM if it gets in an "unstable" state (think OOM).
- + * Also responsible for actually killing the current JVM.
- + */
+ * Responsible for deciding whether to kill the JVM if it gets in an "unstable" state (think OOM).
+ * Also responsible for actually killing the current JVM.
+ */
 public class JVMStabilityInspector
 {
     private static final Logger logger = LoggerFactory.getLogger(JVMStabilityInspector.class);
