@@ -24,11 +24,11 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.FSError;
+import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.service.StorageService;
 
 /**
  * Responsible for deciding whether to kill the JVM if it gets in an "unstable" state (think OOM).
- * Static wrapper around Killer implementaton to allow testing
  */
 public class JVMStabilityInspector
 {
@@ -45,8 +45,11 @@ public class JVMStabilityInspector
         boolean isUnstable = false;
         if (t instanceof OutOfMemoryError)
             isUnstable = true;
-        if (t instanceof FSError && DatabaseDescriptor.getDiskFailurePolicy() == Config.DiskFailurePolicy.die)
-            isUnstable = true;
+
+        if (DatabaseDescriptor.getDiskFailurePolicy() == Config.DiskFailurePolicy.die)
+            if (t instanceof FSError || t instanceof CorruptSSTableException)
+                isUnstable = true;
+
         if (isUnstable)
             killer.killCurrentJVM(t);
     }
@@ -57,6 +60,13 @@ public class JVMStabilityInspector
             killer.killCurrentJVM(t);
         else
             inspectThrowable(t);
+    }
+
+    @VisibleForTesting
+    public static Killer replaceKiller(Killer newKiller) {
+        Killer oldKiller = JVMStabilityInspector.killer;
+        JVMStabilityInspector.killer = newKiller;
+        return oldKiller;
     }
 
     @VisibleForTesting
@@ -77,10 +87,28 @@ public class JVMStabilityInspector
         }
     }
 
+    /**
+     * Responsible for stubbing out the System.exit() logic during unit tests.
+     */
     @VisibleForTesting
-    public static Killer replaceKiller(Killer killer) {
-        Killer oldKiller = JVMStabilityInspector.killer;
-        JVMStabilityInspector.killer = killer;
-        return oldKiller;
+    public static class KillerForTests extends JVMStabilityInspector.Killer
+    {
+        private boolean killed = false;
+
+        @Override
+        protected void killCurrentJVM(Throwable t)
+        {
+            killed = true;
+        }
+
+        public boolean wasKilled()
+        {
+            return killed;
+        }
+
+        public void reset()
+        {
+            killed = false;
+        }
     }
 }
