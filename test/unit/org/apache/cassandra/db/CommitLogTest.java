@@ -28,8 +28,6 @@ import java.util.zip.CRC32;
 import java.util.zip.Checksum;
 
 import com.google.common.util.concurrent.Uninterruptibles;
-import org.apache.cassandra.utils.JVMStabilityInspector;
-import org.apache.cassandra.utils.KillerForTests;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -48,6 +46,7 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 
 import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 
@@ -307,7 +306,7 @@ public class CommitLogTest extends SchemaLoader
     public void testCommitFailurePolicy_die()
     {
         File commitDir = new File(DatabaseDescriptor.getCommitLogLocation());
-        KillerForTests killerForTests = new KillerForTests();
+        JVMStabilityInspector.KillerForTests killerForTests = new JVMStabilityInspector.KillerForTests();
         JVMStabilityInspector.Killer originalKiller = JVMStabilityInspector.replaceKiller(killerForTests);
 
         Config.CommitFailurePolicy oldPolicy = DatabaseDescriptor.getCommitFailurePolicy();
@@ -326,7 +325,7 @@ public class CommitLogTest extends SchemaLoader
 
             // Adding it twice (won't change segment)
             CommitLog.instance.add(rm);
-            Uninterruptibles.sleepUninterruptibly((int) DatabaseDescriptor.getCommitLogSyncBatchWindow() + 50, TimeUnit.MILLISECONDS);
+            Uninterruptibles.sleepUninterruptibly((int) DatabaseDescriptor.getCommitLogSyncBatchWindow(), TimeUnit.MILLISECONDS);
             Assert.assertFalse(StorageService.instance.isRPCServerRunning());
             Assert.assertFalse(StorageService.instance.isNativeTransportRunning());
             Assert.assertFalse(StorageService.instance.isInitialized());
