@@ -119,6 +119,8 @@ echo.
 echo Installing %SERVICE_JVM%. If you get registry warnings, re-run as an Administrator
 "%PRUNSRV%" //IS//%SERVICE_JVM%
 echo Setting the parameters for %SERVICE_JVM%
+echo Using PRUNSRV: %PRUNSRV%
+echo "Using CASSANDRA_CLASSPATH: %CASSANDRA_CLASSPATH%
 rem set PR_CLASSPATH=%CASSANDRA_CLASSPATH%
 "%PRUNSRV%" //US//%SERVICE_JVM% ^
  --Jvm=auto --StdOutput auto --StdError auto ^
@@ -126,7 +128,8 @@ rem set PR_CLASSPATH=%CASSANDRA_CLASSPATH%
  --StartMode=jvm --StartClass=%CASSANDRA_MAIN% --StartMethod=main ^
  --StopMode=jvm --StopClass=%CASSANDRA_MAIN%  --StopMethod=stop ^
  ++JvmOptions=%JAVA_OPTS_DELM% ++JvmOptions=-DCassandra ^
- --PidFile pid.txt
+ ++JvmOptions=-Dcassandra.logdir=%CASSANDRA_HOME%\logs ^
+ ++JvmOptions=-Dcassandra.storagedir=%CASSANDRA_HOME%\data
 
 echo Installation of %SERVICE_JVM% is complete
 goto finally
