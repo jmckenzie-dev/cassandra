@@ -356,7 +356,6 @@ public class CommitLog implements CommitLogMBean
         JVMStabilityInspector.inspectCommitLogThrowable(t);
         switch (DatabaseDescriptor.getCommitFailurePolicy())
         {
-            case die:
             case stop:
                 StorageService.instance.stopTransports();
             case stop_commit:
