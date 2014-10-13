@@ -48,7 +48,7 @@ public class JVMStabilityInspector
 
         if (DatabaseDescriptor.getDiskFailurePolicy() == Config.DiskFailurePolicy.die)
             if (t instanceof FSError || t instanceof CorruptSSTableException)
-                isUnstable = true;
+            isUnstable = true;
 
         if (isUnstable)
             killer.killCurrentJVM(t);
