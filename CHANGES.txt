@@ -14,6 +14,7 @@
  * Fix ClassCastException in DISTINCT query on static columns with
    query paging (CASSANDRA-8108)
  * Fix NPE on null nested UDT inside a set (CASSANDRA-8105)
+ * Add 'die' policy for commit log and disk failure (CASSANDRA-7927)
  * Fix exception when querying secondary index on set items or map keys
    when some clustering columns are specified (CASSANDRA-8073)
  * Send proper error response when there is an error during native
