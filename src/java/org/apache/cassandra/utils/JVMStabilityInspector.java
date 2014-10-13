@@ -24,12 +24,11 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.FSError;
-import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.service.StorageService;
 
 /**
  * Responsible for deciding whether to kill the JVM if it gets in an "unstable" state (think OOM).
- * Also responsible for actually killing the current JVM.
+ * Static wrapper around Killer implementaton to allow testing
  */
 public class JVMStabilityInspector
 {
@@ -43,29 +42,43 @@ public class JVMStabilityInspector
      */
     public static void inspectThrowable(Throwable t)
     {
-        boolean isUnstable = false;
-        if (t instanceof OutOfMemoryError)
-            isUnstable = true;
-        if (t instanceof CorruptSSTableException || t instanceof FSError)
-        {
-            if (DatabaseDescriptor.getDiskFailurePolicy() == Config.DiskFailurePolicy.die) {
-                isUnstable = true;
-            }
-        }
-        if (isUnstable)
-            killer.killCurrentJVM(t);
+        killer.inspectThrowable(t);
+    }
+
+    public static void inspectCommitLogThrowable(Throwable t)
+    {
+        killer.inspectCommitLogThrowable(t);
     }
 
     @VisibleForTesting
     public static class Killer
     {
+        protected void inspectThrowable(Throwable t)
+        {
+            boolean isUnstable = false;
+            if (t instanceof OutOfMemoryError)
+                isUnstable = true;
+            if (t instanceof FSError && DatabaseDescriptor.getDiskFailurePolicy() == Config.DiskFailurePolicy.die)
+                isUnstable = true;
+            if (isUnstable)
+                killCurrentJVM(t);
+        }
+
+        protected void inspectCommitLogThrowable(Throwable t)
+        {
+            if (DatabaseDescriptor.getCommitFailurePolicy() == Config.CommitFailurePolicy.die)
+                killCurrentJVM(t);
+            else
+                inspectThrowable(t);
+        }
+
         /**
         * Certain situations represent "Die" conditions for the server, and if so, the reason is logged and the current JVM is killed.
         *
         * @param t
         *      The Throwable to log before killing the current JVM
         */
-        public void killCurrentJVM(Throwable t)
+        protected void killCurrentJVM(Throwable t)
         {
             t.printStackTrace(System.err);
             logger.error("JVM state determined to be unstable.  Exiting forcefully due to:", t);
