@@ -42,36 +42,26 @@ public class JVMStabilityInspector
      */
     public static void inspectThrowable(Throwable t)
     {
-        killer.inspectThrowable(t);
+        boolean isUnstable = false;
+        if (t instanceof OutOfMemoryError)
+            isUnstable = true;
+        if (t instanceof FSError && DatabaseDescriptor.getDiskFailurePolicy() == Config.DiskFailurePolicy.die)
+            isUnstable = true;
+        if (isUnstable)
+            killer.killCurrentJVM(t);
     }
 
     public static void inspectCommitLogThrowable(Throwable t)
     {
-        killer.inspectCommitLogThrowable(t);
+        if (DatabaseDescriptor.getCommitFailurePolicy() == Config.CommitFailurePolicy.die)
+            killer.killCurrentJVM(t);
+        else
+            inspectThrowable(t);
     }
 
     @VisibleForTesting
     public static class Killer
     {
-        protected void inspectThrowable(Throwable t)
-        {
-            boolean isUnstable = false;
-            if (t instanceof OutOfMemoryError)
-                isUnstable = true;
-            if (t instanceof FSError && DatabaseDescriptor.getDiskFailurePolicy() == Config.DiskFailurePolicy.die)
-                isUnstable = true;
-            if (isUnstable)
-                killCurrentJVM(t);
-        }
-
-        protected void inspectCommitLogThrowable(Throwable t)
-        {
-            if (DatabaseDescriptor.getCommitFailurePolicy() == Config.CommitFailurePolicy.die)
-                killCurrentJVM(t);
-            else
-                inspectThrowable(t);
-        }
-
         /**
         * Certain situations represent "Die" conditions for the server, and if so, the reason is logged and the current JVM is killed.
         *
