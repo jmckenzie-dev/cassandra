@@ -395,25 +395,23 @@ public class FileUtils
 
     public static void handleCorruptSSTable(CorruptSSTableException e)
     {
+        JVMStabilityInspector.inspectThrowable(e);
         switch (DatabaseDescriptor.getDiskFailurePolicy())
         {
-            case die:
             case stop_paranoid:
                 StorageService.instance.stopTransports();
-                JVMStabilityInspector.inspectThrowable(e);
                 break;
         }
     }
     
     public static void handleFSError(FSError e)
     {
+        JVMStabilityInspector.inspectThrowable(e);
         switch (DatabaseDescriptor.getDiskFailurePolicy())
         {
-            case die:
             case stop_paranoid:
             case stop:
                 StorageService.instance.stopTransports();
-                JVMStabilityInspector.inspectThrowable(e);
                 break;
             case best_effort:
                 // for both read and write errors mark the path as unwritable.
