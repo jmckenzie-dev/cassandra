@@ -353,12 +353,12 @@ public class CommitLog implements CommitLogMBean
 
     static boolean handleCommitError(String message, Throwable t)
     {
+        JVMStabilityInspector.inspectCommitLogThrowable(t);
         switch (DatabaseDescriptor.getCommitFailurePolicy())
         {
             case die:
             case stop:
                 StorageService.instance.stopTransports();
-                JVMStabilityInspector.inspectThrowable(t);
             case stop_commit:
                 logger.error(String.format("%s. Commit disk failure policy is %s; terminating thread", message, DatabaseDescriptor.getCommitFailurePolicy()), t);
                 return false;

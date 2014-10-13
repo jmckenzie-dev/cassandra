@@ -314,16 +314,23 @@ public class CommitLogTest extends SchemaLoader
         try
         {
             DatabaseDescriptor.setCommitFailurePolicy(Config.CommitFailurePolicy.die);
-            commitDir.setWritable(false);
+
+            // File.setWritable(false) doesn't work on Windows
+            if (FBUtilities.isUnix())
+                commitDir.setWritable(false);
+            else
+                JVMStabilityInspector.inspectCommitLogThrowable(new Throwable());
+
             Mutation rm = new Mutation("Keyspace1", bytes("k"));
             rm.add("Standard1", Util.cellname("c1"), ByteBuffer.allocate(100), 0);
 
             // Adding it twice (won't change segment)
             CommitLog.instance.add(rm);
-            Uninterruptibles.sleepUninterruptibly((int) DatabaseDescriptor.getCommitLogSyncBatchWindow(), TimeUnit.MILLISECONDS);
+            Uninterruptibles.sleepUninterruptibly((int) DatabaseDescriptor.getCommitLogSyncBatchWindow() + 50, TimeUnit.MILLISECONDS);
             Assert.assertFalse(StorageService.instance.isRPCServerRunning());
             Assert.assertFalse(StorageService.instance.isNativeTransportRunning());
             Assert.assertFalse(StorageService.instance.isInitialized());
+            Assert.assertTrue(killerForTests.wasKilled());
         }
         finally
         {
