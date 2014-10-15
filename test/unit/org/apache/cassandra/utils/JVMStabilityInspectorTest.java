@@ -15,7 +15,7 @@ public class JVMStabilityInspectorTest
     @Test
     public void testKill() throws Exception
     {
-        KillerForTests killerForTests = new KillerForTests();
+        JVMStabilityInspector.KillerForTests killerForTests = new JVMStabilityInspector.KillerForTests();
         JVMStabilityInspector.Killer originalKiller = JVMStabilityInspector.replaceKiller(killerForTests);
 
         Config.DiskFailurePolicy oldPolicy = DatabaseDescriptor.getDiskFailurePolicy();
