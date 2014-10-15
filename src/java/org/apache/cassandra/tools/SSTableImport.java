@@ -26,6 +26,7 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.Option;
@@ -514,6 +515,7 @@ public class SSTableImport
         }
         catch (Exception e)
         {
+            JVMStabilityInspector.inspectThrowable(e);
             e.printStackTrace();
             System.err.println("ERROR: " + e.getMessage());
             System.exit(-1);

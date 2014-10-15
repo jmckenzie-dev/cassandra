@@ -80,6 +80,7 @@ public class Client extends SimpleClient
             }
             catch (Exception e)
             {
+                JVMStabilityInspector.inspectThrowable(e);
                 System.err.println("ERROR: " + e.getMessage());
             }
         }

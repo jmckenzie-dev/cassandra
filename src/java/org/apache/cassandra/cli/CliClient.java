@@ -33,6 +33,7 @@ import com.google.common.collect.Collections2;
 import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.commons.lang3.StringUtils;
 
 import org.antlr.runtime.tree.Tree;
@@ -1658,6 +1659,7 @@ public class CliClient
             }
             catch (Exception ne)
             {
+                JVMStabilityInspector.inspectThrowable(ne);
                 String functions = Function.getFunctionNames();
                 sessionState.out.println("Type '" + defaultType + "' was not found. Available: " + functions
                                          + " Or any class which extends o.a.c.db.marshal.AbstractType.");

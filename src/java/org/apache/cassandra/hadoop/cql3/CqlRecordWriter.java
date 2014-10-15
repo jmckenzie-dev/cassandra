@@ -24,6 +24,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.cassandra.hadoop.HadoopCompat;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.hadoop.util.Progressable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -250,6 +251,7 @@ class CqlRecordWriter extends AbstractColumnFamilyRecordWriter<Map<String, ByteB
                     }
                     catch (Exception e)
                     {
+                        JVMStabilityInspector.inspectThrowable(e);
                         closeInternal();
                         if (!iter.hasNext())
                         {

@@ -23,6 +23,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.cliffc.high_scale_lib.NonBlockingHashSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -142,6 +143,7 @@ public class AutoSavingCache<K extends CacheKey, V> extends InstrumentingCache<K
             }
             catch (Exception e)
             {
+                JVMStabilityInspector.inspectThrowable(e);
                 logger.debug(String.format("harmless error reading saved cache %s", path.getAbsolutePath()), e);
             }
             finally
