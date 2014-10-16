@@ -23,11 +23,9 @@ import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.zip.CRC32;
 import java.util.zip.Checksum;
 
-import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -42,6 +40,8 @@ import org.apache.cassandra.db.commitlog.CommitLogSegment;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.filter.NamesQueryFilter;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -276,64 +276,40 @@ public class CommitLogTest extends SchemaLoader
     }
 
     @Test
-    public void testCommitFailurePolicy_stop()
+    public void testCommitFailurePolicy_stop() throws ConfigurationException
     {
-        File commitDir = new File(DatabaseDescriptor.getCommitLogLocation());
+        // Need storage service active so stop policy can shutdown gossip
+        StorageService.instance.initServer();
+        Assert.assertTrue(Gossiper.instance.isEnabled());
 
+        Config.CommitFailurePolicy oldPolicy = DatabaseDescriptor.getCommitFailurePolicy();
         try
         {
-
             DatabaseDescriptor.setCommitFailurePolicy(Config.CommitFailurePolicy.stop);
-            commitDir.setWritable(false);
-            Mutation rm = new Mutation("Keyspace1", bytes("k"));
-            rm.add("Standard1", Util.cellname("c1"), ByteBuffer.allocate(100), 0);
-
-            // Adding it twice (won't change segment)
-            CommitLog.instance.add(rm);
-            Uninterruptibles.sleepUninterruptibly((int) DatabaseDescriptor.getCommitLogSyncBatchWindow(), TimeUnit.MILLISECONDS);
-            Assert.assertFalse(StorageService.instance.isRPCServerRunning());
-            Assert.assertFalse(StorageService.instance.isNativeTransportRunning());
-            Assert.assertFalse(StorageService.instance.isInitialized());
-
+            CommitLog.handleCommitError("Test stop error", new Throwable());
+            Assert.assertFalse(Gossiper.instance.isEnabled());
         }
         finally
         {
-            commitDir.setWritable(true);
+            DatabaseDescriptor.setCommitFailurePolicy(oldPolicy);
         }
     }
 
     @Test
     public void testCommitFailurePolicy_die()
     {
-        File commitDir = new File(DatabaseDescriptor.getCommitLogLocation());
         JVMStabilityInspector.KillerForTests killerForTests = new JVMStabilityInspector.KillerForTests();
         JVMStabilityInspector.Killer originalKiller = JVMStabilityInspector.replaceKiller(killerForTests);
-
         Config.CommitFailurePolicy oldPolicy = DatabaseDescriptor.getCommitFailurePolicy();
+
         try
         {
             DatabaseDescriptor.setCommitFailurePolicy(Config.CommitFailurePolicy.die);
-
-            // File.setWritable(false) doesn't work on Windows
-            if (FBUtilities.isUnix())
-                commitDir.setWritable(false);
-            else
-                JVMStabilityInspector.inspectCommitLogThrowable(new Throwable());
-
-            Mutation rm = new Mutation("Keyspace1", bytes("k"));
-            rm.add("Standard1", Util.cellname("c1"), ByteBuffer.allocate(100), 0);
-
-            // Adding it twice (won't change segment)
-            CommitLog.instance.add(rm);
-            Uninterruptibles.sleepUninterruptibly((int) DatabaseDescriptor.getCommitLogSyncBatchWindow(), TimeUnit.MILLISECONDS);
-            Assert.assertFalse(StorageService.instance.isRPCServerRunning());
-            Assert.assertFalse(StorageService.instance.isNativeTransportRunning());
-            Assert.assertFalse(StorageService.instance.isInitialized());
+            CommitLog.handleCommitError("Testing die policy", new Throwable());
             Assert.assertTrue(killerForTests.wasKilled());
         }
         finally
         {
-            commitDir.setWritable(true);
             DatabaseDescriptor.setCommitFailurePolicy(oldPolicy);
             JVMStabilityInspector.replaceKiller(originalKiller);
         }
