@@ -24,6 +24,8 @@ import java.util.*;
 
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
+
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -351,11 +353,14 @@ public class CommitLog implements CommitLogMBean
         return allocator.getActiveSegments().size();
     }
 
-    static boolean handleCommitError(String message, Throwable t)
+    @VisibleForTesting
+    public static boolean handleCommitError(String message, Throwable t)
     {
         JVMStabilityInspector.inspectCommitLogThrowable(t);
         switch (DatabaseDescriptor.getCommitFailurePolicy())
         {
+            // Needed here for unit tests to not fail on default assertion
+            case die:
             case stop:
                 StorageService.instance.stopTransports();
             case stop_commit:
