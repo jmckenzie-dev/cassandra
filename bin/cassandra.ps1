@@ -13,20 +13,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-param (
-    [switch]$install,
-    [switch]$uninstall,
-    [switch]$help,
-    [switch]$v,
-    [switch]$s,
-    [switch]$f,
-    [string]$p,
-    [string]$H,
-    [string]$E
-)
-
-$pidfile = "pid.txt"
-
 #-----------------------------------------------------------------------------
 Function ValidateArguments
 {
@@ -307,4 +293,30 @@ WARNING! Failed to write pidfile to $pidfile.  stop-server.bat and
 }
 
 #-----------------------------------------------------------------------------
+for ($i = 0; $i -lt $args.count; $i++)
+{
+    Switch($args[$i])
+    {
+        "-install"          { $install = $True }
+        "-uninstall"        { $uninstall = $True }
+        "-help"             { PrintUsage }
+        "-v"                { $v = $True }
+        "-f"                { $f = $True }
+        "-s"                { $s = $True }
+        "-p"                { $p = $args[$i + 1]; $i++ }
+        "-H"                { $H = $args[$i + 1]; $i++ }
+        "-E"                { $E = $args[$i + 1]; $i++ }
+        default
+        {
+            "Invalid argument: " + $args[$i];
+            if (-Not $args[$i].startsWith("-"))
+            {
+                echo "Note: All options require -"
+            }
+            exit
+        }
+    }
+}
+$pidfile = "pid.txt"
+
 Main
