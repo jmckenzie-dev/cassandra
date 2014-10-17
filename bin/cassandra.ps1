@@ -14,19 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #-----------------------------------------------------------------------------
-Function ValidateArguments
-{
-    if ($install -and $uninstall)
-    {
-        exit
-    }
-    if ($help)
-    {
-        PrintUsage
-    }
-}
-
-#-----------------------------------------------------------------------------
 Function PrintUsage
 {
     echo @"
@@ -293,6 +280,28 @@ WARNING! Failed to write pidfile to $pidfile.  stop-server.bat and
 }
 
 #-----------------------------------------------------------------------------
+Function ValidateArguments
+{
+    if ($install -and $uninstall)
+    {
+        echo "Cannot install and uninstall"
+        exit
+    }
+    if ($help)
+    {
+        PrintUsage
+    }
+}
+
+Function CheckEmptyParam($param)
+{
+    if ([String]::IsNullOrEmpty($param))
+    {
+        echo "Invalid parameter: empty value"
+        PrintUsage
+    }
+}
+
 for ($i = 0; $i -lt $args.count; $i++)
 {
     Switch($args[$i])
@@ -303,9 +312,9 @@ for ($i = 0; $i -lt $args.count; $i++)
         "-v"                { $v = $True }
         "-f"                { $f = $True }
         "-s"                { $s = $True }
-        "-p"                { $p = $args[$i + 1]; $i++ }
-        "-H"                { $H = $args[$i + 1]; $i++ }
-        "-E"                { $E = $args[$i + 1]; $i++ }
+        "-p"                { $p = $args[++$i]; CheckEmptyParam($p) }
+        "-H"                { $H = $args[++$i]; CheckEmptyParam($H) }
+        "-E"                { $E = $args[++$i]; CheckEmptyParam($E) }
         default
         {
             "Invalid argument: " + $args[$i];
