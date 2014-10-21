@@ -26,6 +26,9 @@ import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.SyncComplete;
 import org.apache.cassandra.repair.messages.SyncRequest;
+import org.apache.cassandra.tracing.TraceState;
+import org.apache.cassandra.tracing.Tracing;
+import org.apache.cassandra.streaming.ProgressInfo;
 import org.apache.cassandra.streaming.StreamEvent;
 import org.apache.cassandra.streaming.StreamEventHandler;
 import org.apache.cassandra.streaming.StreamPlan;
@@ -38,6 +41,8 @@ import org.apache.cassandra.streaming.StreamState;
 public class StreamingRepairTask implements Runnable, StreamEventHandler
 {
     private static final Logger logger = LoggerFactory.getLogger(StreamingRepairTask.class);
+
+    private final TraceState state = Tracing.instance.get();
 
     private final RepairJobDesc desc;
     private final SyncRequest request;
@@ -54,7 +59,9 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
     {
         InetAddress dest = request.dst;
         InetAddress preferred = SystemKeyspace.getPreferredIP(dest);
-        logger.info(String.format("[streaming task #%s] Performing streaming repair of %d ranges with %s", desc.sessionId, request.ranges.size(), request.dst));
+        String message;
+        logger.info("[streaming task #{}] {}", desc.sessionId, message = String.format("Performing streaming repair of %d ranges with %s", request.ranges.size(), request.dst));
+        Tracing.traceRepair(message);
         new StreamPlan("Repair", repairedAt, 1, false).listeners(this)
                                             .flushBeforeTransfer(true)
                                             // request ranges from the remote node
@@ -66,8 +73,28 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
 
     public void handleStreamEvent(StreamEvent event)
     {
-        // Nothing to do here, all we care about is the final success or failure and that's handled by
-        // onSuccess and onFailure
+        if (state == null)
+            return;
+        switch (event.eventType)
+        {
+            case STREAM_PREPARED:
+                StreamEvent.SessionPreparedEvent spe = (StreamEvent.SessionPreparedEvent) event;
+                state.trace("Streaming session with {} prepared", spe.session.peer);
+                break;
+            case STREAM_COMPLETE:
+                StreamEvent.SessionCompleteEvent sce = (StreamEvent.SessionCompleteEvent) event;
+                state.trace("Streaming session with {} {}", sce.peer, sce.success ? "completed successfully" : "failed");
+                break;
+            case FILE_PROGRESS:
+                ProgressInfo pi = ((StreamEvent.ProgressEvent) event).progress;
+                state.trace("{}/{} bytes ({}%%) {} idx:{}{}",
+                            new Object[] { pi.currentBytes,
+                                           pi.totalBytes,
+                                           pi.currentBytes * 100 / pi.totalBytes,
+                                           pi.direction == ProgressInfo.Direction.OUT ? "sent to" : "received from",
+                                           pi.sessionIndex,
+                                           pi.peer });
+        }
     }
 
     /**
@@ -75,7 +102,9 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
      */
     public void onSuccess(StreamState state)
     {
-        logger.info(String.format("[repair #%s] streaming task succeed, returning response to %s", desc.sessionId, request.initiator));
+        String message;
+        logger.info("[repair #{}] {}", desc.sessionId, message = String.format("Streaming task succeeded, returning response to %s", request.initiator));
+        Tracing.traceRepair(message);
         MessagingService.instance().sendOneWay(new SyncComplete(desc, request.src, request.dst, true).createMessage(), request.initiator);
     }
 

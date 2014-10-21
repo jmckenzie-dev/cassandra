@@ -90,6 +90,7 @@ public final class CFMetaData
         }
     };
 
+                                                             + "command text,"
     public static class SpeculativeRetry
     {
         public enum RetryType

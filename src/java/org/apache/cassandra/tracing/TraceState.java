@@ -28,6 +28,7 @@ import org.slf4j.helpers.MessageFormatter;
 
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.WrappedRunnable;
 
@@ -41,6 +42,18 @@ public class TraceState
     public final InetAddress coordinator;
     public final Stopwatch watch;
     public final ByteBuffer sessionIdBytes;
+    public final Tracing.TraceType traceType;
+    public final int ttl;
+
+    private boolean notify;
+    private Object notificationHandle;
+
+    private boolean done;
+    private boolean hasNotifications;
+    private long wait = minWaitMillis;
+
+    private static long minWaitMillis = 16 * 1024L;
+    private static long maxWaitMillis = 1000 * 1024L;
 
     // Multiple requests can use the same TraceState at a time, so we need to reference count.
     // See CASSANDRA-7626 for more details.
@@ -48,19 +61,85 @@ public class TraceState
 
     public TraceState(InetAddress coordinator, UUID sessionId)
     {
+        this(coordinator, sessionId, Tracing.TraceType.QUERY);
+    }
+
+    public TraceState(InetAddress coordinator, UUID sessionId, Tracing.TraceType traceType)
+    {
         assert coordinator != null;
         assert sessionId != null;
 
         this.coordinator = coordinator;
         this.sessionId = sessionId;
         sessionIdBytes = ByteBufferUtil.bytes(sessionId);
+        this.traceType = traceType;
+        this.ttl = traceType.getTTL();
         watch = Stopwatch.createStarted();
+    }
+
+    public void enableNotifications()
+    {
+        assert traceType == Tracing.TraceType.REPAIR;
+        notify = true;
+    }
+
+    public void setNotificationHandle(Object handle)
+    {
+        assert traceType == Tracing.TraceType.REPAIR;
+        notificationHandle = handle;
     }
 
     public int elapsed()
     {
         long elapsed = watch.elapsed(TimeUnit.MICROSECONDS);
         return elapsed < Integer.MAX_VALUE ? (int) elapsed : Integer.MAX_VALUE;
+    }
+
+    public synchronized void stop()
+    {
+        done = true;
+        notifyAll();
+    }
+
+    public synchronized boolean isDone()
+    {
+        boolean haveWaited = false;
+        while (true)
+        {
+            if (hasNotifications)
+            {
+                hasNotifications = false;
+                wait = minWaitMillis;
+                return false;
+            }
+            else if (done)
+            {
+                return true;
+            }
+            else if (haveWaited)
+            {
+                wait = Math.min((wait ^ 1) << (wait & 1), maxWaitMillis);
+                return false;
+            }
+            else
+            {
+                haveWaited = true;
+                try
+                {
+                    wait(wait & ~1);
+                }
+                catch (InterruptedException e)
+                {
+                    throw new RuntimeException();
+                }
+            }
+        }
+    }
+
+    private synchronized void notifyActivity()
+    {
+        hasNotifications = true;
+        notifyAll();
     }
 
     public void trace(String format, Object arg)
@@ -80,18 +159,28 @@ public class TraceState
 
     public void trace(String message)
     {
-        TraceState.trace(sessionIdBytes, message, elapsed());
+        if (notify)
+            notifyActivity();
+
+        TraceState.trace(sessionIdBytes, message, elapsed(), ttl, notificationHandle);
     }
 
-    public static void trace(final ByteBuffer sessionId, final String message, final int elapsed)
+    public static void trace(final ByteBuffer sessionIdBytes, final String message, final int elapsed, final int ttl, final Object notificationHandle)
     {
         final String threadName = Thread.currentThread().getName();
+
+        if (notificationHandle != null)
+            StorageService.instance.sendNotification("repair", message, notificationHandle);
 
         StageManager.getStage(Stage.TRACING).execute(new WrappedRunnable()
         {
             public void runMayThrow()
             {
                 Tracing.mutateWithCatch(TraceKeyspace.toEventMutation(sessionId, message, elapsed, threadName));
+                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("activity")), message, ttl);
+                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("source")), FBUtilities.getBroadcastAddress(), ttl);
+                    Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("source_elapsed")), elapsed, ttl);
+                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("thread")), threadName, ttl);
             }
         });
     }
