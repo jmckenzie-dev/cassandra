@@ -2624,7 +2624,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private Thread createQueryThread(final int cmd, final UUID sessionId)
     {
-        Thread queryThread = new Thread(new WrappedRunnable()
+        return new Thread(new WrappedRunnable()
         {
             // Query events within a time interval that overlaps the last by one second. Ignore duplicates. Ignore local traces.
             // Wake up upon local trace activity. Query when notified of trace activity with a timeout that doubles every two timeouts.
@@ -2671,9 +2671,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 }
             }
         });
-        queryThread.setName("RepairTracePolling");
-        queryThread.start();
-        return queryThread;
     }
 
     private FutureTask<Object> createRepairTask(final int cmd, final String keyspace, final RepairOption options)
@@ -2709,6 +2706,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                     traceState.enableNotifications();
                     traceState.setNotificationHandle(new int[]{ cmd, ActiveRepairService.Status.RUNNING.ordinal() });
                     Thread queryThread = createQueryThread(cmd, sessionId);
+                    queryThread.setName("RepairTracePolling");
+                    queryThread.start();
                 }
 
                 final Set<InetAddress> allNeighbors = new HashSet<>();
