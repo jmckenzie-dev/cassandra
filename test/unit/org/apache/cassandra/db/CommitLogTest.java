@@ -47,6 +47,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JVMStabilityInspector;
+import org.apache.cassandra.utils.KillerForTests;
 
 import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 
@@ -298,7 +299,7 @@ public class CommitLogTest extends SchemaLoader
     @Test
     public void testCommitFailurePolicy_die()
     {
-        JVMStabilityInspector.KillerForTests killerForTests = new JVMStabilityInspector.KillerForTests();
+        KillerForTests killerForTests = new KillerForTests();
         JVMStabilityInspector.Killer originalKiller = JVMStabilityInspector.replaceKiller(killerForTests);
         Config.CommitFailurePolicy oldPolicy = DatabaseDescriptor.getCommitFailurePolicy();
 

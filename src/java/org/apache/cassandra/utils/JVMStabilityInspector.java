@@ -30,10 +30,12 @@ import org.apache.cassandra.service.StorageService;
 /**
  * Responsible for deciding whether to kill the JVM if it gets in an "unstable" state (think OOM).
  */
-public class JVMStabilityInspector
+public final class JVMStabilityInspector
 {
     private static final Logger logger = LoggerFactory.getLogger(JVMStabilityInspector.class);
     private static Killer killer = new Killer();
+
+    private JVMStabilityInspector() {}
 
     /**
      * Certain Throwables and Exceptions represent "Die" conditions for the server.
@@ -84,31 +86,6 @@ public class JVMStabilityInspector
             logger.error("JVM state determined to be unstable.  Exiting forcefully due to:", t);
             StorageService.instance.removeShutdownHook();
             System.exit(100);
-        }
-    }
-
-    /**
-     * Responsible for stubbing out the System.exit() logic during unit tests.
-     */
-    @VisibleForTesting
-    public static class KillerForTests extends JVMStabilityInspector.Killer
-    {
-        private boolean killed = false;
-
-        @Override
-        protected void killCurrentJVM(Throwable t)
-        {
-            killed = true;
-        }
-
-        public boolean wasKilled()
-        {
-            return killed;
-        }
-
-        public void reset()
-        {
-            killed = false;
         }
     }
 }
