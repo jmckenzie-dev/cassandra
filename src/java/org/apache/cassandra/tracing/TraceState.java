@@ -51,6 +51,7 @@ public class TraceState
     private boolean done;
     private boolean hasNotifications;
     private long wait = minWaitMillis;
+    private boolean shouldDouble = false;
 
     private static long minWaitMillis = 16 * 1024L;
     private static long maxWaitMillis = 1000 * 1024L;
@@ -118,7 +119,8 @@ public class TraceState
             }
             else if (haveWaited)
             {
-                wait = Math.min((wait ^ 1) << (wait & 1), maxWaitMillis);
+                wait = Math.min(shouldDouble ? wait * 2 : wait, maxWaitMillis);
+                shouldDouble = !shouldDouble;
                 return false;
             }
             else
@@ -126,7 +128,7 @@ public class TraceState
                 haveWaited = true;
                 try
                 {
-                    wait(wait & ~1);
+                    wait(wait);
                 }
                 catch (InterruptedException e)
                 {
