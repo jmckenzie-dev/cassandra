@@ -216,7 +216,7 @@ public class Config
 
     // TTL for different types of trace events.
     public Integer tracetype_query_ttl = 60 * 60 * 24;
-    public Integer tracetype_repair_ttl = 60 * 60 * 24 * 90;
+    public Integer tracetype_repair_ttl = 60 * 60 * 24 * 7;
 
     public static boolean getOutboundBindAny()
     {
