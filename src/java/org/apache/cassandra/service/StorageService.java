@@ -2660,14 +2660,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                             continue;
                         if ((uuid = r.getUUID("event_id")).timestamp() > (tcur - 1000) * 10000)
                             seen[si].add(uuid);
-                        if (seen[si ^ 1].contains(uuid))
+                        if (seen[si == 0 ? 1 : 0].contains(uuid))
                             continue;
                         String message = String.format("%s: %s", r.getInetAddress("source"), r.getString("activity"));
                         sendNotification("repair", message, new int[]{cmd, ActiveRepairService.Status.RUNNING.ordinal()});
                     }
                     tlast = tcur;
 
-                    seen[si ^= 1].clear();
+                    si = si == 0 ? 1 : 0;
+                    seen[si].clear();
                 }
             }
         });
