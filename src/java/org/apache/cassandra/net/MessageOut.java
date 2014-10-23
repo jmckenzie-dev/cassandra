@@ -58,14 +58,10 @@ public class MessageOut<T>
         this(verb,
              payload,
              serializer,
-             isTracing() ? MessageOut.traceParameters() : Collections.<String, byte[]>emptyMap());
-    }
-
-    private static Map<String, byte[]> traceParameters()
-    {
-        byte[] sessionIdBytes = UUIDGen.decompose(Tracing.instance.getSessionId());
-        byte[] traceTypeBytes = new byte[] { Tracing.TraceType.serialize(Tracing.instance.getTraceType()) };
-        return ImmutableMap.of(TRACE_HEADER, sessionIdBytes, TRACE_TYPE, traceTypeBytes);
+             isTracing()
+                 ? ImmutableMap.of(TRACE_HEADER, UUIDGen.decompose(Tracing.instance.getSessionId()),
+                                   TRACE_TYPE, new byte[] { Tracing.TraceType.serialize(Tracing.instance.getTraceType()) })
+                 : Collections.<String, byte[]>emptyMap());
     }
 
     private MessageOut(MessagingService.Verb verb, T payload, IVersionedSerializer<T> serializer, Map<String, byte[]> parameters)
