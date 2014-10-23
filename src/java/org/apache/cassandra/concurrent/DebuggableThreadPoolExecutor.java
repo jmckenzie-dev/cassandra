@@ -106,7 +106,7 @@ public class DebuggableThreadPoolExecutor extends ThreadPoolExecutor implements 
      * @param threadPoolName the name of the threads created by this executor
      * @return The new DebuggableThreadPoolExecutor
      */
-    public static DebuggableThreadPoolExecutor createWithCachedTheadpool(String threadPoolName)
+    public static DebuggableThreadPoolExecutor createCachedThreadpoolWithMaxSize(String threadPoolName)
     {
         return new DebuggableThreadPoolExecutor(0, Integer.MAX_VALUE,
                                                 60L, TimeUnit.SECONDS,
