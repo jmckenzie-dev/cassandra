@@ -2685,7 +2685,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             protected void runMayThrow() throws Exception
             {
-                TraceState traceState = null;
+                final TraceState traceState;
 
                 String[] columnFamilies = options.getColumnFamilies().toArray(new String[options.getColumnFamilies().size()]);
                 Iterable<ColumnFamilyStore> validColumnFamilies = getValidColumnFamilies(false, false, keyspace, columnFamilies);
@@ -2702,13 +2702,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
                     UUID sessionId = Tracing.instance.newSession(Tracing.TraceType.REPAIR);
                     traceState = Tracing.instance.begin("repair", ImmutableMap.of("keyspace", keyspace, "columnFamilies", cfsb.substring(2)));
-                    assert traceState != null;
                     Tracing.traceRepair(message);
                     traceState.enableNotifications();
                     traceState.setNotificationHandle(new int[]{ cmd, ActiveRepairService.Status.RUNNING.ordinal() });
                     Thread queryThread = createQueryThread(cmd, sessionId);
                     queryThread.setName("RepairTracePolling");
                     queryThread.start();
+                }
+                else
+                {
+                    traceState = null;
                 }
 
                 final Set<InetAddress> allNeighbors = new HashSet<>();
@@ -2805,6 +2808,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 final ListenableFuture<List<RepairSessionResult>> allSessions = Futures.successfulAsList(futures);
                 Futures.addCallback(allSessions, new FutureCallback<List<RepairSessionResult>>()
                 {
+                    public void onSuccess(@Nullable Object result)
+                    {
                     public void onSuccess(List<RepairSessionResult> result)
                         // filter out null(=failed) results and get successful ranges
                         Collection<Range<Token>> successfulRanges = new ArrayList<>();
@@ -2815,33 +2820,40 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                                 successfulRanges.add(sessionResult.range);
                             }
                         }
-                        try
-                        {
+                            try
+                            {
                             ActiveRepairService.instance.finishParentSession(parentSession, allNeighbors, successfulRanges);
+                            }
+                            catch (Exception e)
+                            {
+                                logger.error("Error in incremental repair", e);
+                            }
                         }
-                        catch (Exception e)
-                        {
-                            logger.error("Error in incremental repair", e);
-                        }
+                        repairComplete();
                     }
-                }
-                catch (Throwable t)
-                {
-                }
-                String duration = DurationFormatUtils.formatDurationWords(System.currentTimeMillis() - startTime, true, true);
-                message = String.format("Repair command #%d finished in %s", cmd, duration);
-                sendNotification("repair", message,
-                                 new int[]{cmd, ActiveRepairService.Status.FINISHED.ordinal()});
-                logger.info(message);
-                if (options.isTraced())
-                {
-                    assert traceState != null;
-                    traceState.setNotificationHandle(null);
-                    Tracing.traceRepair(message);
-                    Tracing.instance.stopSession();
-                }
+
+                    public void onFailure(Throwable t)
+                    {
+                        repairComplete();
+                    }
+
+                    private void repairComplete()
+                    {
+                        String duration = DurationFormatUtils.formatDurationWords(System.currentTimeMillis() - startTime, true, true);
+                        String message = String.format("Repair command #%d finished in %s", cmd, duration);
+                        sendNotification("repair", message,
+                                         new int[]{cmd, ActiveRepairService.Status.FINISHED.ordinal()});
+                        logger.info(message);
+                        if (options.isTraced())
+                        {
+                            traceState.setNotificationHandle(null);
+                            Tracing.traceRepair(message);
+                            Tracing.instance.stopSession();
+                        }
                 });
-                executor.shutdownNow();
+                        executor.shutdownNow();
+                    }
+                }, MoreExecutors.sameThreadExecutor());
             }
         }, null);
     }
