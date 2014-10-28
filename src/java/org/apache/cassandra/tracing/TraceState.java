@@ -50,7 +50,7 @@ public class TraceState
 
     private boolean done;
     private boolean hasNotifications;
-    private long wait = minWaitMillis;
+    private long timeout = minWaitMillis;
     private boolean shouldDouble = false;
 
     private static long minWaitMillis = 125;
@@ -110,7 +110,7 @@ public class TraceState
             if (hasNotifications)
             {
                 hasNotifications = false;
-                wait = minWaitMillis;
+                timeout = minWaitMillis;
                 return false;
             }
             else if (done)
@@ -119,7 +119,7 @@ public class TraceState
             }
             else if (haveWaited)
             {
-                wait = Math.min(shouldDouble ? wait * 2 : wait, maxWaitMillis);
+                timeout = Math.min(shouldDouble ? timeout * 2 : timeout, maxWaitMillis);
                 shouldDouble = !shouldDouble;
                 return false;
             }
@@ -128,7 +128,7 @@ public class TraceState
                 haveWaited = true;
                 try
                 {
-                    wait(wait);
+                    wait(timeout);
                 }
                 catch (InterruptedException e)
                 {
