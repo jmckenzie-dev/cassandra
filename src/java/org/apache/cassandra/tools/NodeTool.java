@@ -1719,7 +1719,7 @@ public class NodeTool
                                                                                      "WARNING: increasing this puts more load on repairing nodes, so be careful. (default: 1, max: 4)")
         private int numJobThreads = 1;
 
-        @Option(title = "trace_repair", name = {"-tr", "--trace"}, description = "Use -tr to trace repair")
+        @Option(title = "trace_repair", name = {"-tr", "--trace"}, description = "Use -tr to trace the repair. Traces are logged to system_traces.events.")
         private boolean trace = false;
 
         @Override
