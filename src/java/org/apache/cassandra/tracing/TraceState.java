@@ -53,7 +53,7 @@ public class TraceState
     private long wait = minWaitMillis;
     private boolean shouldDouble = false;
 
-    private static long minWaitMillis = 16 * 1024L;
+    private static long minWaitMillis = 125;
     private static long maxWaitMillis = 1000 * 1024L;
 
     // Multiple requests can use the same TraceState at a time, so we need to reference count.
