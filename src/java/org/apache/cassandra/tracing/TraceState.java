@@ -102,6 +102,13 @@ public class TraceState
         notifyAll();
     }
 
+    /*
+     * Returns immediately if there has been trace activity since the last
+     * call, or with a timeout (that doubles with every other call that times
+     * out, until it reaches a maximum, and resets after trace activity) if
+     * there has not.
+     * @return true if this TraceState is stopped.
+     */
     public synchronized boolean isDone()
     {
         boolean haveWaited = false;
