@@ -48,13 +48,14 @@ public class TraceState
     private boolean notify;
     private Object notificationHandle;
 
-    private boolean done;
-    private boolean hasNotifications;
-    private long timeout = minWaitMillis;
-    private boolean shouldDouble = false;
+    public enum Status
+    {
+        IDLE,
+        ACTIVE,
+        STOPPED;
+    }
 
-    private static long minWaitMillis = 125;
-    private static long maxWaitMillis = 1000 * 1024L;
+    private Status status;
 
     // Multiple requests can use the same TraceState at a time, so we need to reference count.
     // See CASSANDRA-7626 for more details.
@@ -76,9 +77,10 @@ public class TraceState
         this.traceType = traceType;
         this.ttl = traceType.getTTL();
         watch = Stopwatch.createStarted();
+        this.status = Status.IDLE;
     }
 
-    public void enableNotifications()
+    public void enableActivityNotification()
     {
         assert traceType == Tracing.TraceType.REPAIR;
         notify = true;
@@ -98,56 +100,41 @@ public class TraceState
 
     public synchronized void stop()
     {
-        done = true;
+        status = Status.STOPPED;
         notifyAll();
     }
 
     /*
      * Returns immediately if there has been trace activity since the last
-     * call, or with a timeout (that doubles with every other call that times
-     * out, until it reaches a maximum, and resets after trace activity) if
-     * there has not.
-     * @return true if this TraceState is stopped.
+     * call, otherwise waits until there is trace activity, or until the
+     * timeout expires.
+     * @param timeout timeout in milliseconds
+     * @return activity status
      */
-    public synchronized boolean isDone()
+    public synchronized Status waitActivity(long timeout)
     {
-        boolean haveWaited = false;
-        while (true)
+        if (status == Status.IDLE)
         {
-            if (hasNotifications)
+            try
             {
-                hasNotifications = false;
-                timeout = minWaitMillis;
-                return false;
+                wait(timeout);
             }
-            else if (done)
+            catch (InterruptedException e)
             {
-                return true;
-            }
-            else if (haveWaited)
-            {
-                timeout = Math.min(shouldDouble ? timeout * 2 : timeout, maxWaitMillis);
-                shouldDouble = !shouldDouble;
-                return false;
-            }
-            else
-            {
-                haveWaited = true;
-                try
-                {
-                    wait(timeout);
-                }
-                catch (InterruptedException e)
-                {
-                    throw new RuntimeException();
-                }
+                throw new RuntimeException();
             }
         }
+        if (status == Status.ACTIVE)
+        {
+            status = Status.IDLE;
+            return Status.ACTIVE;
+        }
+        return status;
     }
 
     private synchronized void notifyActivity()
     {
-        hasNotifications = true;
+        status = Status.ACTIVE;
         notifyAll();
     }
 

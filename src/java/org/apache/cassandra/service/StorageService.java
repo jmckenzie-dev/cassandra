@@ -2646,8 +2646,25 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 UUID uuid;
 
                 long tlast = System.currentTimeMillis(), tcur;
-                while (!state.isDone())
+
+                TraceState.Status status;
+                long minWaitMillis = 125;
+                long maxWaitMillis = 1000 * 1024L;
+                long timeout = minWaitMillis;
+                boolean shouldDouble = false;
+
+                while ((status = state.waitActivity(timeout)) != TraceState.Status.STOPPED)
                 {
+                    if (status == TraceState.Status.IDLE)
+                    {
+                        timeout = shouldDouble ? Math.min(timeout * 2, maxWaitMillis) : timeout;
+                        shouldDouble = !shouldDouble;
+                    }
+                    else
+                    {
+                        timeout = minWaitMillis;
+                        shouldDouble = false;
+                    }
                     ByteBuffer tminBytes = ByteBufferUtil.bytes(UUIDGen.minTimeUUID(tlast - 1000));
                     ByteBuffer tmaxBytes = ByteBufferUtil.bytes(UUIDGen.maxTimeUUID(tcur = System.currentTimeMillis()));
                     QueryOptions options = QueryOptions.forInternalCalls(ConsistencyLevel.ONE, Lists.newArrayList(sessionIdBytes, tminBytes, tmaxBytes));
@@ -2703,7 +2720,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                     UUID sessionId = Tracing.instance.newSession(Tracing.TraceType.REPAIR);
                     traceState = Tracing.instance.begin("repair", ImmutableMap.of("keyspace", keyspace, "columnFamilies", cfsb.substring(2)));
                     Tracing.traceRepair(message);
-                    traceState.enableNotifications();
+                    traceState.enableActivityNotification();
                     traceState.setNotificationHandle(new int[]{ cmd, ActiveRepairService.Status.RUNNING.ordinal() });
                     Thread queryThread = createQueryThread(cmd, sessionId);
                     queryThread.setName("RepairTracePolling");
