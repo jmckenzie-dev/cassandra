@@ -168,7 +168,8 @@ public final class CLibrary
         {
             if (System.getProperty("os.name").toLowerCase().contains("linux"))
             {
-                posix_fadvise(fd, offset, len, POSIX_FADV_DONTNEED);
+                int result = posix_fadvise(fd, offset, len, POSIX_FADV_DONTNEED);
+                System.err.println("Result from trySkipCache: " + result);
             }
         }
         catch (UnsatisfiedLinkError e)
