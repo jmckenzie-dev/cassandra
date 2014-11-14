@@ -20,12 +20,14 @@ package org.apache.cassandra.utils;
 import java.io.FileDescriptor;
 import java.io.RandomAccessFile;
 import java.lang.reflect.Field;
+import java.nio.channels.FileChannel;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.sun.jna.LastErrorException;
 import com.sun.jna.Native;
+import com.sun.jna.Pointer;
 
 public final class CLibrary
 {
@@ -82,6 +84,7 @@ public final class CLibrary
     private static native int open(String path, int flags) throws LastErrorException;
     private static native int fsync(int fd) throws LastErrorException;
     private static native int close(int fd) throws LastErrorException;
+    private static native Pointer strerror(int errnum) throws LastErrorException;
 
     private static int errno(RuntimeException e)
     {
@@ -169,7 +172,8 @@ public final class CLibrary
             if (System.getProperty("os.name").toLowerCase().contains("linux"))
             {
                 int result = posix_fadvise(fd, offset, len, POSIX_FADV_DONTNEED);
-                System.err.println("Result from trySkipCache: " + result);
+                if (result != 0)
+                    logger.warn("Failed trySkipCache: " + strerror(result).getString(0));
             }
         }
         catch (UnsatisfiedLinkError e)
@@ -277,6 +281,22 @@ public final class CLibrary
         }
     }
 
+    public static int getfd(FileChannel channel)
+    {
+        Field field = FBUtilities.getProtectedField(channel.getClass(), "fd");
+        if (field == null)
+            return -1;
+        try
+        {
+            return getfd((FileDescriptor)field.get(channel));
+        }
+        catch (IllegalArgumentException|IllegalAccessException e)
+        {
+            logger.warn("Unable to read fd field from FileChannel");
+        }
+        return -1;
+    }
+
     /**
      * Get system file descriptor from FileDescriptor object.
      * @param descriptor - FileDescriptor objec to get fd from
@@ -296,7 +316,7 @@ public final class CLibrary
         catch (Exception e)
         {
             JVMStabilityInspector.inspectThrowable(e);
-            logger.warn("unable to read fd field from FileDescriptor");
+            logger.warn("Unable to read fd field from FileDescriptor");
         }
 
         return -1;

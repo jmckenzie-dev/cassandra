@@ -167,7 +167,7 @@ public class CommitLogSegment
             // (We may have restarted after a segment size configuration change, leaving "incorrectly"
             // sized segments on disk.)
             channel.truncate(DatabaseDescriptor.getCommitLogSegmentSize());
-            fd = CLibrary.getfd(logFile.toString());
+            fd = CLibrary.getfd(channel);
 
             buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, DatabaseDescriptor.getCommitLogSegmentSize());
             // write the header
