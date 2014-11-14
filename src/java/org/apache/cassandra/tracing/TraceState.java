@@ -161,7 +161,7 @@ public class TraceState
         TraceState.trace(sessionIdBytes, message, elapsed(), ttl, notificationHandle);
     }
 
-    public static void trace(final ByteBuffer sessionIdBytes, final String message, final int elapsed, final int ttl, final Object notificationHandle)
+    public static void trace(final ByteBuffer sessionId, final String message, final int elapsed, final int ttl, final Object notificationHandle)
     {
         final String threadName = Thread.currentThread().getName();
 
@@ -172,11 +172,7 @@ public class TraceState
         {
             public void runMayThrow()
             {
-                Tracing.mutateWithCatch(TraceKeyspace.toEventMutation(sessionId, message, elapsed, threadName));
-                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("activity")), message, ttl);
-                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("source")), FBUtilities.getBroadcastAddress(), ttl);
-                    Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("source_elapsed")), elapsed, ttl);
-                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("thread")), threadName, ttl);
+                Tracing.mutateWithCatch(TraceKeyspace.toEventMutation(sessionId, message, elapsed, threadName, ttl));
             }
         });
     }
