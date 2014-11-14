@@ -173,15 +173,7 @@ public final class CLibrary
             {
                 int result = posix_fadvise(fd, offset, len, POSIX_FADV_DONTNEED);
                 if (result != 0)
-                {
-                    logger.warn("Failed trySkipCache: " + strerror(result).getString(0));
-                    Exception e = new Exception();
-                    e.fillInStackTrace();
-                    for (StackTraceElement ste : e.getStackTrace())
-                    {
-                        logger.warn(ste.toString());
-                    }
-                }
+                    logger.debug("Failed trySkipCache: " + strerror(result).getString(0));
             }
         }
         catch (UnsatisfiedLinkError e)
@@ -292,8 +284,10 @@ public final class CLibrary
     public static int getfd(FileChannel channel)
     {
         Field field = FBUtilities.getProtectedField(channel.getClass(), "fd");
+
         if (field == null)
             return -1;
+
         try
         {
             return getfd((FileDescriptor)field.get(channel));

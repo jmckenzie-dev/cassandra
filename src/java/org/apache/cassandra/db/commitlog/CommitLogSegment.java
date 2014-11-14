@@ -150,8 +150,7 @@ public class CommitLogSegment
                 }
             }
 
-            // We need to pass StandardOpenOption.READ to allow CLibrary.getfd to get a RAF to the stream
-            // and bypass the page cache.
+            // We need to pass StandardOpenOption.READ to get the underlying FD for trySkipCache
             if (isCreating)
             {
                 logger.debug("Creating new CommitLog segment: " + logFile);
