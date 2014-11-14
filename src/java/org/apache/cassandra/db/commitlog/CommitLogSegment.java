@@ -23,6 +23,7 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -34,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.sun.xml.internal.bind.api.impl.NameConverter;
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,7 +106,7 @@ public class CommitLogSegment
     public final long id;
 
     private final File logFile;
-    private final RandomAccessFile logFileAccessor;
+    private final FileChannel channel;
     private final int fd;
 
     private final MappedByteBuffer buffer;
@@ -144,26 +146,32 @@ public class CommitLogSegment
 
                 if (oldFile.exists())
                 {
-                    logger.debug("Re-using discarded CommitLog segment for {} from {}", id, filePath);
                     if (!oldFile.renameTo(logFile))
                         throw new IOException("Rename from " + filePath + " to " + id + " failed");
                     isCreating = false;
                 }
             }
 
-            // Open the initial the segment file
-            logFileAccessor = new RandomAccessFile(logFile, "rw");
-
+            // We need to pass StandardOpenOption.READ to allow CLibrary.getfd to get a RAF to the stream
+            // and bypass the page cache.
             if (isCreating)
-                logger.debug("Creating new commit log segment {}", logFile.getPath());
+            {
+                logger.debug("Creating new CommitLog segment: " + logFile);
+                channel = FileChannel.open(logFile.toPath(), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, StandardOpenOption.READ);
+            }
+            else
+            {
+                logger.debug("Re-using discarded CommitLog segment for {} from {}", id, filePath);
+                channel = FileChannel.open(logFile.toPath(), StandardOpenOption.WRITE, StandardOpenOption.READ);
+            }
 
             // Map the segment, extending or truncating it to the standard segment size.
             // (We may have restarted after a segment size configuration change, leaving "incorrectly"
             // sized segments on disk.)
-            logFileAccessor.setLength(DatabaseDescriptor.getCommitLogSegmentSize());
-            fd = CLibrary.getfd(logFileAccessor.getFD());
+            channel.truncate(DatabaseDescriptor.getCommitLogSegmentSize());
+            fd = CLibrary.getfd(logFile.toString());
 
-            buffer = logFileAccessor.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, DatabaseDescriptor.getCommitLogSegmentSize());
+            buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, DatabaseDescriptor.getCommitLogSegmentSize());
             // write the header
             CommitLogDescriptor.writeHeader(buffer, descriptor);
             // mark the initial sync marker as uninitialised
@@ -415,7 +423,7 @@ public class CommitLogSegment
         {
             if (FileUtils.isCleanerAvailable())
                 FileUtils.clean(buffer);
-            logFileAccessor.close();
+            channel.close();
         }
         catch (IOException e)
         {
