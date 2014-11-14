@@ -2864,6 +2864,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         if (options.isTraced())
                         {
                             traceState.setNotificationHandle(null);
+                            // Because DebuggableThreadPoolExecutor#afterExecute and this callback
+                            // run in a nondeterministic order (within the same thread), the
+                            // TraceState may have been nulled out at this point. The TraceState
+                            // should be traceState, so just set it without bothering to check if it
+                            // actually was nulled out.
+                            Tracing.instance.set(traceState);
                             Tracing.traceRepair(message);
                             Tracing.instance.stopSession();
                         }
