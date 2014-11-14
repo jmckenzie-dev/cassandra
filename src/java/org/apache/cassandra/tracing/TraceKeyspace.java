@@ -85,6 +85,7 @@ public final class TraceKeyspace
         Mutation mutation = new Mutation(NAME, sessionId);
         ColumnFamily cells = mutation.addOrGet(SessionsTable);
 
+        ttl = ttl == DAY ? 0 : ttl;
         CFRowAdder adder = new CFRowAdder(cells, cells.metadata().comparator.builder().build(), FBUtilities.timestampMicros(), ttl);
         adder.add("duration", elapsed);
 
@@ -96,6 +97,7 @@ public final class TraceKeyspace
         Mutation mutation = new Mutation(NAME, sessionId);
         ColumnFamily cells = mutation.addOrGet(TraceKeyspace.SessionsTable);
 
+        ttl = ttl == DAY ? 0 : ttl;
         CFRowAdder adder = new CFRowAdder(cells, cells.metadata().comparator.builder().build(), FBUtilities.timestampMicros(), ttl);
         adder.add("coordinator", FBUtilities.getBroadcastAddress());
         for (Map.Entry<String, String> entry : parameters.entrySet())
@@ -112,6 +114,7 @@ public final class TraceKeyspace
         Mutation mutation = new Mutation(NAME, sessionId);
         ColumnFamily cells = mutation.addOrGet(EventsTable);
 
+        ttl = ttl == DAY ? 0 : ttl;
         CFRowAdder adder = new CFRowAdder(cells, cells.metadata().comparator.make(UUIDGen.getTimeUUID()), FBUtilities.timestampMicros(), ttl);
         adder.add("activity", message);
         adder.add("source", FBUtilities.getBroadcastAddress());
