@@ -173,7 +173,7 @@ public final class CLibrary
             {
                 int result = posix_fadvise(fd, offset, len, POSIX_FADV_DONTNEED);
                 if (result != 0)
-                    logger.debug("Failed trySkipCache: " + strerror(result).getString(0));
+                    logger.warn("Failed trySkipCache: " + strerror(result).getString(0));
             }
         }
         catch (UnsatisfiedLinkError e)
