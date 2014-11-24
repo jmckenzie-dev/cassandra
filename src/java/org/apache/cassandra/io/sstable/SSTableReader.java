@@ -1360,7 +1360,8 @@ public class SSTableReader extends SSTable
 
     private RowIndexEntry getCachedPosition(KeyCacheKey unifiedKey, boolean updateStats)
     {
-        if (keyCache != null && keyCache.getCapacity() > 0) {
+        if (keyCache != null && keyCache.getCapacity() > 0)
+        {
             if (updateStats)
             {
                 RowIndexEntry cachedEntry = keyCache.get(unifiedKey);

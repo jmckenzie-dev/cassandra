@@ -40,7 +40,6 @@ public class Scrubber implements Closeable
     private final File destination;
     private final boolean skipCorrupted;
 
-    private final CompactionController controller;
     private final boolean isCommutative;
     private final int expectedBloomFilterSize;
 
@@ -88,10 +87,6 @@ public class Scrubber implements Closeable
         if (destination == null)
             throw new IOException("disk full");
 
-        // If we run scrub offline, we should never purge tombstone, as we cannot know if other sstable have data that the tombstone deletes.
-        this.controller = isOffline
-                        ? new ScrubController(cfs)
-                        : new CompactionController(cfs, Collections.singleton(sstable), CompactionManager.getDefaultGcBefore(cfs));
         this.isCommutative = cfs.metadata.isCounter();
         this.expectedBloomFilterSize = Math.max(cfs.metadata.getMinIndexInterval(), (int)(SSTableReader.getApproximateKeyCount(toScrub)));
 
@@ -110,8 +105,11 @@ public class Scrubber implements Closeable
     {
         outputHandler.output(String.format("Scrubbing %s (%s bytes)", sstable, dataFile.length()));
         Set<SSTableReader> oldSSTable = Sets.newHashSet(sstable);
-        SSTableRewriter writer = new SSTableRewriter(cfs, oldSSTable, sstable.maxDataAge, isOffline);
-        try
+        try (SSTableRewriter writer = new SSTableRewriter(cfs, oldSSTable, sstable.maxDataAge, isOffline);
+            // If we run scrub offline, we should never purge tombstone, as we cannot know if other sstable have data that the tombstone deletes.
+            CompactionController controller = isOffline
+                ? new ScrubController(cfs)
+                : new CompactionController(cfs, Collections.singleton(sstable), CompactionManager.getDefaultGcBefore(cfs)))
         {
             ByteBuffer nextIndexKey = ByteBufferUtil.readWithShortLength(indexFile);
             {
@@ -267,12 +265,7 @@ public class Scrubber implements Closeable
         }
         catch (Throwable t)
         {
-            writer.abort();
             throw Throwables.propagate(t);
-        }
-        finally
-        {
-            controller.close();
         }
 
         if (newSstable == null)

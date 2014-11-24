@@ -18,7 +18,6 @@
 package org.apache.cassandra.db.compaction;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.*;
 
 import com.google.common.base.Throwables;
@@ -28,8 +27,6 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
-import org.apache.cassandra.utils.CLibrary;
-import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.OutputHandler;
 
 public class Upgrader
@@ -81,8 +78,8 @@ public class Upgrader
     {
         outputHandler.output("Upgrading " + sstable);
         Set<SSTableReader> toUpgrade = Sets.newHashSet(sstable);
-        SSTableRewriter writer = new SSTableRewriter(cfs, toUpgrade, CompactionTask.getMaxDataAge(toUpgrade), true);
-        try (AbstractCompactionStrategy.ScannerList scanners = strategy.getScanners(toUpgrade))
+        try (SSTableRewriter writer = new SSTableRewriter(cfs, toUpgrade, CompactionTask.getMaxDataAge(toUpgrade), true);
+             AbstractCompactionStrategy.ScannerList scanners = strategy.getScanners(toUpgrade))
         {
             Iterator<AbstractCompactedRow> iter = new CompactionIterable(compactionType, scanners.scanners, controller).iterator();
             writer.switchWriter(createCompactionWriter(sstable.getSSTableMetadata().repairedAt));
@@ -99,7 +96,6 @@ public class Upgrader
         }
         catch (Throwable t)
         {
-            writer.abort();
             throw Throwables.propagate(t);
         }
         finally
