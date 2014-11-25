@@ -34,7 +34,6 @@ import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.marshal.TimeUUIDType;
 import org.apache.cassandra.exceptions.OverloadedException;
 import org.apache.cassandra.exceptions.UnavailableException;
@@ -42,11 +41,9 @@ import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageProxy;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDGen;
 
-import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 
 /**
  * A trace session context. Able to track and store trace sessions. A session is usually a user initiated query, and may
@@ -54,9 +51,6 @@ import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
  */
 public class Tracing
 {
-    public static final String TRACE_KS = "system_traces";
-    public static final String EVENTS_CF = "events";
-    public static final String SESSIONS_CF = "sessions";
     public static final String TRACE_HEADER = "TraceSession";
     public static final String TRACE_TYPE = "TraceType";
     public static final String TRACE_TTL = "TraceTTL";
@@ -95,9 +89,9 @@ public class Tracing
 
     private final InetAddress localAddress = FBUtilities.getLocalAddress();
 
-    private final ThreadLocal<TraceState> state = new ThreadLocal<TraceState>();
+    private final ThreadLocal<TraceState> state = new ThreadLocal<>();
 
-    private final ConcurrentMap<UUID, TraceState> sessions = new ConcurrentHashMap<UUID, TraceState>();
+    private final ConcurrentMap<UUID, TraceState> sessions = new ConcurrentHashMap<>();
 
     public static final Tracing instance = new Tracing();
 
