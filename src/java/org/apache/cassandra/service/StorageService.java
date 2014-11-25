@@ -92,6 +92,7 @@ import org.apache.cassandra.thrift.TokenRange;
 import org.apache.cassandra.thrift.cassandraConstants;
 import org.apache.cassandra.tracing.TraceKeyspace;
 import org.apache.cassandra.tracing.TraceState;
+import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.*;
 
@@ -2825,21 +2826,20 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 final ListenableFuture<List<RepairSessionResult>> allSessions = Futures.successfulAsList(futures);
                 Futures.addCallback(allSessions, new FutureCallback<List<RepairSessionResult>>()
                 {
-                    public void onSuccess(@Nullable Object result)
-                    {
                     public void onSuccess(List<RepairSessionResult> result)
+                    {
                         // filter out null(=failed) results and get successful ranges
                         Collection<Range<Token>> successfulRanges = new ArrayList<>();
                         for (RepairSessionResult sessionResult : result)
-                    {
+                        {
                             if (sessionResult != null)
                             {
                                 successfulRanges.add(sessionResult.range);
                             }
-                        }
+
                             try
                             {
-                            ActiveRepairService.instance.finishParentSession(parentSession, allNeighbors, successfulRanges);
+                                ActiveRepairService.instance.finishParentSession(parentSession, allNeighbors, successfulRanges);
                             }
                             catch (Exception e)
                             {
@@ -2873,10 +2873,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                             Tracing.traceRepair(message);
                             Tracing.instance.stopSession();
                         }
-                });
                         executor.shutdownNow();
                     }
-                }, MoreExecutors.sameThreadExecutor());
+                });
             }
         }, null);
     }

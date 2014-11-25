@@ -172,6 +172,7 @@ public class Tracing
         else
         {
             final int elapsed = state.elapsed();
+            final ByteBuffer sessionId = state.sessionIdBytes;
             final int ttl = state.ttl;
 
             StageManager.getStage(Stage.TRACING).execute(new Runnable()
