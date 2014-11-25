@@ -2471,6 +2471,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                                 boolean fullRepair,
                                 String... columnFamilies)
     {
+        if (!FBUtilities.isUnix() && parallelismDegree != RepairParallelism.PARALLEL)
+        {
+            logger.warn("Snapshot-based repair is not yet supported on Windows.  Reverting to parallel repair.");
+            parallelismDegree = RepairParallelism.PARALLEL;
+        }
+
         RepairOption options = new RepairOption(parallelismDegree, primaryRange, !fullRepair, false, 1, Collections.<Range<Token>>emptyList());
         if (dataCenters != null)
         {
@@ -2526,6 +2532,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                                      boolean fullRepair,
                                      String... columnFamilies)
     {
+        if (!FBUtilities.isUnix() && parallelismDegree != RepairParallelism.PARALLEL)
+        {
+            logger.warn("Snapshot-based repair is not yet supported on Windows.  Reverting to parallel repair.");
+            parallelismDegree = RepairParallelism.PARALLEL;
+        }
         Collection<Range<Token>> repairingRange = createRepairRangeFrom(beginToken, endToken);
 
         RepairOption options = new RepairOption(parallelismDegree, false, !fullRepair, false, 1, repairingRange);
