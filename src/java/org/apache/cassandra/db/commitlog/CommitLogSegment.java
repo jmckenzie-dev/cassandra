@@ -19,6 +19,7 @@ package org.apache.cassandra.db.commitlog;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
@@ -150,6 +151,16 @@ public class CommitLogSegment
                 }
             }
 
+            // Extend or truncate the file size to the standard segment size.
+            // (We may have restarted after a segment size configuration change, leaving "incorrectly"
+            // sized segments on disk.)
+            // NOTE: using RAF to allow extension of file on disk, need to avoid using RAF for operations due to
+            // FILE_SHARE_DELETE flag bug on windows.  See: https://bugs.openjdk.java.net/browse/JDK-6357433
+            try (RandomAccessFile raf = new RandomAccessFile(logFile, "rw"))
+            {
+                raf.setLength(DatabaseDescriptor.getCommitLogSegmentSize());
+            }
+
             // We need to pass StandardOpenOption.READ to get the underlying FD for trySkipCache
             if (isCreating)
             {
@@ -162,10 +173,7 @@ public class CommitLogSegment
                 channel = FileChannel.open(logFile.toPath(), StandardOpenOption.WRITE, StandardOpenOption.READ);
             }
 
-            // Map the segment, extending or truncating it to the standard segment size.
-            // (We may have restarted after a segment size configuration change, leaving "incorrectly"
-            // sized segments on disk.)
-            channel.truncate(DatabaseDescriptor.getCommitLogSegmentSize());
+            // Map the segment
             fd = CLibrary.getfd(channel);
 
             buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, DatabaseDescriptor.getCommitLogSegmentSize());
