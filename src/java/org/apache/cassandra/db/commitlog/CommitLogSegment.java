@@ -151,11 +151,11 @@ public class CommitLogSegment
                 }
             }
 
-            // Extend or truncate the file size to the standard segment size.
-            // (We may have restarted after a segment size configuration change, leaving "incorrectly"
-            // sized segments on disk.)
-            // NOTE: using RAF to allow extension of file on disk, need to avoid using RAF for operations due to
-            // FILE_SHARE_DELETE flag bug on windows.  See: https://bugs.openjdk.java.net/browse/JDK-6357433
+            // Extend or truncate the file size to the standard segment size as we may have restarted after a segment
+            // size configuration change, leaving "incorrectly" sized segments on disk.
+            // NOTE: while we're using RAF to allow extension of file on disk, we need to avoid using RAF for
+            // grabbing the FileChannel due to FILE_SHARE_DELETE flag bug on windows.
+            // See: https://bugs.openjdk.java.net/browse/JDK-6357433
             try (RandomAccessFile raf = new RandomAccessFile(logFile, "rw"))
             {
                 raf.setLength(DatabaseDescriptor.getCommitLogSegmentSize());
