@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
+import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -145,9 +146,9 @@ public class LeveledCompactionStrategyTest extends SchemaLoader
 
         // get LeveledScanner for level 1 sstables
         Collection<SSTableReader> sstables = strategy.manifest.getLevel(1);
-        List<ICompactionScanner> scanners = strategy.getScanners(sstables).scanners;
+        List<ISSTableScanner> scanners = strategy.getScanners(sstables).scanners;
         assertEquals(1, scanners.size()); // should be one per level
-        ICompactionScanner scanner = scanners.get(0);
+        ISSTableScanner scanner = scanners.get(0);
         // scan through to the end
         while (scanner.hasNext())
             scanner.next();
