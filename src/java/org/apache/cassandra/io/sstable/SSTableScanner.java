@@ -63,12 +63,10 @@ public class SSTableScanner implements ISSTableScanner
     {
         // We want to avoid allocating a SSTableScanner if the range don't overlap the sstable (#5249)
         List<Pair<Long, Long>> positions = sstable.getPositionsForRanges(Range.normalize(tokenRanges));
-        if (positions.isEmpty())
+        if (positions.isEmpty() || !sstable.acquireReference())
             return new EmptySSTableScanner(sstable.getFilename());
-        else
-            return sstable.acquireReference()
-                    ? new SSTableScanner(sstable, tokenRanges, limiter)
-                    : new EmptySSTableScanner(sstable.getFilename());
+
+        return new SSTableScanner(sstable, tokenRanges, limiter);
     }
 
     /**
