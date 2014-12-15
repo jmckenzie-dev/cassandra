@@ -23,7 +23,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
-import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -35,6 +34,7 @@ import org.apache.cassandra.Util;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.notifications.SSTableAddedNotification;
 import org.apache.cassandra.notifications.SSTableRepairStatusChanged;
