@@ -214,8 +214,15 @@ public class DataTracker
             }
 
             View newView = currentView.markCompacting(set);
+
+            // Reference compacting sstables to prevent tidying / deletion while being used for compaction
+            if (!SSTableReader.acquireReferences(newView.compacting))
+                continue;
+
             if (view.compareAndSet(currentView, newView))
                 return true;
+
+            SSTableReader.releaseReferences(newView.compacting);
         }
     }
 
@@ -243,6 +250,7 @@ public class DataTracker
             newView = currentView.unmarkCompacting(unmark);
         }
         while (!view.compareAndSet(currentView, newView));
+        SSTableReader.releaseReferences(newView.compacting);
 
         if (!isValid)
         {
