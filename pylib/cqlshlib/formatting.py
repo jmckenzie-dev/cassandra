@@ -19,7 +19,7 @@ import math
 import re
 import time
 import sys
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 from . import wcwidth
 from .displaying import colorme, FormattedValue, DEFAULT_VALUE_COLORS
 from datetime import datetime, timedelta
@@ -167,48 +167,6 @@ def format_integer_type(val, colormap, **_):
 
 formatter_for('long')(format_integer_type)
 formatter_for('int')(format_integer_type)
-
-@formatter_for('SimpleDate')
-def format_value_date(val, colormap, quote=False, **_):
-    date_string = None
-    try:
-        # negative utcfromtimestamp fails on windows - use timedelta instead
-        # Shift date to be relative to epoch @ 0 for datetime call
-        parsed_date = datetime(1970, 1, 1) + timedelta(days=val.value - 2**31)
-        tokens = str(parsed_date).split(" ")
-        date_string = tokens[0]
-    except Exception as e:
-        print 'Warning!  Non-ISO 8601 dates detected (< 1-1-1 or > 9999-12-31).  Returning raw days since epoch.'
-        date_string = str(val.value)
-    if quote:
-        date_string = "'%s'" % date_string
-    return colorme(date_string, colormap, 'date')
-
-@formatter_for('Time')
-def format_value_time(val, colormap, date_time_format, quote=False, **_):
-    raw_time = val.value
-    # base-case, handle default format that includes nano as %N
-    # TODO: Consider making this more flexible to handle variable %N placement and formatting, using
-    # strftime on the non-nanosecond portion of the time string
-    if date_time_format.nanotime_format == DEFAULT_NANOTIME_FORMAT:
-        base_time = datetime.utcfromtimestamp(raw_time / (1000L * 1000L * 1000L))
-        nano_raw = raw_time % (1000L * 1000L * 1000L)
-
-        nano_string = str(nano_raw)
-        # left-pad to 9 digits
-        while len(nano_string) < 9:
-            nano_string = "0" + nano_string
-
-        time_string = str(base_time.time()) + "." + nano_string
-    else:
-        # any other case, convert to microseconds and use strftime
-        epoch = datetime(1970, 1, 1)
-        raw_time /= 1000
-        delta = timedelta(microseconds=raw_time)
-        time_string = datetime.strftime(epoch + delta, date_time_format.nanotime_format)
-    if quote:
-        time_string = "'%s'" % time_string
-    return colorme(time_string, colormap, 'time')
 
 @formatter_for('date')
 def format_value_timestamp(val, colormap, date_time_format, quote=False, **_):

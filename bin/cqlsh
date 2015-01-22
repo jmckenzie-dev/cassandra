@@ -569,7 +569,11 @@ class Shell(cmd.Cmd):
             self.session = self.conn.connect()
 
         self.color = color
-        self.display_time_format = display_time_format
+
+        self.display_nanotime_format = display_nanotime_format
+        self.display_timestamp_format = display_timestamp_format
+        self.display_date_format = display_date_format
+
         self.display_float_precision = display_float_precision
 
         # Workaround for CASSANDRA-8521 until PYTHON-205 is resolved.
