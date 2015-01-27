@@ -15,41 +15,72 @@
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
  * under the License.
+ *
  */
 package org.apache.cassandra.io.util;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.charset.Charset;
-import java.nio.file.Files;
-
+import org.apache.cassandra.utils.FBUtilities;
 import org.junit.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Random;
 
 public class FileUtilsTest
 {
+    private final String dummyFileName = "itIsSafeToDeleteThisFile.txt";
 
     @Test
-    public void testTruncate() throws IOException
+    public void testCreateDirectory()
     {
-        File file = FileUtils.createTempFile("testTruncate", "1");
-        final String expected = "The quick brown fox jumps over the lazy dog";
-
-        Files.write(file.toPath(), expected.getBytes());
-        assertTrue(file.exists());
-
-        byte[] b = Files.readAllBytes(file.toPath());
-        assertEquals(expected, new String(b, Charset.forName("UTF-8")));
-
-        FileUtils.truncate(file.getAbsolutePath(), 10);
-        b = Files.readAllBytes(file.toPath());
-        assertEquals("The quick ", new String(b, Charset.forName("UTF-8")));
-
-        FileUtils.truncate(file.getAbsolutePath(), 0);
-        b = Files.readAllBytes(file.toPath());
-        assertEquals(0, b.length);
+        // On Windows, we have to break it down to individual steps as we cannot use File.mkdir() to
+        // construct nested directories.
+        FileUtils.createDirectory("test/nested/directory/creation");
     }
 
+    @Test (expected = RuntimeException.class)
+    public void testCopyNoDirectory() throws IOException
+    {
+        File f = new File(dummyFileName);
+        if (f.exists())
+            f.delete();
+        FileUtils.copyFile(dummyFileName, "dummyDestDir", "dummyDestName", false);
+    }
+
+    @Test (expected = RuntimeException.class)
+    public void testCopyOverwriteFail() throws IOException
+    {
+        populateDummyFile();
+
+        // Attempt to copy a file over our existing w/out flag
+        FileUtils.copyFile(dummyFileName, "", dummyFileName, false);
+    }
+
+    @Test
+    public void testCopyAndOverwrite() throws IOException
+    {
+        populateDummyFile();
+        Path newFile = Paths.get("test/new/file/" + dummyFileName);
+        if (Files.exists(newFile))
+            Files.delete(newFile);
+        FileUtils.copyFile(dummyFileName, "test/new/file/", dummyFileName, false);
+        FileUtils.copyFile(dummyFileName, "test/new/file/", dummyFileName, true);
+    }
+
+    private void populateDummyFile() throws IOException
+    {
+        if (Files.notExists(Paths.get(dummyFileName)))
+        {
+            Random r = new Random();
+            byte dataToWrite[] = new byte[128];
+            r.nextBytes(dataToWrite);
+            FileOutputStream out = new FileOutputStream(dummyFileName);
+            out.write(dataToWrite);
+            out.close();
+        }
+    }
 }

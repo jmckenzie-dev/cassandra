@@ -25,10 +25,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Properties;
 import java.util.TimeZone;
 import java.util.concurrent.*;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Strings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -37,11 +43,6 @@ import org.apache.cassandra.io.compress.CompressionParameters;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.WrappedRunnable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.common.base.Strings;
-
 public class CommitLogArchiver
 {
     private static final Logger logger = LoggerFactory.getLogger(CommitLogArchiver.class);
@@ -59,6 +60,26 @@ public class CommitLogArchiver
     final String restoreDirectories;
     public long restorePointInTime;
     public final TimeUnit precision;
+    private ArrayList<NativeCommand> nativeCommands = new ArrayList<>();
+
+    @VisibleForTesting
+    public enum ArchiveCommandType
+    {
+        Copy,
+        HardLink
+    }
+
+    private class NativeCommand
+    {
+        public ArchiveCommandType type;
+        public String path;
+
+        public NativeCommand(ArchiveCommandType type, String path)
+        {
+            this.type = type;
+            this.path = path;
+        }
+    }
 
     public CommitLogArchiver()
     {
@@ -84,14 +105,7 @@ public class CommitLogArchiver
                 {
                     for (String dir : restoreDirectories.split(DELIMITER))
                     {
-                        File directory = new File(dir);
-                        if (!directory.exists())
-                        {
-                            if (!directory.mkdir())
-                            {
-                                throw new RuntimeException("Unable to create directory: " + dir);
-                            }
-                        }
+                        FileUtils.createDirectory(dir);
                     }
                 }
                 String targetTime = commitlog_commands.getProperty("restore_point_in_time");
@@ -104,6 +118,29 @@ public class CommitLogArchiver
                 {
                     throw new RuntimeException("Unable to parse restore target time", e);
                 }
+
+                String copyCmd = commitlog_commands.getProperty("copy_on_archive");
+                String hlCmd = commitlog_commands.getProperty("hard_link_on_archive");
+
+                if (copyCmd != null && copyCmd.equals("true"))
+                    nativeCommands.add(new NativeCommand(ArchiveCommandType.Copy, commitlog_commands.getProperty("copy_destination")));
+                if (hlCmd != null && hlCmd.equals("true"))
+                    nativeCommands.add(new NativeCommand(ArchiveCommandType.HardLink, commitlog_commands.getProperty("hard_link_destination")));
+
+                // Confirm uniqueness of destination paths as we use original CommitLog name on file.
+                for (int i = 0; i < nativeCommands.size(); ++i)
+                    for (int j = i + 1; j < nativeCommands.size(); j++)
+                        if (nativeCommands.get(i).path.equals(nativeCommands.get(j).path))
+                            throw new RuntimeException("Overlapping paths on native commands in CommitLogArchiver.  Offenders: "
+                                    + nativeCommands.get(i).type
+                                    + " and "
+                                    + nativeCommands.get(j).type);
+
+                for (NativeCommand nc : nativeCommands)
+                {
+                    File directory = new File(nc.path);
+                    FileUtils.createDirectory(directory);
+                }
             }
         }
         catch (IOException e)
@@ -115,6 +152,32 @@ public class CommitLogArchiver
 
     public void maybeArchive(final CommitLogSegment segment)
     {
+        for (final NativeCommand nc : nativeCommands)
+        {
+            final String destination = nc.path + File.separator + segment.getName();
+            switch (nc.type)
+            {
+                case Copy:
+                    archivePending.put(segment.getName(), executor.submit(new WrappedRunnable()
+                    {
+                        protected void runMayThrow() throws IOException
+                        {
+                            FileUtils.copyFile(segment.getPath(), nc.path, segment.getName(), false);
+                        }
+                    }));
+                    break;
+                case HardLink:
+                    archivePending.put(segment.getName(), executor.submit(new WrappedRunnable()
+                    {
+                        protected void runMayThrow() throws IOException
+                        {
+                            FileUtils.createHardLink(segment.getPath(), destination);
+                        }
+                    }));
+                    break;
+            }
+        }
+
         if (Strings.isNullOrEmpty(archiveCommand))
             return;
 
@@ -247,5 +310,20 @@ public class CommitLogArchiver
         ProcessBuilder pb = new ProcessBuilder(command.split(" "));
         pb.redirectErrorStream(true);
         FBUtilities.exec(pb);
+    }
+
+    @VisibleForTesting
+    public void addNativeCommand(ArchiveCommandType type, String path)
+    {
+        File f = new File(path);
+        if (!f.exists())
+            FileUtils.createDirectory(f);
+        nativeCommands.add(new NativeCommand(type, path));
+    }
+
+    @VisibleForTesting
+    public void clearNativeCommands()
+    {
+        nativeCommands.clear();
     }
 }

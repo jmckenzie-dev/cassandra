@@ -53,7 +53,7 @@ public final class JVMStabilityInspector
 
         if (DatabaseDescriptor.getDiskFailurePolicy() == Config.DiskFailurePolicy.die)
             if (t instanceof FSError || t instanceof CorruptSSTableException)
-            isUnstable = true;
+                isUnstable = true;
 
         // Check for file handle exhaustion
         if (t instanceof FileNotFoundException || t instanceof SocketException)

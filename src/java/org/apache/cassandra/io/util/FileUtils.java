@@ -21,12 +21,12 @@ import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
+import java.nio.channels.FileChannel;
 import java.text.DecimalFormat;
 import java.util.Arrays;
 
 import org.apache.cassandra.config.Config;
 import sun.nio.ch.DirectBuffer;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +39,7 @@ import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 
 import static org.apache.cassandra.utils.Throwables.maybeFail;
@@ -51,6 +52,7 @@ public class FileUtils
     private static final double MB = 1024*1024d;
     private static final double GB = 1024*1024*1024d;
     private static final double TB = 1024*1024*1024*1024d;
+    private static final long FILE_COPY_BUFFER_SIZE = (long)(30 * MB);
 
     private static final DecimalFormat df = new DecimalFormat("#.##");
     private static final boolean canCleanDirectBuffers;
@@ -94,6 +96,28 @@ public class FileUtils
         }
     }
 
+    public static void createSoftLink(String from, String to)
+    {
+        createSoftLink(new File(from), new File(to));
+    }
+
+    public static void createSoftLink(File from, File to)
+    {
+        if (to.exists())
+            throw new RuntimeException("Tried to create duplicate soft link to " + to);
+        if (!from.exists())
+            throw new RuntimeException("Tried to soft link to file that does not exist " + from);
+
+        try
+        {
+            Files.createSymbolicLink(to.toPath(), from.toPath());
+        }
+        catch (IOException e)
+        {
+            throw new FSWriteError(e, to);
+        }
+    }
+
     public static File createTempFile(String prefix, String suffix, File directory)
     {
         try
@@ -109,6 +133,68 @@ public class FileUtils
     public static File createTempFile(String prefix, String suffix)
     {
         return createTempFile(prefix, suffix, new File(System.getProperty("java.io.tmpdir")));
+    }
+
+    public static void copyFile(String from, String destDir, String destName, boolean overwrite) throws IOException
+    {
+        copyFile(new File(from), new File(destDir), new File(destName), overwrite);
+    }
+
+    // Largely taken from apache commons-io, FileUtils.doCopyFile
+    public static void copyFile(File from, File destDir, File destName, boolean overwrite) throws IOException
+    {
+        if (destDir.exists() && !destDir.isDirectory())
+            throw new IllegalArgumentException("Destination '" + destDir + "' is not a directory");
+
+        if (!destDir.exists())
+            createDirectory(destDir);
+
+        String fullName = destDir.getAbsolutePath() + File.separator + destName;
+        File destFile = new File(fullName);
+
+        if (!overwrite && destFile.exists())
+            throw new RuntimeException("Tried to copy over existing file without overwrite flag: " + fullName);
+        if (!from.exists())
+            throw new RuntimeException("Tried to copy file that does not exist " + from);
+
+        FileInputStream fis = null;
+        FileOutputStream fos = null;
+        FileChannel input = null;
+        FileChannel output = null;
+        try
+        {
+            fis = new FileInputStream(from);
+            fos = new FileOutputStream(destFile);
+            input  = fis.getChannel();
+            output = fos.getChannel();
+            final long size = input.size();
+            long pos = 0;
+            long count = 0;
+            while (pos < size)
+            {
+                final long remain = size - pos;
+                count = remain > FILE_COPY_BUFFER_SIZE ? FILE_COPY_BUFFER_SIZE : remain;
+                final long bytesCopied = output.transferFrom(input, pos, count);
+                // can happen if file is truncated after caching the size
+                if (bytesCopied == 0)
+                    break;
+                pos += bytesCopied;
+            }
+        }
+        finally
+        {
+            FileUtils.closeQuietly(output);
+            FileUtils.closeQuietly(fos);
+            FileUtils.closeQuietly(input);
+            FileUtils.closeQuietly(fis);
+        }
+
+        final long srcLen = from.length();
+        final long dstLen = destFile.length();
+        if (srcLen != dstLen) {
+            throw new IOException("Failed to copy full contents from '" +
+                    from + "' to '" + destFile + "' Expected length: " + srcLen +" Actual: " + dstLen);
+        }
     }
 
     public static Throwable deleteWithConfirm(String filePath, boolean expect, Throwable accumulate)
@@ -328,10 +414,30 @@ public class FileUtils
 
     public static void createDirectory(File directory)
     {
-        if (!directory.exists())
+        // Directory creation on Windows fails if any of the interim directories are missing.
+        if (FBUtilities.isWindows())
         {
-            if (!directory.mkdirs())
-                throw new FSWriteError(new IOException("Failed to mkdirs " + directory), directory);
+            StringBuilder sb = new StringBuilder();
+            for (String c : directory.getAbsolutePath().split("\\" + File.separator))
+            {
+                if (sb.length() != 0)
+                    sb.append(File.separator);
+                sb.append(c);
+
+                File f = new File(sb.toString());
+                if (f.exists() && !f.isDirectory())
+                    throw new FSWriteError(new IOException("Expected directory on creation of directory chain, got file: " + f), f);
+                else if (!f.exists() && !f.mkdir())
+                    throw new FSWriteError(new IOException("Failed to create directory: " + f), f);
+            }
+        }
+        else
+        {
+            if (!directory.exists())
+            {
+                if (!directory.mkdirs())
+                    throw new FSWriteError(new IOException("Failed to mkdirs " + directory), directory);
+            }
         }
     }
 
@@ -406,7 +512,9 @@ public class FileUtils
         {
             String[] children = dir.list();
             for (String child : children)
+            {
                 deleteRecursive(new File(dir, child));
+            }
         }
 
         // The directory is now empty so now it can be smoked
