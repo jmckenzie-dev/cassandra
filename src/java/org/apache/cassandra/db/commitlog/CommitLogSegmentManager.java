@@ -517,16 +517,8 @@ public class CommitLogSegmentManager
     }
 
     /**
-     * Resets all the segments, for testing purposes. DO NOT USE THIS OUTSIDE OF TESTS.
-     */
-    public void resetUnsafe()
-    {
-        stopUnsafe();
-        startUnsafe();
-    }
-
-    /**
      * Stops CL, for testing purposes. DO NOT USE THIS OUTSIDE OF TESTS.
+     * Only call this after the AbstractCommitLogService is shut down.
      */
     public void stopUnsafe()
     {

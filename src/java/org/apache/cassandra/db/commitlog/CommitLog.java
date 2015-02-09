@@ -320,7 +320,34 @@ public class CommitLog implements CommitLogMBean
      */
     public void resetUnsafe()
     {
-        allocator.resetUnsafe();
+        stopUnsafe();
+        startUnsafe();
+    }
+
+    /**
+     * FOR TESTING PURPOSES. See CommitLogAllocator.
+     */
+    public void stopUnsafe()
+    {
+        executor.shutdown();
+        try
+        {
+            executor.awaitTermination();
+        }
+        catch (InterruptedException e)
+        {
+            throw new RuntimeException(e);
+        }
+        allocator.stopUnsafe();
+    }
+
+    /**
+     * FOR TESTING PURPOSES.  See CommitLogAllocator
+     */
+    public void startUnsafe()
+    {
+        allocator.startUnsafe();
+        executor.startUnsafe();
     }
 
     /**
