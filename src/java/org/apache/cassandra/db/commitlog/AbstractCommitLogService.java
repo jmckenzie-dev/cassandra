@@ -190,7 +190,9 @@ public abstract class AbstractCommitLogService
     {
         while (haveWork.availablePermits() < 1)
             haveWork.release();
+
         while (haveWork.availablePermits() > 1)
+        {
             try
             {
                 haveWork.acquire();
@@ -199,6 +201,7 @@ public abstract class AbstractCommitLogService
             {
                 throw new RuntimeException(e);
             }
+        }
         shutdown = false;
         start();
     }
