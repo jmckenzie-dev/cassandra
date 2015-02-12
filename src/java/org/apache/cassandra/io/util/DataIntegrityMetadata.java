@@ -34,6 +34,7 @@ import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.utils.CRC32Factory;
+import org.apache.cassandra.utils.FBUtilities;
 
 public class DataIntegrityMetadata
 {
@@ -87,9 +88,9 @@ public class DataIntegrityMetadata
 
     public static class ChecksumWriter
     {
-        private final Checksum incrementalChecksum = new Adler32();
+        private final Adler32 incrementalChecksum = new Adler32();
         private final DataOutput incrementalOut;
-        private final Checksum fullChecksum = new Adler32();
+        private final Adler32 fullChecksum = new Adler32();
 
         public ChecksumWriter(DataOutput incrementalOut)
         {
@@ -134,6 +135,24 @@ public class DataIntegrityMetadata
                     byteBuffer.putInt(incrementalChecksumValue);
                     fullChecksum.update(byteBuffer.array(), 0, byteBuffer.array().length);
                 }
+            }
+            catch (IOException e)
+            {
+                throw new IOError(e);
+            }
+        }
+
+        public void appendDirect(ByteBuffer bb)
+        {
+            try
+            {
+                bb.mark();
+                FBUtilities.directCheckSum(incrementalChecksum, bb);
+                incrementalOut.writeInt((int) incrementalChecksum.getValue());
+                incrementalChecksum.reset();
+
+                bb.reset();
+                FBUtilities.directCheckSum(fullChecksum, bb);
             }
             catch (IOException e)
             {

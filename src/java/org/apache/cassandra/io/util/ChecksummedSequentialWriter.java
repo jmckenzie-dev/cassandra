@@ -28,16 +28,16 @@ public class ChecksummedSequentialWriter extends SequentialWriter
 
     public ChecksummedSequentialWriter(File file, int bufferSize, File crcPath)
     {
-        super(file, bufferSize);
-        crcWriter = new SequentialWriter(crcPath, 8 * 1024);
+        super(file, bufferSize, false);
+        crcWriter = new SequentialWriter(crcPath, 8 * 1024, false);
         crcMetadata = new DataIntegrityMetadata.ChecksumWriter(crcWriter.stream);
-        crcMetadata.writeChunkSize(buffer.length);
+        crcMetadata.writeChunkSize(buffer.capacity());
     }
 
     protected void flushData()
     {
         super.flushData();
-        crcMetadata.append(buffer, 0, validBufferBytes, false);
+        crcMetadata.append(buffer.array(), 0, buffer.position());
     }
 
     public void writeFullChecksum(Descriptor descriptor)
