@@ -561,30 +561,13 @@ public class CommitLogSegmentManager
         if (!delete)
             return;
 
-        for (int i = 0; ; i++)
+        try
         {
-            try
-            {
-                segment.delete();
-                return;
-            }
-            catch (AssertionError e)
-            {
-                // segment file does not exit
-                break;
-            }
-            catch (FSWriteError e)
-            {
-                if (i == 10)
-                    throw e;
-                try
-                {
-                    Thread.sleep(500);
-                }
-                catch (InterruptedException ignored)
-                {
-                }
-            }
+            segment.delete();
+        }
+        catch (AssertionError ignored)
+        {
+            // segment file does not exit
         }
     }
 
