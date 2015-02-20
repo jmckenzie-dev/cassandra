@@ -168,14 +168,12 @@ def format_integer_type(val, colormap, **_):
 formatter_for('long')(format_integer_type)
 formatter_for('int')(format_integer_type)
 
-@formatter_for('date')
+@formatter_for('datetime')
 def format_value_timestamp(val, colormap, date_time_format, quote=False, **_):
     bval = strftime(date_time_format.timestamp_format, calendar.timegm(val.utctimetuple()))
     if quote:
         bval = "'%s'" % bval
     return colorme(bval, colormap, 'timestamp')
-
-formatter_for('datetime')(format_value_timestamp)
 
 def strftime(time_format, seconds):
     local = time.localtime(seconds)
@@ -193,6 +191,14 @@ def strftime(time_format, seconds):
         sign = '+'
     hours, minutes = divmod(abs(offset) / 60, 60)
     return formatted[:-5] + sign + '{0:0=2}{1:0=2}'.format(hours, minutes)
+
+@formatter_for('date')
+def format_value_uuid(val, colormap, **_):
+    return format_python_formatted_type(val, colormap, 'date')
+
+@formatter_for('Time')
+def format_value_time(val, colormap, **_):
+    return format_python_formatted_type(val, colormap, 'time')
 
 @formatter_for('str')
 def format_value_text(val, encoding, colormap, quote=False, **_):

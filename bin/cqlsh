@@ -1473,7 +1473,7 @@ class Shell(cmd.Cmd):
             cqltype = table_meta.columns[name].typestring
 
             if value != nullval:
-                if cqltype in ('ascii', 'text', 'timestamp', 'inet'):
+                if cqltype in ('ascii', 'text', 'timestamp', 'date', 'time', 'inet'):
                     rowmap[name] = protect_value(value)
                 else:
                     rowmap[name] = value
