@@ -24,13 +24,16 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import com.google.common.annotations.VisibleForTesting;
 import net.jpountz.lz4.LZ4Exception;
 import net.jpountz.lz4.LZ4Factory;
 
 public class LZ4Compressor implements ICompressor
 {
     private static final int INTEGER_BYTES = 4;
-    private static final LZ4Compressor instance = new LZ4Compressor();
+
+    @VisibleForTesting
+    public static final LZ4Compressor instance = new LZ4Compressor();
 
     public static LZ4Compressor create(Map<String, String> args)
     {
@@ -55,7 +58,7 @@ public class LZ4Compressor implements ICompressor
     public int compress(ByteBuffer src, WrappedByteBuffer dest) throws IOException
     {
         final ByteBuffer buf = dest.buffer;
-        int len = src.limit();
+        int len = src.remaining();
         dest.buffer.put((byte) len);
         dest.buffer.put((byte) (len >>> 8));
         dest.buffer.put((byte) (len >>> 16));

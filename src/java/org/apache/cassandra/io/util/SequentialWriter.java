@@ -127,7 +127,9 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
             throw new ClosedChannelException();
 
         if (!buffer.hasRemaining())
+        {
             reBuffer();
+        }
 
         buffer.put((byte) value);
 

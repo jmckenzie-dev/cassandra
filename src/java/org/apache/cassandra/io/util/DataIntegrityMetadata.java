@@ -146,13 +146,15 @@ public class DataIntegrityMetadata
         {
             try
             {
-                bb.mark();
-                FBUtilities.directCheckSum(incrementalChecksum, bb);
+                ByteBuffer toAppend = bb.duplicate();
+                toAppend.mark();
+                FBUtilities.directCheckSum(incrementalChecksum, toAppend);
+                toAppend.reset();
+
                 incrementalOut.writeInt((int) incrementalChecksum.getValue());
                 incrementalChecksum.reset();
 
-                bb.reset();
-                FBUtilities.directCheckSum(fullChecksum, bb);
+                FBUtilities.directCheckSum(fullChecksum, toAppend);
             }
             catch (IOException e)
             {

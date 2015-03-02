@@ -49,7 +49,6 @@ public class CompressorTest
     @Test
     public void testAllCompressors() throws IOException
     {
-        /*
         for (ICompressor compressor : compressors)
         {
             this.compressor = compressor;
@@ -59,7 +58,6 @@ public class CompressorTest
             testShortArray();
             testMappedFile();
         }
-        */
     }
 
     public void testArrayUncompress(byte[] data, int off, int len) throws IOException

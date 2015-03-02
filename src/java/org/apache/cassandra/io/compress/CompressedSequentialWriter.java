@@ -145,10 +145,7 @@ public class CompressedSequentialWriter extends SequentialWriter
 
             // write corresponding checksum
             compressed.buffer.rewind();
-            if (compressed.buffer.hasArray())
-                crcMetadata.append(compressed.buffer.array(), compressed.buffer.position(), compressed.buffer.limit());
-            else
-                crcMetadata.appendDirect(compressed.buffer);
+            crcMetadata.appendDirect(compressed.buffer);
             lastFlushOffset += compressedLength + 4;
 
             // adjust our bufferOffset to account for the new uncompressed data we've now written out
@@ -190,17 +187,16 @@ public class CompressedSequentialWriter extends SequentialWriter
         // reset position
         long truncateTarget = realMark.uncDataOffset;
 
-        if (realMark.chunkOffset == chunkOffset) // current buffer
+        if (realMark.chunkOffset == chunkOffset)
         {
-            // just reset a buffer offset and return
-            buffer.position(realMark.bufferOffset);
+            // simply drop bytes to the right of our mark
+            buffer.position(realMark.validBufferBytes);
             return;
         }
 
         // synchronize current buffer with disk - we don't want any data loss
         syncInternal();
 
-        // setting marker as a current offset
         chunkOffset = realMark.chunkOffset;
 
         // compressed chunk size (- 4 bytes reserved for checksum)
@@ -219,7 +215,7 @@ public class CompressedSequentialWriter extends SequentialWriter
 
             try
             {
-                // repopulate buffer
+                // Repopulate buffer from compressed data
                 buffer.clear();
                 compressed.buffer.flip();
                 compressor.uncompress(compressed.buffer, buffer);
@@ -231,10 +227,7 @@ public class CompressedSequentialWriter extends SequentialWriter
 
             Adler32 checksum = new Adler32();
 
-            if (compressed.buffer.hasArray())
-                checksum.update(compressed.buffer.array(), 0, chunkSize);
-            else
-                FBUtilities.directCheckSum(checksum, compressed.buffer);
+            FBUtilities.directCheckSum(checksum, compressed.buffer);
 
             crcCheckBuffer.clear();
             channel.read(crcCheckBuffer);
@@ -255,8 +248,10 @@ public class CompressedSequentialWriter extends SequentialWriter
             throw new FSReadError(e, getPath());
         }
 
-        // reset buffer
-        buffer.position(realMark.bufferOffset);
+        // Mark so we only flush bytes before our marked position
+        buffer.position(realMark.validBufferBytes);
+        isDirty = true;
+
         bufferOffset = truncateTarget - buffer.position();
         chunkCount = realMark.nextChunkIndex - 1;
 
@@ -325,14 +320,14 @@ public class CompressedSequentialWriter extends SequentialWriter
         // uncompressed data offset (real data offset)
         final long uncDataOffset;
 
-        final int bufferOffset;
+        final int validBufferBytes;
         final int nextChunkIndex;
 
-        public CompressedFileWriterMark(long chunkOffset, long uncDataOffset, int bufferOffset, int nextChunkIndex)
+        public CompressedFileWriterMark(long chunkOffset, long uncDataOffset, int validBufferBytes, int nextChunkIndex)
         {
             this.chunkOffset = chunkOffset;
             this.uncDataOffset = uncDataOffset;
-            this.bufferOffset = bufferOffset;
+            this.validBufferBytes = validBufferBytes;
             this.nextChunkIndex = nextChunkIndex;
         }
     }

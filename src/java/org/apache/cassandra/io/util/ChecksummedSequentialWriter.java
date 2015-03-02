@@ -18,6 +18,7 @@
 package org.apache.cassandra.io.util;
 
 import java.io.File;
+import java.nio.ByteBuffer;
 
 import org.apache.cassandra.io.sstable.Descriptor;
 
@@ -37,7 +38,10 @@ public class ChecksummedSequentialWriter extends SequentialWriter
     protected void flushData()
     {
         super.flushData();
-        crcMetadata.append(buffer.array(), 0, buffer.position());
+        ByteBuffer toAppend = buffer.duplicate();
+        toAppend.position(0);
+        toAppend.limit(buffer.position());
+        crcMetadata.appendDirect(toAppend);
     }
 
     public void writeFullChecksum(Descriptor descriptor)
