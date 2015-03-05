@@ -20,11 +20,9 @@ package org.apache.cassandra.io.sstable;
 import java.util.*;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Functions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 
-import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataTracker;
