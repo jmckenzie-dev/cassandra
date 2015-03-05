@@ -179,7 +179,11 @@ public class TimeSerializer implements TypeSerializer<Long>
             else if (period > 0)
                 throw new IllegalArgumentException(formatError);
             else
+            {
                 second = Integer.parseInt(s.substring(secondColon + 1));
+                if (second < 0 || second >= 60)
+                    throw new IllegalArgumentException("Second out of bounds.");
+            }
         }
         else
             throw new IllegalArgumentException(formatError);

@@ -204,6 +204,12 @@ public class TimeSerializerTest
     }
 
     @Test (expected=MarshalException.class)
+    public void testBadSecondHighNoMilli()
+    {
+        Long time = TimeSerializer.timeStringToLong("23:59:60");
+    }
+
+    @Test (expected=MarshalException.class)
     public void testBadNanoLow()
     {
         Long time = TimeSerializer.timeStringToLong("23:59:59.-123456789");
