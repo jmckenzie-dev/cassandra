@@ -51,7 +51,7 @@ public class CompressedSequentialWriter extends SequentialWriter
     private final ICompressor compressor;
 
     // used to store compressed data
-    private ICompressor.WrappedByteBuffer compressed;
+    private final ICompressor.WrappedByteBuffer compressed;
 
     // holds a number of already written chunks
     private int chunkCount = 0;
@@ -202,9 +202,9 @@ public class CompressedSequentialWriter extends SequentialWriter
         // compressed chunk size (- 4 bytes reserved for checksum)
         int chunkSize = (int) (metadataWriter.chunkOffsetBy(realMark.nextChunkIndex) - chunkOffset - 4);
         if (compressed.buffer.capacity() < chunkSize)
-            compressed = compressor.useDirectOutputByteBuffers()
-                    ? new ICompressor.WrappedByteBuffer(ByteBuffer.allocateDirect(chunkSize))
-                    : new ICompressor.WrappedByteBuffer(ByteBuffer.allocate(chunkSize));
+            compressed.buffer = compressor.useDirectOutputByteBuffers()
+                    ? ByteBuffer.allocateDirect(chunkSize)
+                    : ByteBuffer.allocate(chunkSize);
 
         try
         {

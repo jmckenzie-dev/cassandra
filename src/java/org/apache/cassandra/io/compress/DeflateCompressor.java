@@ -73,6 +73,8 @@ public class DeflateCompressor implements ICompressor
 
     public int compress(ByteBuffer src, ICompressor.WrappedByteBuffer dest)
     {
+        assert dest.buffer.hasArray();
+
         Deflater def = deflater.get();
         def.reset();
         def.setInput(src.array(), src.position(), src.limit());
@@ -83,7 +85,8 @@ public class DeflateCompressor implements ICompressor
         int startPos = dest.buffer.position();
         while (true)
         {
-            int len = def.deflate(dest.buffer.array(), dest.buffer.position(), dest.buffer.remaining());
+            int arrayOffset = dest.buffer.arrayOffset();
+            int len = def.deflate(dest.buffer.array(), arrayOffset + dest.buffer.position(), dest.buffer.remaining());
             dest.buffer.position(dest.buffer.position() + len);
             if (def.finished())
             {
