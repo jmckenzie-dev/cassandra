@@ -320,7 +320,7 @@ public class CommitLogSegment
             lastSyncedOffset = nextMarker;
             syncComplete.signalAll();
 
-            CLibrary.trySkipCache(fd, offset, nextMarker);
+            CLibrary.trySkipCache(fd, offset, nextMarker, logFile.getAbsolutePath());
             if (close)
                 internalClose();
         }

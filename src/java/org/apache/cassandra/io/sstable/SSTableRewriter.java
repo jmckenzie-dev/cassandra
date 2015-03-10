@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.io.sstable;
 
+import java.io.File;
 import java.util.*;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -73,7 +74,7 @@ public class SSTableRewriter
     private final List<SSTableReader> finished = new ArrayList<>();
     private final Set<SSTableReader> rewriting; // the readers we are rewriting (updated as they are replaced)
     private final Map<Descriptor, DecoratedKey> originalStarts = new HashMap<>(); // the start key for each reader we are rewriting
-    private final Map<Descriptor, Integer> fileDescriptors = new HashMap<>(); // the file descriptors for each reader descriptor we are rewriting
+    private final Map<Descriptor, Integer> sourceDataFileDescriptors = new HashMap<>(); // the file descriptors for each reader descriptor we are rewriting
 
     private SSTableReader currentlyOpenedEarly; // the reader for the most recent (re)opening of the target file
     private long currentlyOpenedEarlyAt; // the position (in MB) in the target file we last (re)opened at
@@ -100,7 +101,7 @@ public class SSTableRewriter
         for (SSTableReader sstable : rewriting)
         {
             originalStarts.put(sstable.descriptor, sstable.first);
-            fileDescriptors.put(sstable.descriptor, CLibrary.getfd(sstable.getFilename()));
+            sourceDataFileDescriptors.put(sstable.descriptor, CLibrary.getfd(sstable.getFilename()));
         }
         this.dataTracker = cfs.getDataTracker();
         this.cfs = cfs;
@@ -166,7 +167,7 @@ public class SSTableRewriter
                 for (SSTableReader reader : rewriting)
                 {
                     RowIndexEntry index = reader.getPosition(key, SSTableReader.Operator.GE);
-                    CLibrary.trySkipCache(fileDescriptors.get(reader.descriptor), 0, index == null ? 0 : index.position);
+                    CLibrary.trySkipCache(sourceDataFileDescriptors.get(reader.descriptor), 0, index == null ? 0 : index.position, reader.getFilename());
                 }
             }
             else
