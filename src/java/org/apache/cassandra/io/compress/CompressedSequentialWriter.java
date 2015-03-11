@@ -248,7 +248,7 @@ public class CompressedSequentialWriter extends SequentialWriter
             throw new FSReadError(e, getPath());
         }
 
-        // Mark so we only flush bytes before our marked position
+        // Mark as dirty so we can guarantee the newly buffered bytes won't be lost on a rebuffer
         buffer.position(realMark.validBufferBytes);
         isDirty = true;
 
