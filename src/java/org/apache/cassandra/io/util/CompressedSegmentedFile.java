@@ -23,6 +23,7 @@ import org.apache.cassandra.io.compress.CompressedRandomAccessReader;
 import org.apache.cassandra.io.compress.CompressedSequentialWriter;
 import org.apache.cassandra.io.compress.CompressedThrottledReader;
 import org.apache.cassandra.io.compress.CompressionMetadata;
+import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableWriter;
 
 public class CompressedSegmentedFile extends SegmentedFile implements ICompressedFile
@@ -73,18 +74,18 @@ public class CompressedSegmentedFile extends SegmentedFile implements ICompresse
             // only one segment in a standard-io file
         }
 
-        protected CompressionMetadata metadata(String path, long overrideLength, boolean isFinal)
+        protected CompressionMetadata metadata(String path, long overrideLength)
         {
             if (writer == null)
                 return CompressionMetadata.create(path);
 
-            return writer.open(overrideLength, isFinal);
+            return writer.open(overrideLength);
         }
 
-        public SegmentedFile complete(String path, long overrideLength, boolean isFinal)
+        public SegmentedFile complete(String path, long overrideLength)
         {
-            assert !isFinal || overrideLength <= 0;
-            return new CompressedSegmentedFile(path, metadata(path, overrideLength, isFinal));
+            assert overrideLength <= 0;
+            return new CompressedSegmentedFile(path, metadata(path, overrideLength));
         }
     }
 

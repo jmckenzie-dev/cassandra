@@ -21,6 +21,8 @@ import java.io.File;
 
 import org.apache.cassandra.io.sstable.Descriptor;
 
+import static org.apache.cassandra.utils.Throwables.maybeFail;
+
 public class ChecksummedSequentialWriter extends SequentialWriter
 {
     private final SequentialWriter crcWriter;
@@ -40,20 +42,26 @@ public class ChecksummedSequentialWriter extends SequentialWriter
         crcMetadata.append(buffer, 0, validBufferBytes, false);
     }
 
-    public void writeFullChecksum(Descriptor descriptor)
+    protected void doPrepare(Descriptor descriptor)
     {
-        crcMetadata.writeFullChecksum(descriptor);
+        super.doPrepare(descriptor);
+        if (descriptor != null)
+            crcMetadata.writeFullChecksum(descriptor);
+        crcWriter.prepareToCommit(descriptor);
     }
 
-    public void close()
+    public Throwable commit(Throwable accumulate)
     {
-        super.close();
-        crcWriter.close();
+        return crcWriter.commit(super.commit(accumulate));
     }
 
-    public void abort()
+    public Throwable abort(Throwable accumulate)
     {
-        super.abort();
-        crcWriter.abort();
+        return crcWriter.abort(super.abort(accumulate));
+    }
+
+    public Throwable cleanup(Throwable accumulate)
+    {
+        return crcWriter.cleanup(super.cleanup(accumulate));
     }
 }

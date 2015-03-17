@@ -27,15 +27,10 @@ import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.Descriptor;
-import org.apache.cassandra.io.sstable.SSTableWriter;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.util.DataIntegrityMetadata;
 import org.apache.cassandra.io.util.FileMark;
 import org.apache.cassandra.io.util.SequentialWriter;
-
-import static org.apache.cassandra.io.compress.CompressionMetadata.Writer.OpenType.FINAL;
-import static org.apache.cassandra.io.compress.CompressionMetadata.Writer.OpenType.SHARED;
-import static org.apache.cassandra.io.compress.CompressionMetadata.Writer.OpenType.SHARED_FINAL;
 
 public class CompressedSequentialWriter extends SequentialWriter
 {
@@ -91,12 +86,6 @@ public class CompressedSequentialWriter extends SequentialWriter
     }
 
     @Override
-    public void sync()
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public void flush()
     {
         throw new UnsupportedOperationException();
@@ -146,13 +135,11 @@ public class CompressedSequentialWriter extends SequentialWriter
             runPostFlush.run();
     }
 
-    public CompressionMetadata open(long overrideLength, boolean isFinal)
+    public CompressionMetadata open(long overrideLength)
     {
         if (overrideLength <= 0)
-            return metadataWriter.open(originalSize, chunkOffset, isFinal ? FINAL : SHARED_FINAL);
-        // we are early opening the file, make sure we open metadata with the correct size
-        assert !isFinal;
-        return metadataWriter.open(overrideLength, chunkOffset, SHARED);
+            overrideLength = originalSize;
+        return metadataWriter.open(overrideLength, chunkOffset);
     }
 
     @Override
@@ -252,34 +239,28 @@ public class CompressedSequentialWriter extends SequentialWriter
         }
     }
 
-    @Override
-    public void close()
+    protected void doPrepare(Descriptor descriptor)
     {
-        if (buffer == null)
-            return; // already closed
-
-        super.close();
+        super.doPrepare(descriptor);
+        if (descriptor != null)
+            crcMetadata.writeFullChecksum(descriptor);
         sstableMetadataCollector.addCompressionRatio(compressedSize, originalSize);
-        try
-        {
-            metadataWriter.close(current, chunkCount);
-        }
-        catch (IOException e)
-        {
-            throw new FSWriteError(e, getPath());
-        }
+        metadataWriter.prepareToCommit(current, chunkCount);
     }
 
-    public void abort()
+    public Throwable abort(Throwable accumulate)
     {
-        super.abort();
-        metadataWriter.abort();
+        return metadataWriter.abort(super.abort(accumulate));
     }
 
-    @Override
-    public void writeFullChecksum(Descriptor descriptor)
+    public Throwable commit(Throwable accumulate)
     {
-        crcMetadata.writeFullChecksum(descriptor);
+        return metadataWriter.commit(super.commit(accumulate));
+    }
+
+    public Throwable cleanup(Throwable accumulate)
+    {
+        return metadataWriter.cleanup(super.cleanup(accumulate));
     }
 
     /**

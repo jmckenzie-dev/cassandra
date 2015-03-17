@@ -59,6 +59,11 @@ public class SafeMemory extends Memory implements SharedCloseable
         ref.ensureReleased();
     }
 
+    public Throwable close(Throwable accumulate)
+    {
+        return ref.ensureReleased(accumulate);
+    }
+
     public SafeMemory copy(long newSize)
     {
         SafeMemory copy = new SafeMemory(newSize);

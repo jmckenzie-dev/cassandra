@@ -209,7 +209,6 @@ public class SSTableSimpleUnsortedWriter extends AbstractSSTableSimpleWriter
 
         public void run()
         {
-            SSTableWriter writer = null;
             try
             {
                 while (true)
@@ -218,24 +217,25 @@ public class SSTableSimpleUnsortedWriter extends AbstractSSTableSimpleWriter
                     if (b == SENTINEL)
                         return;
 
-                    writer = getWriter();
-                    boolean first = true;
-                    for (Map.Entry<DecoratedKey, ColumnFamily> entry : b.entrySet())
+                    try (SSTableWriter writer = getWriter();)
                     {
-                        if (entry.getValue().getColumnCount() > 0)
-                            writer.append(entry.getKey(), entry.getValue());
-                        else if (!first)
-                            throw new AssertionError("Empty partition");
-                        first = false;
+                        boolean first = true;
+                        for (Map.Entry<DecoratedKey, ColumnFamily> entry : b.entrySet())
+                        {
+                            if (entry.getValue().getColumnCount() > 0)
+                                writer.append(entry.getKey(), entry.getValue());
+                            else if (!first)
+                                throw new AssertionError("Empty partition");
+                            first = false;
+                        }
+
+                        writer.finish();
                     }
-                    writer.close();
                 }
             }
             catch (Throwable e)
             {
                 JVMStabilityInspector.inspectThrowable(e);
-                if (writer != null)
-                    writer.abort();
                 exception = e;
             }
         }

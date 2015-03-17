@@ -170,18 +170,9 @@ public class CompactionTask extends AbstractCompactionTask
                 if (collector != null)
                     collector.beginCompaction(ci);
                 long lastCheckObsoletion = start;
-                SSTableRewriter writer = new SSTableRewriter(cfs, sstables, maxAge, offline);
-                try
-                {
-                    if (!iter.hasNext())
-                    {
-                        // don't mark compacted in the finally block, since if there _is_ nondeleted data,
-                        // we need to sync it (via closeAndOpen) first, so there is no period during which
-                        // a crash could cause data loss.
-                        cfs.markObsolete(sstables, compactionType);
-                        return;
-                    }
 
+                try (SSTableRewriter writer = new SSTableRewriter(cfs, sstables, maxAge, offline);)
+                {
                     writer.switchWriter(createCompactionWriter(cfs.directories.getLocationForDisk(getWriteDirectory(expectedSSTableSize)), keysPerSSTable, minRepairedAt));
                     while (iter.hasNext())
                     {
@@ -207,18 +198,6 @@ public class CompactionTask extends AbstractCompactionTask
 
                     // don't replace old sstables yet, as we need to mark the compaction finished in the system table
                     newSStables = writer.finish();
-                }
-                catch (Throwable t)
-                {
-                    try
-                    {
-                        writer.abort();
-                    }
-                    catch (Throwable t2)
-                    {
-                        t.addSuppressed(t2);
-                    }
-                    throw t;
                 }
                 finally
                 {

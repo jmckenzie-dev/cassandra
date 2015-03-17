@@ -149,6 +149,7 @@ public class DataOutputTest
         DataOutputStreamAndChannel write = new DataOutputStreamAndChannel(writer, writer);
         DataInput canon = testWrite(write);
         write.flush();
+        writer.finishAndClose(null);
         write.close();
         DataInputStream test = new DataInputStream(new FileInputStream(file));
         testRead(test, canon);

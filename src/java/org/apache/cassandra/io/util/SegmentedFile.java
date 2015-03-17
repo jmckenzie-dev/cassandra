@@ -155,21 +155,11 @@ public abstract class SegmentedFile extends SharedCloseableImpl
          * Called after all potential boundaries have been added to apply this Builder to a concrete file on disk.
          * @param path The file on disk.
          */
-        protected abstract SegmentedFile complete(String path, long overrideLength, boolean isFinal);
+        public abstract SegmentedFile complete(String path, long overrideLength);
 
         public SegmentedFile complete(String path)
         {
-            return complete(path, -1, true);
-        }
-
-        public SegmentedFile complete(String path, boolean isFinal)
-        {
-            return complete(path, -1, isFinal);
-        }
-
-        public SegmentedFile complete(String path, long overrideLength)
-        {
-            return complete(path, overrideLength, false);
+            return complete(path, -1);
         }
 
         public void serializeBounds(DataOutput out) throws IOException

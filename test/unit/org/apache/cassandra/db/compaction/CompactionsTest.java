@@ -371,31 +371,33 @@ public class CompactionsTest extends SchemaLoader
         cf.addColumn(Util.column("a", "a", 3));
         cf.deletionInfo().add(new RangeTombstone(Util.cellname("0"), Util.cellname("b"), 2, (int) (System.currentTimeMillis()/1000)),cfmeta.comparator);
 
-        SSTableWriter writer = new SSTableWriter(cfs.getTempSSTablePath(dir.getDirectoryForNewSSTables()),
+        try (SSTableWriter writer = new SSTableWriter(cfs.getTempSSTablePath(dir.getDirectoryForNewSSTables()),
                                                  0,
                                                  0,
                                                  cfs.metadata,
                                                  StorageService.getPartitioner(),
-                                                 new MetadataCollector(cfs.metadata.comparator));
+                                                 new MetadataCollector(cfs.metadata.comparator));)
+        {
+            writer.append(Util.dk("0"), cf);
+            writer.append(Util.dk("1"), cf);
+            writer.append(Util.dk("3"), cf);
+            cfs.addSSTable(writer.closeAndOpenReader());
+        }
 
 
-        writer.append(Util.dk("0"), cf);
-        writer.append(Util.dk("1"), cf);
-        writer.append(Util.dk("3"), cf);
-
-        cfs.addSSTable(writer.closeAndOpenReader());
-        writer = new SSTableWriter(cfs.getTempSSTablePath(dir.getDirectoryForNewSSTables()),
+        try (SSTableWriter writer = new SSTableWriter(cfs.getTempSSTablePath(dir.getDirectoryForNewSSTables()),
                                    0,
                                    0,
                                    cfs.metadata,
                                    StorageService.getPartitioner(),
-                                   new MetadataCollector(cfs.metadata.comparator));
-
-        writer.append(Util.dk("0"), cf);
-        writer.append(Util.dk("1"), cf);
-        writer.append(Util.dk("2"), cf);
-        writer.append(Util.dk("3"), cf);
-        cfs.addSSTable(writer.closeAndOpenReader());
+                                   new MetadataCollector(cfs.metadata.comparator));)
+        {
+            writer.append(Util.dk("0"), cf);
+            writer.append(Util.dk("1"), cf);
+            writer.append(Util.dk("2"), cf);
+            writer.append(Util.dk("3"), cf);
+            cfs.addSSTable(writer.closeAndOpenReader());
+        }
 
         Collection<SSTableReader> toCompact = cfs.getSSTables();
         assert toCompact.size() == 2;

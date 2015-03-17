@@ -34,12 +34,16 @@ import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CLibrary;
+import org.apache.cassandra.utils.concurrent.Transactional;
+
+import static org.apache.cassandra.utils.Throwables.maybeFail;
+import static org.apache.cassandra.utils.Throwables.merge;
 
 /**
  * Adds buffering, mark, and fsyncing to OutputStream.  We always fsync on close; we may also
  * fsync incrementally if Config.trickle_fsync is enabled.
  */
-public class SequentialWriter extends OutputStream implements WritableByteChannel
+public class SequentialWriter extends OutputStream implements WritableByteChannel, Transactional
 {
     private static final Logger logger = LoggerFactory.getLogger(SequentialWriter.class);
 
@@ -70,6 +74,8 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
     protected long lastFlushOffset;
 
     protected Runnable runPostFlush;
+
+    protected final StateManager state = new StateManager(this);
 
     public SequentialWriter(File file, int bufferSize)
     {
@@ -445,46 +451,61 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
     @Override
     public void close()
     {
-        if (buffer == null)
-            return; // already closed
-
-        syncInternal();
-
-        buffer = null;
-
-        cleanup(true);
+        state.autoclose();
     }
 
-    public void abort()
+    public void finishAndClose(Descriptor descriptor)
     {
-        cleanup(false);
+        prepareToCommit(descriptor);
+        maybeFail(commit(null));
+        close();
     }
 
-    private void cleanup(boolean throwExceptions)
+    public void prepareToCommit(Descriptor descriptor)
+    {
+        if (!state.beginTransition(State.READY_TO_COMMIT))
+        {
+            maybeFail(state.rejectedTransition(State.READY_TO_COMMIT, null));
+        }
+        else
+        {
+            doPrepare(descriptor);
+            state.completeTransition(State.READY_TO_COMMIT);
+        }
+    }
+
+    protected void doPrepare(Descriptor descriptor)
+    {
+        syncInternal();
+    }
+
+    public Throwable commit(Throwable accumulate)
+    {
+        return state.noOpTransition(State.COMMITTED, accumulate);
+    }
+
+    public Throwable abort(Throwable accumulate)
+    {
+        // we don't do anything on abort; deleting the files is up to others (retaining prior behaviour)
+        // TODO: revisit this decision
+        return state.noOpTransition(State.ABORTED, accumulate);
+    }
+
+    public Throwable cleanup(Throwable accumulate)
     {
         if (directoryFD >= 0)
         {
             try { CLibrary.tryCloseFD(directoryFD); }
-            catch (Throwable t) { handle(t, throwExceptions); }
+            catch (Throwable t) { accumulate = merge(accumulate, t); }
             directoryFD = -1;
         }
 
         // close is idempotent
         try { out.close(); }
-        catch (Throwable t) { handle(t, throwExceptions); }
-    }
+        catch (Throwable t) { accumulate = merge(accumulate, t); }
 
-    private void handle(Throwable t, boolean throwExceptions)
-    {
-        if (!throwExceptions)
-            logger.warn("Suppressing exception thrown while aborting writer", t);
-        else
-            throw new FSWriteError(t, getPath());
-    }
-
-    // hack to make life easier for subclasses
-    public void writeFullChecksum(Descriptor descriptor)
-    {
+        buffer = null;
+        return accumulate;
     }
 
     /**

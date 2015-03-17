@@ -130,16 +130,17 @@ public class AntiCompactionTest extends SchemaLoader
         File dir = cfs.directories.getDirectoryForNewSSTables();
         String filename = cfs.getTempSSTablePath(dir);
 
-        SSTableWriter writer = new SSTableWriter(filename,
+        try (SSTableWriter writer = new SSTableWriter(filename,
                 0,
                 0,
                 cfs.metadata,
                 StorageService.getPartitioner(),
-                new MetadataCollector(cfs.metadata.comparator));
-
-        for (int i = 0; i < count * 5; i++)
-            writer.append(StorageService.getPartitioner().decorateKey(ByteBufferUtil.bytes(i)), cf);
-        return writer.closeAndOpenReader();
+                new MetadataCollector(cfs.metadata.comparator));)
+        {
+            for (int i = 0; i < count * 5; i++)
+                writer.append(StorageService.getPartitioner().decorateKey(ByteBufferUtil.bytes(i)), cf);
+            return writer.closeAndOpenReader();
+        }
     }
 
     @Test

@@ -45,9 +45,8 @@ public class BufferedPoolingSegmentedFile extends PoolingSegmentedFile
             // only one segment in a standard-io file
         }
 
-        public SegmentedFile complete(String path, long overrideLength, boolean isFinal)
+        public SegmentedFile complete(String path, long overrideLength)
         {
-            assert !isFinal || overrideLength <= 0;
             long length = overrideLength > 0 ? overrideLength : new File(path).length();
             return new BufferedPoolingSegmentedFile(path, length);
         }

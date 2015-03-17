@@ -36,6 +36,7 @@ import java.util.SortedSet;
 import java.util.TreeSet;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Throwables;
 import com.google.common.primitives.Longs;
 
 import org.apache.cassandra.db.TypeSizes;
@@ -51,6 +52,10 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.Memory;
 import org.apache.cassandra.io.util.SafeMemory;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.concurrent.Transactional;
+
+import static org.apache.cassandra.utils.Throwables.maybeFail;
+import static org.apache.cassandra.utils.Throwables.merge;
 
 /**
  * Holds metadata about compressed file
@@ -265,7 +270,7 @@ public class CompressionMetadata
         chunkOffsets.close();
     }
 
-    public static class Writer
+    public static class Writer implements Transactional
     {
         // path to the file
         private final CompressionParameters parameters;
@@ -273,6 +278,7 @@ public class CompressionMetadata
         private int maxCount = 100;
         private SafeMemory offsets = new SafeMemory(maxCount * 8L);
         private int count = 0;
+        private StateManager state = new StateManager(this);
 
         private Writer(CompressionParameters parameters, String path)
         {
@@ -320,61 +326,59 @@ public class CompressionMetadata
             }
         }
 
-        static enum OpenType
+        public void prepareToCommit(long dataLength, int chunkCount)
         {
-            // i.e. FinishType == EARLY; we will use the RefCountedMemory in possibly multiple instances
-            SHARED,
-            // i.e. FinishType == EARLY, but the sstable has been completely written, so we can
-            // finalise the contents and size of the memory, but must retain a reference to it
-            SHARED_FINAL,
-            // i.e. FinishType == NORMAL or FINISH_EARLY, i.e. we have actually finished writing the table
-            // and will never need to open the metadata again, so we can release any references to it here
-            FINAL
+            assert chunkCount == count;
+            if (!state.beginTransition(State.READY_TO_COMMIT))
+            {
+                maybeFail(state.rejectedTransition(State.READY_TO_COMMIT, null));
+                return;
+            }
+
+            // finalize the size of memory used if it won't now change;
+            // unnecessary if already correct size
+            if (offsets.size() != count * 8L)
+            {
+                SafeMemory tmp = offsets;
+                offsets = offsets.copy(count * 8L);
+                tmp.free();
+            }
+
+            // flush the data to disk
+            DataOutputStream out = null;
+            try
+            {
+                out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(filePath)));
+                writeHeader(out, dataLength, count);
+                for (int i = 0 ; i < count ; i++)
+                    out.writeLong(offsets.getLong(i * 8L));
+            }
+            catch (IOException e)
+            {
+                throw Throwables.propagate(e);
+            }
+            finally
+            {
+                FileUtils.closeQuietly(out);
+            }
+
+            state.completeTransition(State.READY_TO_COMMIT);
         }
 
-        public CompressionMetadata open(long dataLength, long compressedLength, OpenType type)
+        public CompressionMetadata open(long dataLength, long compressedLength)
         {
-            SafeMemory offsets;
-            int count = this.count;
-            switch (type)
-            {
-                case FINAL: case SHARED_FINAL:
-                    if (this.offsets.size() != count * 8L)
-                    {
-                        // finalize the size of memory used if it won't now change;
-                        // unnecessary if already correct size
-                        SafeMemory tmp = this.offsets.copy(count * 8L);
-                        this.offsets.free();
-                        this.offsets = tmp;
-                    }
+            SafeMemory offsets = this.offsets.sharedCopy();
 
-                    if (type == OpenType.SHARED_FINAL)
-                    {
-                        offsets = this.offsets.sharedCopy();
-                    }
-                    else
-                    {
-                        offsets = this.offsets;
-                        // null out our reference to the original shared data to catch accidental reuse
-                        // note that since noone is writing to this Writer while we open it, null:ing out this.offsets is safe
-                        this.offsets = null;
-                    }
-                    break;
+            // calculate how many entries we need, if our dataLength is truncated
+            int count = (int) (dataLength / parameters.chunkLength());
+            if (dataLength % parameters.chunkLength() != 0)
+                count++;
 
-                case SHARED:
-                    offsets = this.offsets.sharedCopy();
-                    // we should only be opened on a compression data boundary; truncate our size to this boundary
-                    count = (int) (dataLength / parameters.chunkLength());
-                    if (dataLength % parameters.chunkLength() != 0)
-                        count++;
-                    // grab our actual compressed length from the next offset from our the position we're opened to
-                    if (count < this.count)
-                        compressedLength = offsets.getLong(count * 8L);
-                    break;
+            assert count > 0;
+            // grab our actual compressed length from the next offset from our the position we're opened to
+            if (count < this.count)
+                compressedLength = offsets.getLong(count * 8L);
 
-                default:
-                    throw new AssertionError();
-            }
             return new CompressionMetadata(filePath, parameters, offsets, count * 8L, dataLength, compressedLength, Descriptor.Version.CURRENT.hasPostCompressionAdlerChecksums);
         }
 
@@ -399,27 +403,24 @@ public class CompressionMetadata
             count = chunkIndex;
         }
 
-        public void close(long dataLength, int chunks) throws IOException
+        public Throwable commit(Throwable accumulate)
         {
-            DataOutputStream out = null;
-            try
-            {
-            	out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(filePath)));
-	            assert chunks == count;
-	            writeHeader(out, dataLength, chunks);
-                for (int i = 0 ; i < count ; i++)
-                    out.writeLong(offsets.getLong(i * 8L));
-            }
-            finally
-            {
-                FileUtils.closeQuietly(out);
-            }
+            return state.noOpTransition(State.COMMITTED, accumulate);
         }
 
-        public void abort()
+        public Throwable abort(Throwable accumulate)
         {
-            if (offsets != null)
-                offsets.close();
+            return state.noOpTransition(State.ABORTED, accumulate);
+        }
+
+        public Throwable cleanup(Throwable failed)
+        {
+            return offsets.close(failed);
+        }
+
+        public void close()
+        {
+            state.autoclose();
         }
     }
 

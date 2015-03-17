@@ -78,8 +78,9 @@ public class Upgrader
     {
         outputHandler.output("Upgrading " + sstable);
         Set<SSTableReader> toUpgrade = Sets.newHashSet(sstable);
-        SSTableRewriter writer = new SSTableRewriter(cfs, toUpgrade, CompactionTask.getMaxDataAge(toUpgrade), true);
-        try (AbstractCompactionStrategy.ScannerList scanners = strategy.getScanners(toUpgrade))
+
+        try (SSTableRewriter writer = new SSTableRewriter(cfs, toUpgrade, CompactionTask.getMaxDataAge(toUpgrade), true);
+             AbstractCompactionStrategy.ScannerList scanners = strategy.getScanners(toUpgrade))
         {
             Iterator<AbstractCompactedRow> iter = new CompactionIterable(compactionType, scanners.scanners, controller).iterator();
             writer.switchWriter(createCompactionWriter(sstable.getSSTableMetadata().repairedAt));
@@ -91,12 +92,6 @@ public class Upgrader
 
             writer.finish();
             outputHandler.output("Upgrade of " + sstable + " complete.");
-
-        }
-        catch (Throwable t)
-        {
-            writer.abort();
-            throw Throwables.propagate(t);
         }
         finally
         {

@@ -106,7 +106,7 @@ public class SafeMemoryWriter extends AbstractDataOutput implements DataOutputPl
         if (newCapacity != capacity())
         {
             SafeMemory oldBuffer = buffer;
-            buffer = this.buffer.copy(newCapacity);
+            buffer = buffer.copy(newCapacity);
             oldBuffer.free();
         }
     }
@@ -114,6 +114,11 @@ public class SafeMemoryWriter extends AbstractDataOutput implements DataOutputPl
     public void close()
     {
         buffer.close();
+    }
+
+    public Throwable close(Throwable accumulate)
+    {
+        return buffer.close(accumulate);
     }
 
     public long length()

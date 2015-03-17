@@ -67,9 +67,9 @@ public class CompressedPoolingSegmentedFile extends PoolingSegmentedFile impleme
             // only one segment in a standard-io file
         }
 
-        public SegmentedFile complete(String path, long overrideLength, boolean isFinal)
+        public SegmentedFile complete(String path, long overrideLength)
         {
-            return new CompressedPoolingSegmentedFile(path, metadata(path, overrideLength, isFinal));
+            return new CompressedPoolingSegmentedFile(path, metadata(path, overrideLength));
         }
     }
 

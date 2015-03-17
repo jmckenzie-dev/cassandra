@@ -183,9 +183,8 @@ public class MmappedSegmentedFile extends SegmentedFile
             }
         }
 
-        public SegmentedFile complete(String path, long overrideLength, boolean isFinal)
+        public SegmentedFile complete(String path, long overrideLength)
         {
-            assert !isFinal || overrideLength <= 0;
             long length = overrideLength > 0 ? overrideLength : new File(path).length();
             // create the segments
             return new MmappedSegmentedFile(path, length, createSegments(path, length));
