@@ -399,6 +399,29 @@ public class SchemaLoader
 
         return cfm;
     }
+
+    public static CFMetaData denseCFMD(String ksName, String cfName)
+    {
+        return denseCFMD(ksName, cfName, AsciiType.instance);
+    }
+    public static CFMetaData denseCFMD(String ksName, String cfName, AbstractType cc)
+    {
+        return denseCFMD(ksName, cfName, cc, null);
+    }
+    public static CFMetaData denseCFMD(String ksName, String cfName, AbstractType cc, AbstractType subcc)
+    {
+        AbstractType comp = cc;
+        if (subcc != null)
+            comp = CompositeType.getInstance(Arrays.asList(new AbstractType<?>[]{cc, subcc}));
+
+        return CFMetaData.Builder.createDense(ksName, cfName, subcc != null, false)
+            .addPartitionKey("key", AsciiType.instance)
+            .addClusteringColumn("cols", comp)
+            .addRegularColumn("val", AsciiType.instance)
+            .build();
+    }
+
+
     public static CFMetaData superCFMD(String ksName, String cfName, AbstractType subcc)
     {
         return superCFMD(ksName, cfName, BytesType.instance, subcc);
@@ -420,7 +443,7 @@ public class SchemaLoader
         ByteBuffer cName = ByteBufferUtil.bytes("birthdate");
         IndexType keys = withIdxType ? IndexType.KEYS : null;
         return cfm.addColumnDefinition(ColumnDefinition.regularDef(cfm, cName, LongType.instance, null)
-                                                       .setIndex(withIdxType ? ByteBufferUtil.bytesToHex(cName) : null, keys, null));
+                .setIndex(withIdxType ? ByteBufferUtil.bytesToHex(cName) : null, keys, null));
     }
     public static CFMetaData compositeIndexCFMD(String ksName, String cfName, final Boolean withIdxType) throws ConfigurationException
     {
@@ -435,7 +458,7 @@ public class SchemaLoader
     
     private static CFMetaData jdbcCFMD(String ksName, String cfName, AbstractType comp)
     {
-        return CFMetaData.Builder.create(ksName, cfName).addPartitionKey("key", comp).addClusteringColumn("name",comp).build();
+        return CFMetaData.Builder.create(ksName, cfName).addPartitionKey("key", comp).addClusteringColumn("name", comp).build();
     }
 
     public static void cleanupAndLeaveDirs()

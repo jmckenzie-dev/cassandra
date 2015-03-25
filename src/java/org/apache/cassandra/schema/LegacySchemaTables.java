@@ -794,7 +794,7 @@ public class LegacySchemaTables
             // we won't know at deserialization if the subcomparator should be taken into account
             // TODO: we should implement an on-start migration if we want to get rid of that.
             adder.add("comparator", table.comparator.subtype(0).toString());
-            adder.add("subcomparator", table.comparator.subtype(1).toString());
+            adder.add("subcomparator", table.comparator.subtype(0).getComponents().get(1).toString());
         }
         else
         {

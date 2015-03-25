@@ -52,6 +52,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.thrift.SuperColumn;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.CounterId;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static org.junit.Assert.assertTrue;
@@ -143,6 +144,7 @@ public class Util
                        : CellNames.compositeDense(ByteBufferUtil.bytes(superColumnName), getBytes(columnName));
         rm.add(columnFamilyName, cname, ByteBufferUtil.bytes(value), timestamp);
     }
+    */
 
     public static ByteBuffer getBytes(long v)
     {
@@ -162,7 +164,6 @@ public class Util
         return bb;
     }
 
-    */
     public static PartitionIterator getRangeSlice(ColumnFamilyStore cfs)
     {
         return getRangeSlice(cfs, null);
@@ -170,7 +171,6 @@ public class Util
 
     public static PartitionIterator getRangeSlice(ColumnFamilyStore cfs, ByteBuffer superColumn)
     {
-
         ColumnFilter filter = new ColumnFilter();
         if (superColumn != null)
             filter.add(cfs.metadata.compactValueColumn(), Operator.EQ, superColumn);
@@ -200,22 +200,26 @@ public class Util
         return store;
     }
 
-   /* public static ColumnFamily getColumnFamily(Keyspace keyspace, DecoratedKey key, String cfName)
+    /*
+    public static ColumnFamily getColumnFamily(Keyspace keyspace, DecoratedKey key, String cfName)
     {
         ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(cfName);
         assert cfStore != null : "Table " + cfName + " has not been defined";
         return cfStore.getColumnFamily(QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
     }
+    */
 
     public static boolean equalsCounterId(CounterId n, ByteBuffer context, int offset)
     {
         return CounterId.wrap(context, context.position() + offset).equals(n);
     }
 
+    /*
     public static ColumnFamily cloneAndRemoveDeleted(ColumnFamily cf, int gcBefore)
     {
         return ColumnFamilyStore.removeDeleted(cf.cloneMe(), gcBefore);
-    } */
+    }
+    */
 
     /**
      * Creates initial set of nodes and tokens. Nodes are added to StorageService as 'normal'

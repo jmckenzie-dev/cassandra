@@ -20,6 +20,7 @@ package org.apache.cassandra.io.sstable;
 import java.io.*;
 import java.util.Iterator;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
@@ -63,6 +64,12 @@ public class SSTableIdentityIterator extends SSTableAtomIterator implements Comp
             sstable.markSuspect();
             throw new CorruptSSTableException(e, filename);
         }
+    }
+
+    @VisibleForTesting
+    public DecoratedKey getKey()
+    {
+        return key;
     }
 
     protected RuntimeException onIOException(IOException e)
