@@ -116,12 +116,14 @@ public class Util
     {
         return new BufferExpiringCell(cellname(name), ByteBufferUtil.bytes(value), timestamp, ttl);
     }
+    */
 
     public static Token token(String key)
     {
         return StorageService.getPartitioner().getToken(ByteBufferUtil.bytes(key));
     }
 
+    /*
     public static Range<RowPosition> range(String left, String right)
     {
         return new Range<RowPosition>(rp(left), rp(right));

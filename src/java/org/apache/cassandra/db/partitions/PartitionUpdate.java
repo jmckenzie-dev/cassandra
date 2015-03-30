@@ -224,6 +224,7 @@ public class PartitionUpdate extends AbstractPartitionData implements Iterable<R
         return new PartitionUpdate(metadata,
                                    key,
                                    new DeletionInfo(timestamp, nowInSec),
+                                   //new RowDataBlock(Columns.NONE, 0, true),
                                    new RowDataBlock(Columns.NONE, 0, true),
                                    PartitionColumns.NONE,
                                    0,

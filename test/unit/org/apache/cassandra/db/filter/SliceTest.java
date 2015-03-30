@@ -25,9 +25,7 @@ import java.util.*;
 import java.util.List;
 
 import org.apache.cassandra.config.ColumnDefinition;
-import org.apache.cassandra.db.ClusteringComparator;
-import org.apache.cassandra.db.ClusteringPrefix;
-import org.apache.cassandra.db.Slice;
+import org.apache.cassandra.db.*;
 import org.junit.Test;
 
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -353,24 +351,27 @@ public class SliceTest
         assertFalse(slice.intersects(cc, columnNames(1), columnNames(1, 2)));
     }
 
-    /*
     @Test
     public void testValidateSlices()
     {
-        assertSlicesValid(slices(s(0, 3)));
-        assertSlicesValid(slices(s(3, 3)));
-        assertSlicesValid(slices(s(3, 3), s(4, 4)));
-        assertSlicesValid(slices(s(0, 3), s(4, 5), s(6, 9)));
-        assertSlicesValid(slices(s(-1, -1)));
-        assertSlicesValid(slices(s(-1, 3), s(4, -1)));
+        List<AbstractType<?>> types = new ArrayList<>();
+        types.add(Int32Type.instance);
+        types.add(Int32Type.instance);
+        types.add(Int32Type.instance);
+        ClusteringComparator cc = new ClusteringComparator(types);
 
-        assertSlicesInvalid(slices(s(3, 0)));
-        assertSlicesInvalid(slices(s(0, 2), s(2, 4)));
-        assertSlicesInvalid(slices(s(0, 2), s(1, 4)));
-        assertSlicesInvalid(slices(s(0, 2), s(3, 4), s(3, 4)));
-        assertSlicesInvalid(slices(s(-1, 2), s(3, -1), s(5, 9)));
+        assertSlicesValid(cc, slices(s(0, 3)));
+        assertSlicesValid(cc, slices(s(3, 3)));
+        assertSlicesValid(cc, slices(s(3, 3), s(4, 4)));
+        assertSlicesValid(cc, slices(s(0, 3), s(4, 5), s(6, 9)));
+        assertSlicesValid(cc, slices(s(-1, -1)));
+        assertSlicesValid(cc, slices(s(-1, 3), s(4, -1)));
+
+        assertSlicesInvalid(cc, slices(s(0, 2), s(2, 4)));
+        assertSlicesInvalid(cc, slices(s(0, 2), s(1, 4)));
+        assertSlicesInvalid(cc, slices(s(0, 2), s(3, 4), s(3, 4)));
+        assertSlicesInvalid(cc, slices(s(-1, 2), s(3, -1), s(5, 9)));
     }
-    */
 
     private static Slice.Bound makeBound(ClusteringPrefix.Kind kind, Integer... components)
     {
@@ -396,20 +397,42 @@ public class SliceTest
                           makeBound(ClusteringPrefix.Kind.INCL_END_BOUND, finish));
     }
 
-    private static Slice[] slices(Slice... slices)
+    private Slice[] slices(Slice... slices)
     {
         return slices;
     }
 
-    /*
-    private static void assertSlicesValid(Slice[] slices)
+    private static void assertSlicesValid(ClusteringComparator cc, Slice... slices)
     {
-        assertTrue("Slices " + toString(slices) + " should be valid", Slice.validateSlices(slices, simpleIntType, false));
+        Slices.Builder builder = new Slices.Builder(cc);
+        for (Slice s : slices)
+        {
+            builder.add(s);
+        }
+        builder.build();
     }
 
-    private static void assertSlicesInvalid(Slice[] slices)
+    private static boolean assertSlicesInvalid(ClusteringComparator cc, Slice... slices)
     {
-        assertFalse("Slices " + toString(slices) + " shouldn't be valid", Slice.validateSlices(slices, simpleIntType, false));
+        try
+        {
+            Slices.Builder builder = new Slices.Builder(cc);
+            for (Slice s : slices)
+            {
+                builder.add(s);
+            }
+            builder.build();
+        }
+        catch (AssertionError a)
+        {
+            return true;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("Expected builder to fail validation for: ");
+        for (Slice s : slices)
+        {
+            sb.append("{").append(s.toString(cc)).append("}");
+        }
+        throw new AssertionError(sb.toString());
     }
-    */
 }

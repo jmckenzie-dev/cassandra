@@ -25,23 +25,22 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 
-import org.apache.cassandra.config.ColumnDefinition;
-import org.apache.cassandra.db.atoms.Cell;
-import org.apache.cassandra.db.atoms.Row;
-import org.apache.cassandra.db.partitions.ArrayBackedPartition;
-import org.apache.cassandra.service.StorageService;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import static org.junit.Assert.fail;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
-import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.atoms.Cell;
+import org.apache.cassandra.db.atoms.Row;
+import org.apache.cassandra.db.partitions.ArrayBackedPartition;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.*;
 
 public class DynamicCompositeTypeTest

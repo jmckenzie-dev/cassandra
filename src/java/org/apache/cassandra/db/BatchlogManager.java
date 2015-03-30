@@ -186,11 +186,12 @@ public class BatchlogManager implements BatchlogManagerMBean
             if (page.size() < PAGE_SIZE)
                 break; // we've exhausted the batchlog, next query would be empty.
 
+            System.err.println("Querying for entries > id: " + id);
             page = executeInternal(String.format("SELECT id, data, written_at, version FROM %s.%s WHERE token(id) > token(?) LIMIT %d",
                                                  SystemKeyspace.NAME,
                                                  SystemKeyspace.BATCHLOG,
                                                  PAGE_SIZE),
-                                   id);
+                                                 id);
         }
 
         cleanup();
@@ -200,6 +201,7 @@ public class BatchlogManager implements BatchlogManagerMBean
 
     private void deleteBatch(UUID id)
     {
+        System.err.println("Deleting batch message with id: " + id);
         Mutation mutation = new Mutation(SystemKeyspace.NAME, StorageService.getPartitioner().decorateKey(UUIDType.instance.decompose(id)));
         mutation.add(PartitionUpdate.fullPartitionDelete(SystemKeyspace.Batchlog, mutation.key(), FBUtilities.timestampMicros(), FBUtilities.nowInSeconds()));
         mutation.apply();
