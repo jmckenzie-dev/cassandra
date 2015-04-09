@@ -282,6 +282,8 @@ public class SSTableRewriter
             return;
         List<SSTableReader> toReplace = new ArrayList<>();
         List<SSTableReader> replaceWith = new ArrayList<>();
+        System.err.println("toReplace size: " + toReplace.size());
+        System.err.println("replaceWith size: " + replaceWith.size());
         final List<DecoratedKey> invalidateKeys = new ArrayList<>();
         if (!reset)
         {

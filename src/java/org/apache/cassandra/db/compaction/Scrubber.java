@@ -116,6 +116,7 @@ public class Scrubber implements Closeable
 
     public void scrub()
     {
+        System.err.println("Scrubbing sstable: " + sstable.toString());
         outputHandler.output(String.format("Scrubbing %s (%s bytes)", sstable, dataFile.length()));
         Set<SSTableReader> oldSSTable = Sets.newHashSet(sstable);
         SSTableRewriter writer = new SSTableRewriter(cfs, oldSSTable, sstable.maxDataAge, isOffline);
