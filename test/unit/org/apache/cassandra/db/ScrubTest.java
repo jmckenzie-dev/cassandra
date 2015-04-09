@@ -21,15 +21,8 @@ package org.apache.cassandra.db;
  */
 
 import java.io.*;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ExecutionException;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.BeforeClass;
@@ -38,29 +31,18 @@ import org.junit.runner.RunWith;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.KSMetaData;
-import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.cql3.Operator;
-import org.apache.cassandra.cql3.QueryProcessor;
-import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.columniterator.IdentityQueryFilter;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.Scrubber;
-import org.apache.cassandra.db.index.SecondaryIndex;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
-import org.apache.cassandra.io.sstable.Component;
-import org.apache.cassandra.io.sstable.Descriptor;
-import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.UUIDGen;
 
 import static org.junit.Assert.*;
 
@@ -99,6 +81,7 @@ public class ScrubTest
                                     SchemaLoader.compositeIndexCFMD(KEYSPACE, CF_INDEX2, true));
     }
 
+    /*
     @Test
     public void testScrubOneRow() throws ExecutionException, InterruptedException
     {
@@ -120,6 +103,7 @@ public class ScrubTest
         rows = cfs.getRangeSlice(Util.range("", ""), null, new IdentityQueryFilter(), 1000);
         assertEquals(1, rows.size());
     }
+    */
 
     @Test
     public void testScrubCorruptedCounterRow() throws IOException, WriteTimeoutException
@@ -134,7 +118,7 @@ public class ScrubTest
         List<Row> rows = cfs.getRangeSlice(Util.range("", ""), null, new IdentityQueryFilter(), 1000);
         assertEquals(2, rows.size());
 
-        overrdeWithGarbage(cfs, ByteBufferUtil.bytes("0"), ByteBufferUtil.bytes("1"));
+        overrideWithGarbage(cfs, ByteBufferUtil.bytes("0"), ByteBufferUtil.bytes("1"));
 
         SSTableReader sstable = cfs.getSSTables().iterator().next();
 
@@ -158,6 +142,7 @@ public class ScrubTest
         assertEquals(1, rows.size());
     }
 
+    /*
     @Test
     public void testScrubDeletedRow() throws ExecutionException, InterruptedException
     {
@@ -207,26 +192,25 @@ public class ScrubTest
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(columnFamily);
         cfs.clearUnsafe();
 
-        /*
-         * Code used to generate an outOfOrder sstable. The test for out-of-order key in SSTableWriter must also be commented out.
-         * The test also assumes an ordered partitioner.
-         *
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(cfs.metadata);
-        cf.addColumn(new BufferCell(ByteBufferUtil.bytes("someName"), ByteBufferUtil.bytes("someValue"), 0L));
 
-        SSTableWriter writer = new SSTableWriter(cfs.getTempSSTablePath(new File(System.getProperty("corrupt-sstable-root"))),
-                                                 cfs.metadata.getIndexInterval(),
-                                                 cfs.metadata,
-                                                 cfs.partitioner,
-                                                 SSTableMetadata.createCollector(BytesType.instance));
-        writer.append(Util.dk("a"), cf);
-        writer.append(Util.dk("b"), cf);
-        writer.append(Util.dk("z"), cf);
-        writer.append(Util.dk("c"), cf);
-        writer.append(Util.dk("y"), cf);
-        writer.append(Util.dk("d"), cf);
-        writer.closeAndOpenReader();
-        */
+        // Code used to generate an outOfOrder sstable. The test for out-of-order key in SSTableWriter must also be commented out.
+        // The test also assumes an ordered partitioner.
+
+//        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(cfs.metadata);
+//        cf.addColumn(new BufferCell(ByteBufferUtil.bytes("someName"), ByteBufferUtil.bytes("someValue"), 0L));
+
+//        SSTableWriter writer = new SSTableWriter(cfs.getTempSSTablePath(new File(System.getProperty("corrupt-sstable-root"))),
+//                                                 cfs.metadata.getIndexInterval(),
+//                                                 cfs.metadata,
+//                                                 cfs.partitioner,
+//                                                 SSTableMetadata.createCollector(BytesType.instance));
+//        writer.append(Util.dk("a"), cf);
+//        writer.append(Util.dk("b"), cf);
+//        writer.append(Util.dk("z"), cf);
+//        writer.append(Util.dk("c"), cf);
+//        writer.append(Util.dk("y"), cf);
+//        writer.append(Util.dk("d"), cf);
+//        writer.closeAndOpenReader();
 
         String root = System.getProperty("corrupt-sstable-root");
         assert root != null;
@@ -241,7 +225,9 @@ public class ScrubTest
             SSTableReader.open(desc, metadata);
             fail("SSTR validation should have caught the out-of-order rows");
         }
-        catch (IllegalStateException ise) { /* this is expected */ }
+        catch (IllegalStateException ise) {
+            // this is expected
+        }
 
         // open without validation for scrubbing
         Set<Component> components = new HashSet<>();
@@ -263,8 +249,9 @@ public class ScrubTest
         assert isRowOrdered(rows) : "Scrub failed: " + rows;
         assert rows.size() == 6 : "Got " + rows.size();
     }
+    */
 
-    private void overrdeWithGarbage(ColumnFamilyStore cfs, ByteBuffer key1, ByteBuffer key2) throws IOException
+    private void overrideWithGarbage(ColumnFamilyStore cfs, ByteBuffer key1, ByteBuffer key2) throws IOException
     {
         SSTableReader sstable = cfs.getSSTables().iterator().next();
 
@@ -280,6 +267,7 @@ public class ScrubTest
         file.close();
     }
 
+    /*
     private static boolean isRowOrdered(List<Row> rows)
     {
         DecoratedKey prev = null;
@@ -331,6 +319,7 @@ public class ScrubTest
 
         cfs.forceBlockingFlush();
     }
+    */
 
     protected void fillCounterCF(ColumnFamilyStore cfs, int rowsPerSSTable) throws WriteTimeoutException
     {
@@ -347,6 +336,7 @@ public class ScrubTest
         cfs.forceBlockingFlush();
     }
 
+    /*
     @Test
     public void testScrubColumnValidation() throws InterruptedException, RequestExecutionException, ExecutionException
     {
@@ -360,9 +350,7 @@ public class ScrubTest
         CompactionManager.instance.performScrub(cfs, false);
     }
 
-    /**
-     * Tests CASSANDRA-6892 (key aliases being used improperly for validation)
-     */
+    // Tests CASSANDRA-6892 (key aliases being used improperly for validation)
     @Test
     public void testColumnNameEqualToDefaultKeyAlias() throws ExecutionException, InterruptedException
     {
@@ -379,10 +367,8 @@ public class ScrubTest
         assertEquals(1, cfs.getSSTables().size());
     }
 
-    /**
-     * For CASSANDRA-6892 too, check that for a compact table with one cluster column, we can insert whatever
-     * we want as value for the clustering column, including something that would conflict with a CQL column definition.
-     */
+    // For CASSANDRA-6892 too, check that for a compact table with one cluster column, we can insert whatever
+    // we want as value for the clustering column, including something that would conflict with a CQL column definition.
     @Test
     public void testValidationCompactStorage() throws Exception
     {
@@ -407,60 +393,66 @@ public class ScrubTest
         assertEquals("boo", iter.next().getString("c"));
     }
 
-    @Test /* CASSANDRA-5174 */
+    // CASSANDRA-5174
+    @Test
     public void testScrubKeysIndex_preserveOrder() throws IOException, ExecutionException, InterruptedException
     {
-        //If the partitioner preserves the order then SecondaryIndex uses BytesType comparator,
+        // If the partitioner preserves the order then SecondaryIndex uses BytesType comparator,
         // otherwise it uses LocalByPartitionerType
         setKeyComparator(BytesType.instance);
         testScrubIndex(CF_INDEX1, COL_KEYS_INDEX, false, true);
     }
 
-    @Test /* CASSANDRA-5174 */
+    // CASSANDRA-5174
+    @Test
     public void testScrubCompositeIndex_preserveOrder() throws IOException, ExecutionException, InterruptedException
     {
         setKeyComparator(BytesType.instance);
         testScrubIndex(CF_INDEX2, COL_COMPOSITES_INDEX, true, true);
     }
 
-    @Test /* CASSANDRA-5174 */
+    // CASSANDRA-5174
+    @Test
     public void testScrubKeysIndex() throws IOException, ExecutionException, InterruptedException
     {
         setKeyComparator(new LocalByPartionerType(StorageService.getPartitioner()));
         testScrubIndex(CF_INDEX1, COL_KEYS_INDEX, false, true);
     }
 
-    @Test /* CASSANDRA-5174 */
+    // CASSANDRA-5174
+    @Test
     public void testScrubCompositeIndex() throws IOException, ExecutionException, InterruptedException
     {
         setKeyComparator(new LocalByPartionerType(StorageService.getPartitioner()));
         testScrubIndex(CF_INDEX2, COL_COMPOSITES_INDEX, true, true);
     }
 
-    @Test /* CASSANDRA-5174 */
+    // CASSANDRA-5174
+    @Test
     public void testFailScrubKeysIndex() throws IOException, ExecutionException, InterruptedException
     {
         testScrubIndex(CF_INDEX1, COL_KEYS_INDEX, false, false);
     }
 
-    @Test /* CASSANDRA-5174 */
+    // CASSANDRA-5174
+    @Test
     public void testFailScrubCompositeIndex() throws IOException, ExecutionException, InterruptedException
     {
         testScrubIndex(CF_INDEX2, COL_COMPOSITES_INDEX, true, false);
     }
 
-    @Test /* CASSANDRA-5174 */
+    // CASSANDRA-5174
+    @Test
     public void testScrubTwice() throws IOException, ExecutionException, InterruptedException
     {
         testScrubIndex(CF_INDEX1, COL_KEYS_INDEX, false, true, true);
     }
 
-    /** The SecondaryIndex class is used for custom indexes so to avoid
-     * making a public final field into a private field with getters
-     * and setters, we resort to this hack in order to test it properly
-     * since it can have two values which influence the scrubbing behavior.
-     * @param comparator - the key comparator we want to test
-     */
+    // The secondaryindex class is used for custom indexes so to avoid
+    // making a public final field into a private field with getters
+    // and setters, we resort to this hack in order to test it properly
+    // since it can have two values which influence the scrubbing behavior.
+    // @param comparator - the key comparator we want to test
     private void setKeyComparator(AbstractType<?> comparator)
     {
         try
@@ -515,7 +507,7 @@ public class ScrubTest
                 boolean failure = !scrubs[i];
                 if (failure)
                 { //make sure the next scrub fails
-                    overrdeWithGarbage(indexCfs, ByteBufferUtil.bytes(1L), ByteBufferUtil.bytes(2L));
+                    overrideWithGarbage(indexCfs, ByteBufferUtil.bytes(1L), ByteBufferUtil.bytes(2L));
                 }
                 CompactionManager.AllSSTableOpStatus result = indexCfs.scrub(false, false, true);
                 assertEquals(failure ?
@@ -531,4 +523,5 @@ public class ScrubTest
         assertNotNull(rows);
         assertEquals(numRows / 2, rows.size());
     }
+    */
 }
