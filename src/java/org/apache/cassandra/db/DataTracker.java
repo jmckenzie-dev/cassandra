@@ -742,23 +742,7 @@ public class DataTracker
 
         View replace(Collection<SSTableReader> oldSSTables, Iterable<SSTableReader> replacements)
         {
-            System.err.println("replace call-------------------------------");
             ImmutableSet<SSTableReader> oldSet = ImmutableSet.copyOf(oldSSTables);
-            System.err.println("size of oldSet: " + oldSet.size());
-            for (SSTableReader r : sstables) {
-                System.err.println("sstables   : " + r);
-            }
-            for (SSTableReader r : oldSSTables) {
-                System.err.println("old SSTable: " + r);
-            }
-            for (SSTableReader r : replacements) {
-                System.err.println("replacement: " + r);
-            }
-            if (shadowed.size() == 0)
-                System.err.println("No shadowed.");
-            for (SSTableReader r : shadowed) {
-                System.err.println("shadowed   : " + r);
-            }
             int newSSTablesSize = shadowed.size() + sstables.size() - oldSSTables.size() + Iterables.size(replacements);
             assert newSSTablesSize >= Iterables.size(replacements) : String.format("Incoherent new size %d replacing %s by %s in %s", newSSTablesSize, oldSSTables, replacements, this);
             Map<SSTableReader, SSTableReader> newSSTables = new HashMap<>(newSSTablesSize);
@@ -780,18 +764,6 @@ public class DataTracker
                     newSSTables.put(replacement, replacement);
             }
 
-            System.err.println("newSSTables.size: " + newSSTables.size());
-            System.err.println("newShadowed.size: " + newShadowed.size());
-            System.err.println("newSSTablesSize: " + newSSTablesSize);
-            if (newSSTables.size() + newShadowed.size() != newSSTablesSize)
-            {
-                System.err.println("   This is the one that failed.");
-                System.err.println("   Expected: " + newSSTablesSize + " and got: " + (newSSTables.size() + newShadowed.size()));
-                for (SSTableReader key : newSSTables.keySet()) {
-                    System.err.println("      Src: " + key);
-                    System.err.println("      dst: " + newSSTables.get(key));
-                }
-            }
             assert newSSTables.size() + newShadowed.size() == newSSTablesSize :
                 String.format("Expecting new size of %d, got %d while replacing %s by %s in %s",
                           newSSTablesSize, newSSTables.size() + newShadowed.size(), oldSSTables, replacements, this);
