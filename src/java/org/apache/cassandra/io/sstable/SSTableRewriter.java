@@ -199,9 +199,7 @@ public class SSTableRewriter
         Throwable fail = null;
         try
         {
-            // No need to moveStarts if we're not performing early re-open.
-            if (preemptiveOpenInterval != Long.MAX_VALUE)
-                moveStarts(null, null, true);
+            moveStarts(null, null, true);
         }
         catch (Throwable t)
         {
@@ -274,10 +272,6 @@ public class SSTableRewriter
      * one, the old *instance* will have reference count == 0 and if we were to start a new compaction with that old
      * instance, we would get exceptions.
      *
-     * note that one should not call this method if preemptiveOpenInterval is set to Long.MAX_VALUE, i.e. early re-open
-     * is disabled.
-     *
-     *
      * @param newReader the rewritten reader that replaces them for this region
      * @param lowerbound if !reset, must be non-null, and marks the exclusive lowerbound of the start for each sstable
      * @param reset true iff we are restoring earlier starts (increasing the range over which they are valid)
@@ -286,6 +280,9 @@ public class SSTableRewriter
     {
         if (isOffline)
             return;
+        if (preemptiveOpenInterval == Long.MAX_VALUE)
+            return;
+
         List<SSTableReader> toReplace = new ArrayList<>();
         List<SSTableReader> replaceWith = new ArrayList<>();
         final List<DecoratedKey> invalidateKeys = new ArrayList<>();
