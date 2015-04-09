@@ -24,6 +24,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import com.google.common.collect.Sets;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.utils.FBUtilities;
 import org.junit.After;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -230,10 +231,13 @@ public class SSTableRewriterTest extends SchemaLoader
             s.markObsolete();
             s.selfRef().release();
             s2.selfRef().release();
-            //These checks no longer work on Windows because the writer has the channel still
-            //open till .abort() is called (via the builder)
-            //SSTableDeletingTask.waitForDeletions();
-            //assertFileCounts(dir.list(), 0, 2);
+            // These checks don't work on Windows because the writer has the channel still
+            // open till .abort() is called (via the builder)
+            if (!FBUtilities.isWindows())
+            {
+                SSTableDeletingTask.waitForDeletions();
+                assertFileCounts(dir.list(), 0, 2);
+            }
             writer.abort();
             SSTableDeletingTask.waitForDeletions();
             int datafiles = assertFileCounts(dir.list(), 0, 0);
@@ -708,7 +712,7 @@ public class SSTableRewriterTest extends SchemaLoader
         filecount = assertFileCounts(s.descriptor.directory.list(), 0, 0);
         if (offline)
         {
-            // the file is not added to the CFS, therefor not truncated away above
+            // the file is not added to the CFS, therefore not truncated away above
             assertEquals(1, filecount);
             for (File f : s.descriptor.directory.listFiles())
             {
