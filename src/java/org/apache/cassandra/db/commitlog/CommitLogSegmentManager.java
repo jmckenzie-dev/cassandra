@@ -208,6 +208,28 @@ public class CommitLogSegmentManager
     }
 
     /**
+     * Blocks and waits for in-flight allocations to complete
+     */
+    public void waitForAllocation()
+    {
+        while (true)
+        {
+            if (!activeSegments.isEmpty() || !availableSegments.isEmpty())
+                break;
+
+            WaitQueue.Signal signal = hasAvailableSegments.register(commitLog.metrics.waitingOnSegmentAllocation.time());
+            wakeManager();
+            // Was allocated between when we registered and now
+            if (!activeSegments.isEmpty() || !availableSegments.isEmpty())
+            {
+                signal.cancel();
+                return;
+            }
+            signal.awaitUninterruptibly();
+        }
+    }
+
+    /**
      * Fetches a new segment from the queue, creating a new one if necessary, and activates it
      */
     private void advanceAllocatingFrom(CommitLogSegment old)
@@ -466,9 +488,16 @@ public class CommitLogSegmentManager
     public void stopUnsafe(boolean deleteSegments)
     {
         logger.debug("CLSM closing and clearing existing commit log segments...");
+        createReserveSegments = false;
 
         while (!segmentManagementTasks.isEmpty())
-            Thread.yield();
+        {
+            try
+            {
+                Thread.sleep(20);
+            }
+            catch (InterruptedException e) {}
+        }
 
         shutdown();
         try
@@ -509,7 +538,7 @@ public class CommitLogSegmentManager
         }
         catch (AssertionError ignored)
         {
-            // segment file does not exit
+            // segment file does not exist
         }
     }
 
@@ -519,7 +548,6 @@ public class CommitLogSegmentManager
     public void startUnsafe()
     {
         start();
-        wakeManager();
     }
 
     /**

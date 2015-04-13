@@ -119,6 +119,11 @@ public class CommitLog implements CommitLogMBean
      */
     public int recover() throws IOException
     {
+        // Allocator could be in the process of initial startup with 0 active or available segments. We need to wait for
+        // CLSM.start() to run through a single pass so we don't grab and attempt to recover the empty file here befure
+        // it's added to the CLQ
+        allocator.waitForAllocation();
+
         FilenameFilter unmanagedFilesFilter = new FilenameFilter()
         {
             public boolean accept(File dir, String name)
@@ -373,10 +378,11 @@ public class CommitLog implements CommitLogMBean
     /**
      * FOR TESTING PURPOSES. See CommitLogAllocator.
      */
-    public void resetUnsafe(boolean deleteSegments)
+    public void resetUnsafe(boolean deleteSegments) throws IOException
     {
         stopUnsafe(deleteSegments);
         startUnsafe();
+        recover();
     }
 
     /**
