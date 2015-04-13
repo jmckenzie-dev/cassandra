@@ -57,7 +57,7 @@ public class SSTableRewriter
     static
     {
         long interval = DatabaseDescriptor.getSSTablePreempiveOpenIntervalInMB() * (1L << 20);
-        if (interval < 0 || FBUtilities.isWindows())
+        if (interval < 0)
             interval = Long.MAX_VALUE;
         preemptiveOpenInterval = interval;
     }
