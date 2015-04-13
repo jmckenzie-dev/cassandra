@@ -31,7 +31,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
-import org.apache.commons.lang3.StringUtils;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -54,6 +53,7 @@ import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.io.sstable.SSTableRewriter;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.SchemaLoader;
@@ -61,6 +61,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.UUIDGen;
+import org.apache.commons.lang3.StringUtils;
 
 import static org.junit.Assert.*;
 
@@ -156,6 +157,13 @@ public class ScrubTest
         // verify that we can read all of the rows, and there is now one less row
         rows = cfs.getRangeSlice(Util.range("", ""), null, new IdentityQueryFilter(), 1000);
         assertEquals(1, rows.size());
+    }
+
+    @Test
+    public void testScrubCorruptedCounterRowNoEarlyOpen() throws IOException, WriteTimeoutException
+    {
+        SSTableRewriter.overrideOpenInterval(Long.MAX_VALUE);
+        testScrubCorruptedCounterRow();
     }
 
     @Test

@@ -63,7 +63,7 @@ public class SSTableRewriter
     }
 
     @VisibleForTesting
-    static void overrideOpenInterval(long size)
+    public static void overrideOpenInterval(long size)
     {
         preemptiveOpenInterval = size;
     }
@@ -280,6 +280,9 @@ public class SSTableRewriter
     {
         if (isOffline)
             return;
+        if (preemptiveOpenInterval == Long.MAX_VALUE)
+            return;
+
         List<SSTableReader> toReplace = new ArrayList<>();
         List<SSTableReader> replaceWith = new ArrayList<>();
         final List<DecoratedKey> invalidateKeys = new ArrayList<>();
