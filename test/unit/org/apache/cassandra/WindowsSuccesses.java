@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra;
 
-import com.sun.xml.internal.bind.api.impl.NameConverter;
 import org.apache.cassandra.io.util.FileUtils;
 import org.junit.Before;
 import org.junit.Test;
@@ -34,7 +33,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.Random;
 
-public class WindowsFailures
+public class WindowsSuccesses
 {
     private static StandardOpenOption[] openOptions = new StandardOpenOption[3];
     private static File fromFile = new File("contended.txt");
@@ -60,59 +59,6 @@ public class WindowsFailures
     }
 
     @Test
-    public void testRAFFailSimple() throws IOException
-    {
-        RandomAccessFile f1 = new RandomAccessFile(fromFile, "rw");
-        FileUtils.deleteWithConfirm(fromFile);
-    }
-
-    @Test
-    public void testRafFailOpen() throws IOException
-    {
-        RandomAccessFile f1 = new RandomAccessFile(fromFile, "rw");
-        RandomAccessFile f2 = new RandomAccessFile(fromFile, "rw");
-        f1.close();
-        FileUtils.deleteWithConfirm(fromFile);
-    }
-
-    @Test
-    public void testRAFFailRename() throws IOException
-    {
-        RandomAccessFile f1 = new RandomAccessFile(fromFile, "rw");
-        FileUtils.renameWithConfirm(fromFile, renameFile);
-    }
-
-    @Test
-    public void testMMapFail() throws IOException
-    {
-        RandomAccessFile f1 = new RandomAccessFile(fromFile, "rw");
-        byte[] toWrite = new byte[1024];
-        new Random().nextBytes(toWrite);
-        f1.write(toWrite);
-        MappedByteBuffer buf = f1.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, f1.length());
-
-        f1.close();
-        FileUtils.deleteWithConfirm(fromFile);
-    }
-
-    @Test
-    public void testMMapFail_2() throws IOException
-    {
-        RandomAccessFile f1 = new RandomAccessFile(fromFile, "rw");
-        byte[] toWrite = new byte[1024];
-        new Random().nextBytes(toWrite);
-        f1.write(toWrite);
-        f1.close();
-
-        FileChannel channel = FileChannel.open(fromPath, openOptions);
-        MappedByteBuffer buf = channel.map(FileChannel.MapMode.READ_WRITE, 0, channel.size());
-        channel.close();
-
-        FileUtils.deleteWithConfirm(fromFile);
-    }
-
-    // This works on Windows
-    @Test
     public void testDeleteChannelFail() throws IOException
     {
         FileChannel channel = FileChannel.open(fromPath, openOptions);
@@ -120,12 +66,10 @@ public class WindowsFailures
         channel.write(createRandomBB(1024));
         Files.delete(fromPath);
         assert !Files.exists(fromPath);
-
         channel.close();
         channel_2.close();
     }
 
-    // As does this.
     @Test
     public void testRenameChannelFail() throws IOException
     {
@@ -133,8 +77,6 @@ public class WindowsFailures
         channel.write(createRandomBB(1024));
         FileUtils.renameWithConfirm(fromFile, renameFile);
         assert !Files.exists(fromPath);
-        assert Files.exists(renamePath);
-        channel.close();
     }
 
     private ByteBuffer createRandomBB(int size)
