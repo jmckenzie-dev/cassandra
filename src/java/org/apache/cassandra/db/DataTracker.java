@@ -740,6 +740,13 @@ public class DataTracker
             return new View(liveMemtables, newQueuedMemtables, newSSTables, compacting, shadowed, intervalTree);
         }
 
+        private void printSSTables(Iterable<SSTableReader> readers, String label) {
+            System.err.println("[" + label+ "]");
+            for (SSTableReader reader : readers) {
+                System.err.println("   " + reader.getFilename());
+            }
+        }
+
         View replace(Collection<SSTableReader> oldSSTables, Iterable<SSTableReader> replacements)
         {
             System.err.println("----------- DT -------------------");
@@ -749,58 +756,47 @@ public class DataTracker
             Map<SSTableReader, SSTableReader> newSSTables = new HashMap<>(newSSTablesSize);
             Set<SSTableReader> newShadowed = new HashSet<>(shadowed.size());
 
-            for (SSTableReader reader : oldSet) {
-                System.err.println("oldSet: " + reader.getFilename());
-            }
-            for (SSTableReader reader : replacements) {
-                System.err.println("replacements: " + reader.getFilename());
-            }
+            printSSTables(shadowed, "shadowed");
+            printSSTables(sstables, "sstables");
+            printSSTables(compacting, "compacting");
+            printSSTables(oldSSTables, "oldSSTables");
+            printSSTables(replacements, "replacements");
 
-            System.err.println("Processing sstables");
             for (SSTableReader sstable : sstables) {
-                System.err.println("   " + sstable.getFilename());
                 if (!oldSet.contains(sstable)) {
-                    System.err.println("adding to newSSTables as its not in oldSet");
+                    System.err.println("adding sstable to new SSTables: " + sstable.getFilename());
                     newSSTables.put(sstable, sstable);
                 }
             }
 
-            System.err.println("Processing shadowed");
             for (SSTableReader sstable : shadowed) {
-                System.err.println("   " + sstable.getFilename());
                 if (!oldSet.contains(sstable)) {
-                    System.err.println("adding to newShadowed as its not in oldSet");
+                    System.err.println("Adding shadowed to newShadowed: " + sstable.getFilename());
                     newShadowed.add(sstable);
                 }
             }
 
-            System.err.println("Processing replacements");
             for (SSTableReader replacement : replacements)
             {
-                System.err.println("   " + replacement.getFilename());
                 if (replacement.openReason == SSTableReader.OpenReason.SHADOWED) {
-                    System.err.println("   Shadowed, adding to newShadowed");
+                    System.err.println("Adding replacement to newShadowed: " + replacement.getFilename());
                     newShadowed.add(replacement);
                 }
                 else {
-                    System.err.println("   not shadowed, adding to newSSTables");
+                    System.err.println("Adding replacement to newSSTables: " + replacement.getFilename());
                     newSSTables.put(replacement, replacement);
                 }
             }
 
-            System.err.println("newSSTables");
-            for (SSTableReader reader : newSSTables.keySet()) {
-                System.err.println("   1: " + reader.getFilename());
-                System.err.println("   2: " + newSSTables.get(reader).getFilename());
-            }
-            System.err.println("newShadowed");
-            for (SSTableReader reader : newShadowed) {
-                System.err.println("   " + reader.getFilename());
-            }
-            System.err.println("newSSTablesSize: " + newSSTablesSize);
-
             if (newSSTables.size() + newShadowed.size() != newSSTablesSize) {
                 System.err.println("-------------- THIS IS FAILURE --------------------");
+                System.err.println("newSSTablesSize: " + newSSTablesSize);
+                printSSTables(newShadowed, "newShadowed");
+                System.err.println("newSSTables:");
+                for (SSTableReader reader : newSSTables.keySet()) {
+                    System.err.println("   key:   " + reader.getFilename());
+                    System.err.println("   value: " + newSSTables.get(reader).getFilename());
+                }
             }
             else  {
                 System.err.println("NOT FAILURE. newSSTablesSize: " + newSSTablesSize + ", newSSTables.size: " + newSSTables.size() + " newShadowed.size: " + newShadowed.size());

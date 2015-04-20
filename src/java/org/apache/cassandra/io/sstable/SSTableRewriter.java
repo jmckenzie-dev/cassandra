@@ -280,6 +280,7 @@ public class SSTableRewriter
     {
         if (isOffline)
             return;
+        if (reset && finishedEarly.size() == 0)
         System.err.println("-------------------------------------------------------- moveStarts");
         System.err.println("reset: " + reset + " and rewriting.size: " + rewriting.size());
 

@@ -139,16 +139,20 @@ public class ScrubTest
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(COUNTER_CF);
         cfs.clearUnsafe();
 
+        System.err.println("filling counter cf");
         fillCounterCF(cfs, 2);
 
         List<Row> rows = cfs.getRangeSlice(Util.range("", ""), null, new IdentityQueryFilter(), 1000);
         assertEquals(2, rows.size());
 
+        System.err.println("overrde with garbage");
         overrdeWithGarbage(cfs, ByteBufferUtil.bytes("0"), ByteBufferUtil.bytes("1"));
 
         SSTableReader sstable = cfs.getSSTables().iterator().next();
 
-        // with skipCorrupted == false, the scrub is expected to fail
+        System.err.println("1111111111111111111111111111111111111111111111111111111111111");
+        System.err.println("expecting fail");
+//         with skipCorrupted == false, the scrub is expected to fail
         try(Scrubber scrubber = new Scrubber(cfs, sstable, false, false))
         {
             scrubber.scrub();
@@ -156,11 +160,15 @@ public class ScrubTest
         }
         catch (IOError err) {}
 
+        System.err.println("22222222222222222222222222222222222222222222222222222222222222");
+        System.err.println("expecting success");
         // with skipCorrupted == true, the corrupt row will be skipped
         try(Scrubber scrubber = new Scrubber(cfs, sstable, true, false))
         {
+            System.err.println("Scrub call");
             scrubber.scrub();
         }
+        System.err.println("Exited.");
         assertEquals(1, cfs.getSSTables().size());
 
         // verify that we can read all of the rows, and there is now one less row
