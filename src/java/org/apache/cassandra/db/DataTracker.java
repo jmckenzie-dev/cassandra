@@ -40,6 +40,7 @@ import org.apache.cassandra.utils.Interval;
 import org.apache.cassandra.utils.IntervalTree;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.Refs;
+import org.apache.hadoop.fs.Path;
 
 public class DataTracker
 {
@@ -740,10 +741,15 @@ public class DataTracker
             return new View(liveMemtables, newQueuedMemtables, newSSTables, compacting, shadowed, intervalTree);
         }
 
+        private String getShortName(SSTableReader sstr) {
+            String fn = sstr.getFilename();
+            fn = fn.replace("\\", "/");
+            return sstr.getFilename().substring(fn.lastIndexOf('/') + 1);
+        }
         private void printSSTables(Iterable<SSTableReader> readers, String label) {
             System.err.println("[" + label+ "]");
             for (SSTableReader reader : readers) {
-                System.err.println("   " + reader.getFilename());
+                System.err.println("   " + getShortName(reader));
             }
         }
 
@@ -764,14 +770,14 @@ public class DataTracker
 
             for (SSTableReader sstable : sstables) {
                 if (!oldSet.contains(sstable)) {
-                    System.err.println("adding sstable to new SSTables: " + sstable.getFilename());
+                    System.err.println("adding sstable to new SSTables: " + getShortName(sstable));
                     newSSTables.put(sstable, sstable);
                 }
             }
 
             for (SSTableReader sstable : shadowed) {
                 if (!oldSet.contains(sstable)) {
-                    System.err.println("Adding shadowed to newShadowed: " + sstable.getFilename());
+                    System.err.println("Adding shadowed to newShadowed: " + getShortName(sstable));
                     newShadowed.add(sstable);
                 }
             }
@@ -779,11 +785,11 @@ public class DataTracker
             for (SSTableReader replacement : replacements)
             {
                 if (replacement.openReason == SSTableReader.OpenReason.SHADOWED) {
-                    System.err.println("Adding replacement to newShadowed: " + replacement.getFilename());
+                    System.err.println("Adding replacement to newShadowed: " + getShortName(replacement));
                     newShadowed.add(replacement);
                 }
                 else {
-                    System.err.println("Adding replacement to newSSTables: " + replacement.getFilename());
+                    System.err.println("Adding replacement to newSSTables: " + getShortName(replacement));
                     newSSTables.put(replacement, replacement);
                 }
             }
@@ -794,8 +800,8 @@ public class DataTracker
                 printSSTables(newShadowed, "newShadowed");
                 System.err.println("newSSTables:");
                 for (SSTableReader reader : newSSTables.keySet()) {
-                    System.err.println("   key:   " + reader.getFilename());
-                    System.err.println("   value: " + newSSTables.get(reader).getFilename());
+                    System.err.println("   key:   " + getShortName(reader));
+                    System.err.println("   value: " + getShortName(newSSTables.get(reader)));
                 }
             }
             else  {
