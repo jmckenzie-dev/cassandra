@@ -805,7 +805,14 @@ public class DataTracker
                 }
             }
             else  {
-                System.err.println("NOT FAILURE. newSSTablesSize: " + newSSTablesSize + ", newSSTables.size: " + newSSTables.size() + " newShadowed.size: " + newShadowed.size());
+                System.err.println("-------------- THIS IS NOT A FAILURE --------------------");
+                System.err.println("newSSTablesSize: " + newSSTablesSize);
+                printSSTables(newShadowed, "newShadowed");
+                System.err.println("newSSTables:");
+                for (SSTableReader reader : newSSTables.keySet()) {
+                    System.err.println("   key:   " + getShortName(reader));
+                    System.err.println("   value: " + getShortName(newSSTables.get(reader)));
+                }
             }
 
 
