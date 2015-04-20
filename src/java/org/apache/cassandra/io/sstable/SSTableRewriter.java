@@ -280,6 +280,9 @@ public class SSTableRewriter
     {
         if (isOffline)
             return;
+        System.err.println("-------------------------------------------------------- moveStarts");
+        System.err.println("reset: " + reset + " and rewriting.size: " + rewriting.size());
+
         List<SSTableReader> toReplace = new ArrayList<>();
         List<SSTableReader> replaceWith = new ArrayList<>();
         final List<DecoratedKey> invalidateKeys = new ArrayList<>();
