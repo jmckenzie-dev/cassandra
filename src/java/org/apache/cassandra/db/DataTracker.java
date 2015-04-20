@@ -742,27 +742,70 @@ public class DataTracker
 
         View replace(Collection<SSTableReader> oldSSTables, Iterable<SSTableReader> replacements)
         {
+            System.err.println("----------- DT -------------------");
             ImmutableSet<SSTableReader> oldSet = ImmutableSet.copyOf(oldSSTables);
             int newSSTablesSize = shadowed.size() + sstables.size() - oldSSTables.size() + Iterables.size(replacements);
             assert newSSTablesSize >= Iterables.size(replacements) : String.format("Incoherent new size %d replacing %s by %s in %s", newSSTablesSize, oldSSTables, replacements, this);
             Map<SSTableReader, SSTableReader> newSSTables = new HashMap<>(newSSTablesSize);
             Set<SSTableReader> newShadowed = new HashSet<>(shadowed.size());
 
-            for (SSTableReader sstable : sstables)
-                if (!oldSet.contains(sstable))
+            for (SSTableReader reader : oldSet) {
+                System.err.println("oldSet: " + reader.getFilename());
+            }
+            for (SSTableReader reader : replacements) {
+                System.err.println("replacements: " + reader.getFilename());
+            }
+
+            System.err.println("Processing sstables");
+            for (SSTableReader sstable : sstables) {
+                System.err.println("   " + sstable.getFilename());
+                if (!oldSet.contains(sstable)) {
+                    System.err.println("adding to newSSTables as its not in oldSet");
                     newSSTables.put(sstable, sstable);
+                }
+            }
 
-            for (SSTableReader sstable : shadowed)
-                if (!oldSet.contains(sstable))
+            System.err.println("Processing shadowed");
+            for (SSTableReader sstable : shadowed) {
+                System.err.println("   " + sstable.getFilename());
+                if (!oldSet.contains(sstable)) {
+                    System.err.println("adding to newShadowed as its not in oldSet");
                     newShadowed.add(sstable);
+                }
+            }
 
+            System.err.println("Processing replacements");
             for (SSTableReader replacement : replacements)
             {
-                if (replacement.openReason == SSTableReader.OpenReason.SHADOWED)
+                System.err.println("   " + replacement.getFilename());
+                if (replacement.openReason == SSTableReader.OpenReason.SHADOWED) {
+                    System.err.println("   Shadowed, adding to newShadowed");
                     newShadowed.add(replacement);
-                else
+                }
+                else {
+                    System.err.println("   not shadowed, adding to newSSTables");
                     newSSTables.put(replacement, replacement);
+                }
             }
+
+            System.err.println("newSSTables");
+            for (SSTableReader reader : newSSTables.keySet()) {
+                System.err.println("   1: " + reader.getFilename());
+                System.err.println("   2: " + newSSTables.get(reader).getFilename());
+            }
+            System.err.println("newShadowed");
+            for (SSTableReader reader : newShadowed) {
+                System.err.println("   " + reader.getFilename());
+            }
+            System.err.println("newSSTablesSize: " + newSSTablesSize);
+
+            if (newSSTables.size() + newShadowed.size() != newSSTablesSize) {
+                System.err.println("-------------- THIS IS FAILURE --------------------");
+            }
+            else  {
+                System.err.println("NOT FAILURE. newSSTablesSize: " + newSSTablesSize + ", newSSTables.size: " + newSSTables.size() + " newShadowed.size: " + newShadowed.size());
+            }
+
 
             assert newSSTables.size() + newShadowed.size() == newSSTablesSize :
                 String.format("Expecting new size of %d, got %d while replacing %s by %s in %s",

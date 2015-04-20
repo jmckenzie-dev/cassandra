@@ -338,6 +338,11 @@ public class SSTableRewriter
             rewriting.remove(sstable);
             rewriting.add(replacement);
         }
+        System.err.println("----------- SSTRW -------------------");
+        for (SSTableReader reader : toReplace)
+            System.err.println("toReplace: " + reader.getFilename());
+        for (SSTableReader reader : replaceWith)
+            System.err.println("replaceWith: " + reader.getFilename());
         cfs.getDataTracker().replaceWithNewInstances(toReplace, replaceWith);
     }
 
