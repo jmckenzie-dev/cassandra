@@ -115,6 +115,8 @@ public class CommitLogSegmentManager
                         Runnable task = segmentManagementTasks.poll();
                         if (task == null)
                         {
+                            boolean availableEmpty = availableSegments.isEmpty();
+                            boolean activeEmpty = activeSegments.isEmpty();
                             // if we have no more work to do, check if we should create a new segment
                             if (availableSegments.isEmpty() && (activeSegments.isEmpty() || createReserveSegments))
                             {
@@ -122,6 +124,7 @@ public class CommitLogSegmentManager
                                 size.addAndGet(DatabaseDescriptor.getCommitLogSegmentSize());
                                 // TODO : some error handling in case we fail to create a new segment
                                 availableSegments.add(CommitLogSegment.createSegment(commitLog));
+                                System.err.println("Created a new segment. availableEmpty: " + availableEmpty + " activeEmpty: " + activeEmpty + " createReserve: " + createReserveSegments);
                                 hasAvailableSegments.signalAll();
                             }
 
