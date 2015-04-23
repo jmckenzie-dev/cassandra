@@ -152,6 +152,7 @@ public abstract class CommitLogSegment
         endOfBuffer = buffer.capacity();
         lastSyncedOffset = buffer.position();
         allocatePosition.set(lastSyncedOffset + SYNC_MARKER_SIZE);
+        System.err.println("Creating (and adding) segment for file: " + logFile.toString());
     }
 
     abstract ByteBuffer createBuffer(CommitLog commitLog);

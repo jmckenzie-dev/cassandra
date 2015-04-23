@@ -131,7 +131,9 @@ public class CommitLog implements CommitLogMBean
                 // we used to try to avoid instantiating commitlog (thus creating an empty segment ready for writes)
                 // until after recover was finished.  this turns out to be fragile; it is less error-prone to go
                 // ahead and allow writes before recover(), and just skip active segments when we do.
-                return CommitLogDescriptor.isValid(name) && !allocator.manages(name);
+                boolean result = CommitLogDescriptor.isValid(name) && !allocator.manages(name);
+                System.err.println("checking if we manage: " + name + ". Result: " + result);
+                return result;
             }
         };
 
