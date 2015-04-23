@@ -76,6 +76,7 @@ public class CommitLogSegmentManager
     private volatile CommitLogSegment allocatingFrom = null;
 
     private final WaitQueue hasAvailableSegments = new WaitQueue();
+    private final WaitQueue allSegmentsPrepared = new WaitQueue();
 
     /**
      * Tracks commitlog size, in multiples of the segment size.  We need to do this so we can "promise" size
@@ -123,6 +124,10 @@ public class CommitLogSegmentManager
                                 // TODO : some error handling in case we fail to create a new segment
                                 availableSegments.add(CommitLogSegment.createSegment(commitLog));
                                 hasAvailableSegments.signalAll();
+
+                                // If we've completed creation of all necessary active and reserve segments, signal recovery that it's safe to run.
+                                if (readyForRecovery())
+                                    allSegmentsPrepared.signalAll();
                             }
 
                             // flush old Cfs if we're full
@@ -205,6 +210,42 @@ public class CommitLogSegmentManager
             r = allocatingFrom;
         }
         return r;
+    }
+
+    /**
+     * We're ready for recovery when both our availableSegment needs and activeSegment needs have been met.
+     * If we begin recovery before either of those queues is properly prepared, the filter to determine if
+     * we manage a file in recover() will fail and we end up recovering and deleting newly created segments.
+     * While this will silently delete and carry on in linux, windows is kind enough to give us an exception.
+     */
+    private boolean readyForRecovery()
+    {
+        return !activeSegments.isEmpty() && (!createReserveSegments || !availableSegments.isEmpty());
+    }
+
+    /**
+     * Blocks until state in CLSM is appropriate for recovery to proceed
+     */
+    public void blockBeforeRecovery()
+    {
+        // Move from available to active if needed, blocking for allocation if no segments are available
+        allocatingFrom();
+
+        if (readyForRecovery())
+            return;
+
+        // Now block until we've allocated an available segment if necessary
+        WaitQueue.Signal signal = allSegmentsPrepared.register(commitLog.metrics.waitingOnSegmentAllocation.time());
+
+        wakeManager();
+
+        // Confirm we didn't race w/allocation already in-flight
+        if (readyForRecovery())
+        {
+            signal.cancel();
+            return;
+        }
+        signal.awaitUninterruptibly();
     }
 
     /**
