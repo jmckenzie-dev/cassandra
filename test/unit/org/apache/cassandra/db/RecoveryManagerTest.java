@@ -72,7 +72,6 @@ public class RecoveryManagerTest
     public void testNothingToRecover() throws IOException
     {
         CommitLog.instance.resetUnsafe(true);
-        CommitLog.instance.recover();
     }
 
     @Test

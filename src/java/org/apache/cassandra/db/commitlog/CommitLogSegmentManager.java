@@ -76,6 +76,7 @@ public class CommitLogSegmentManager
     private volatile CommitLogSegment allocatingFrom = null;
 
     private final WaitQueue hasAvailableSegments = new WaitQueue();
+    private final WaitQueue allSegmentsPrepared = new WaitQueue();
 
     /**
      * Tracks commitlog size, in multiples of the segment size.  We need to do this so we can "promise" size
@@ -115,8 +116,6 @@ public class CommitLogSegmentManager
                         Runnable task = segmentManagementTasks.poll();
                         if (task == null)
                         {
-                            boolean availableEmpty = availableSegments.isEmpty();
-                            boolean activeEmpty = activeSegments.isEmpty();
                             // if we have no more work to do, check if we should create a new segment
                             if (availableSegments.isEmpty() && (activeSegments.isEmpty() || createReserveSegments))
                             {
@@ -124,8 +123,17 @@ public class CommitLogSegmentManager
                                 size.addAndGet(DatabaseDescriptor.getCommitLogSegmentSize());
                                 // TODO : some error handling in case we fail to create a new segment
                                 availableSegments.add(CommitLogSegment.createSegment(commitLog));
-                                System.err.println("Created a new segment. availableEmpty: " + availableEmpty + " activeEmpty: " + activeEmpty + " createReserve: " + createReserveSegments);
+                                System.err.println("after segment creation, state: ");
+                                printState();
                                 hasAvailableSegments.signalAll();
+                                // If we've completed creation of both active and reserve segments, signal recovery that it's safe to run.
+                                // If we don't pause before recovery, the process can race with new segment creation and delete newly
+                                // created segments.
+                                if (readyForRecovery())
+                                {
+                                    System.err.println("Signalling allSegmentsPrepared");
+                                    allSegmentsPrepared.signalAll();
+                                }
                             }
 
                             // flush old Cfs if we're full
@@ -208,6 +216,52 @@ public class CommitLogSegmentManager
             r = allocatingFrom;
         }
         return r;
+    }
+
+    private void printState() {
+        System.err.println("   availableEmpty: " + availableSegments.isEmpty());
+        System.err.println("   activeEmpty: " + activeSegments.isEmpty());
+        System.err.println("   createReserve: " + createReserveSegments);
+    }
+
+    /**
+     * We're ready for recovery when both our availableSegment needs and activeSegment needs have been met.
+     * If we begin recovery before either of those queues is properly prepared, the filter to determine if
+     * we manage a file in recover() will fail and we end up recovering and deleting newly created segments.
+     */
+    private boolean readyForRecovery()
+    {
+        return !activeSegments.isEmpty() && (!createReserveSegments || !availableSegments.isEmpty());
+    }
+
+    /**
+     * Blocks until state in CLSM is appropriate for recovery to proceed
+     */
+    public void blockBeforeRecovery()
+    {
+        System.err.println("blockBeforeRecovery");
+
+        // Move from available to active if needed
+        allocatingFrom();
+
+        if (readyForRecovery())
+            return;
+
+        printState();
+        // Now block until we've allocated a backup if necessary
+        WaitQueue.Signal signal = allSegmentsPrepared.register(commitLog.metrics.waitingOnSegmentAllocation.time());
+
+        wakeManager();
+
+        // Confirm we didn't race w/allocation already in-flight
+        if (readyForRecovery())
+        {
+            signal.cancel();
+            return;
+        }
+        System.err.println("blockBeforeRecovery waiting");
+        signal.awaitUninterruptibly();
+        System.err.println("blockBeforeRecovery done waiting");
     }
 
     /**
