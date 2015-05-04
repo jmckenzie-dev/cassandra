@@ -70,7 +70,7 @@ public class TypeParser
         if (type != null)
             return type;
 
-        // This could be simplier (i.e. new TypeParser(str).parse()) but we avoid creating a TypeParser object if not really necessary.
+        // This could be simpler (i.e. new TypeParser(str).parse()) but we avoid creating a TypeParser object if not really necessary.
         int i = 0;
         i = skipBlank(str, i);
         int j = i;
