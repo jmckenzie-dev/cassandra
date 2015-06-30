@@ -379,6 +379,23 @@ public class FileUtils
         deleteWithConfirm(dir);
     }
 
+    /**
+     * Schedules deletion of all file and subdirectories under "dir" on JVM shutdown.
+     * @param dir Directory to be deleted
+     */
+    public static void deleteRecursiveOnExit(File dir)
+    {
+        if (dir.isDirectory())
+        {
+            String[] children = dir.list();
+            for (String child : children)
+                deleteRecursiveOnExit(new File(dir, child));
+        }
+
+        logger.info("Scheduling deferred deletion of file: " + dir);
+        dir.deleteOnExit();
+    }
+
     public static void skipBytesFully(DataInput in, int bytes) throws IOException
     {
         int n = 0;

@@ -18,11 +18,14 @@
 package org.apache.cassandra.db;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.*;
 
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.QueryProcessor;
@@ -38,6 +41,8 @@ import static org.junit.Assert.assertTrue;
 
 public class SystemKeyspaceTest
 {
+    private static final Logger logger = LoggerFactory.getLogger(SystemKeyspaceTest.class);
+
     @Test
     public void testLocalTokens()
     {
@@ -78,6 +83,30 @@ public class SystemKeyspaceTest
         assert firstId.equals(secondId) : String.format("%s != %s%n", firstId.toString(), secondId.toString());
     }
 
+    private void assertDeletedOrDeferred(int expectedCount)
+    {
+        if (FBUtilities.isWindows())
+            assertEquals(expectedCount, getDeferredDeletionCount());
+        else
+            assertTrue(getSystemSnapshotFiles().isEmpty());
+    }
+
+    private int getDeferredDeletionCount()
+    {
+        try
+        {
+            Class c = Class.forName("java.io.DeleteOnExitHook");
+            Field f = c.getDeclaredField("files");
+            f.setAccessible(true);
+            LinkedHashSet<String> files = (LinkedHashSet<String>)(f.get(c));
+            return files.size();
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     public void snapshotSystemKeyspaceIfUpgrading() throws IOException
     {
@@ -86,13 +115,15 @@ public class SystemKeyspaceTest
             cfs.clearUnsafe();
         Keyspace.clearSnapshot(null, SystemKeyspace.NAME);
 
+        int baseline = getDeferredDeletionCount();
+
         SystemKeyspace.snapshotOnVersionChange();
-        assertTrue(getSystemSnapshotFiles().isEmpty());
+        assertDeletedOrDeferred(baseline);
 
         // now setup system.local as if we're upgrading from a previous version
         setupReleaseVersion(getOlderVersionString());
         Keyspace.clearSnapshot(null, SystemKeyspace.NAME);
-        assertTrue(getSystemSnapshotFiles().isEmpty());
+        assertDeletedOrDeferred(baseline);
 
         // Compare versions again & verify that snapshots were created for all tables in the system ks
         SystemKeyspace.snapshotOnVersionChange();
@@ -104,7 +135,13 @@ public class SystemKeyspaceTest
         setupReleaseVersion(FBUtilities.getReleaseVersionString());
 
         SystemKeyspace.snapshotOnVersionChange();
-        assertTrue(getSystemSnapshotFiles().isEmpty());
+
+        // snapshotOnVersionChange for upgrade case will open a SSTR when the CFS is flushed. On Windows, we won't be
+        // able to delete hard-links to that file while segments are memory-mapped, so they'll be marked for deferred deletion.
+        // 10 files expected.
+        assertDeletedOrDeferred(baseline + 10);
+
+        Keyspace.clearSnapshot(null, SystemKeyspace.NAME);
     }
 
     private String getOlderVersionString()
