@@ -392,7 +392,7 @@ public class FileUtils
                 deleteRecursiveOnExit(new File(dir, child));
         }
 
-        logger.info("Scheduling deferred deletion of file: " + dir);
+        logger.debug("Scheduling deferred deletion of file: " + dir);
         dir.deleteOnExit();
     }
 

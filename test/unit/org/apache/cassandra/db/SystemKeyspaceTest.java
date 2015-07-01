@@ -96,9 +96,7 @@ public class SystemKeyspaceTest
         try
         {
             Class c = Class.forName("java.io.DeleteOnExitHook");
-            Field f = c.getDeclaredField("files");
-            f.setAccessible(true);
-            LinkedHashSet<String> files = (LinkedHashSet<String>)(f.get(c));
+            LinkedHashSet<String> files = (LinkedHashSet<String>)FBUtilities.getProtectedField(c, "files").get(c);
             return files.size();
         }
         catch (Exception e)

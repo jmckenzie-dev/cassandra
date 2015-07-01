@@ -57,7 +57,6 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
-import org.hsqldb.Database;
 
 import static org.junit.Assert.*;
 
