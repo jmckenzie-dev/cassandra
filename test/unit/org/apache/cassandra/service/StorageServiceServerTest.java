@@ -20,7 +20,9 @@
 package org.apache.cassandra.service;
 
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.util.*;
 
@@ -146,6 +148,25 @@ public class StorageServiceServerTest
         WindowsFailedSnapshotTracker.deleteOldSnapshots();
         checkTempFilePresence(f, false);
 
+        // Check to make sure we don't delete non-temp, non-datafile locations
+        WindowsFailedSnapshotTracker.resetForTests();
+        PrintWriter tempPrinter = new PrintWriter(new FileWriter(WindowsFailedSnapshotTracker.TODELETEFILE, true));
+        tempPrinter.println(".safeDir");
+        tempPrinter.close();
+
+        File protectedDir = new File(".safeDir");
+        protectedDir.mkdir();
+        File protectedFile = new File(protectedDir, ".safeFile");
+        protectedFile.createNewFile();
+
+        WindowsFailedSnapshotTracker.handleFailedSnapshot(protectedDir);
+        WindowsFailedSnapshotTracker.deleteOldSnapshots();
+
+        assert protectedDir.exists();
+        assert protectedFile.exists();
+
+        protectedFile.delete();
+        protectedDir.delete();
     }
 
     @Test

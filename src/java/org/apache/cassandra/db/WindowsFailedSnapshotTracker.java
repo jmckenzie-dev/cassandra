@@ -31,6 +31,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.util.FileUtils;
 
 
@@ -56,6 +57,19 @@ public class WindowsFailedSnapshotTracker
                 while ((snapshotDirectory = reader.readLine()) != null)
                 {
                     File f = new File(snapshotDirectory);
+
+                    // Skip folders that aren't a subset of temp or a data folder. We don't want people to accidentally
+                    // delete something important by virtue of adding something invalid to the .toDelete file.
+                    boolean validFolder = FileUtils.isSubDirectory(new File(System.getenv("TEMP")), f);
+                    for (String s : DatabaseDescriptor.getAllDataFileLocations())
+                        validFolder |= FileUtils.isSubDirectory(new File(s), f);
+
+                    if (!validFolder)
+                    {
+                        logger.warn("Skipping invalid directory found in .toDelete: {}. Only %TEMP% or data file subdirectories are valid.", f);
+                        continue;
+                    }
+
                     // Could be a non-existent directory if deletion worked on previous JVM shutdown.
                     if (f.exists())
                     {
