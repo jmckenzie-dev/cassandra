@@ -18,14 +18,12 @@
 package org.apache.cassandra.db;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.*;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.QueryProcessor;
@@ -41,7 +39,12 @@ import static org.junit.Assert.assertTrue;
 
 public class SystemKeyspaceTest
 {
-    private static final Logger logger = LoggerFactory.getLogger(SystemKeyspaceTest.class);
+    @BeforeClass
+    public static void prepSnapshotTracker()
+    {
+        if (FBUtilities.isWindows())
+            WindowsFailedSnapshotTracker.deleteOldSnapshots();
+    }
 
     @Test
     public void testLocalTokens()

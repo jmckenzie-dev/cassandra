@@ -653,8 +653,8 @@ public class Directories
                 {
                     if (FBUtilities.isWindows())
                     {
-                        logger.warn("Failed to delete snapshot directory [{}] - folder will be deleted on JVM shutdown. You can safely attempt to delete this folder but it will fail so long as readers are open on the files.", snapshotDir);
-                        FileUtils.deleteRecursiveOnExit(snapshotDir);
+                        logger.warn("Failed to delete snapshot directory [{}]. Folder will be deleted on JVM shutdown or next node restart on crash. You can safely attempt to delete this folder but it will fail so long as readers are open on the files.", snapshotDir);
+                        WindowsFailedSnapshotTracker.handleFailedSnapshot(snapshotDir);
                     }
                     else
                     {
