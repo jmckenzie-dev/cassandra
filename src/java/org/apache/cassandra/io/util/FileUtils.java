@@ -96,28 +96,6 @@ public class FileUtils
         }
     }
 
-    public static void createSoftLink(String from, String to)
-    {
-        createSoftLink(new File(from), new File(to));
-    }
-
-    public static void createSoftLink(File from, File to)
-    {
-        if (to.exists())
-            throw new RuntimeException("Tried to create duplicate soft link to " + to);
-        if (!from.exists())
-            throw new RuntimeException("Tried to soft link to file that does not exist " + from);
-
-        try
-        {
-            Files.createSymbolicLink(to.toPath(), from.toPath());
-        }
-        catch (IOException e)
-        {
-            throw new FSWriteError(e, to);
-        }
-    }
-
     public static File createTempFile(String prefix, String suffix, File directory)
     {
         try
