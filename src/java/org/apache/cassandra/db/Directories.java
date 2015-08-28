@@ -729,22 +729,10 @@ public class Directories
             if (snapshotDir.exists())
             {
                 logger.debug("Removing snapshot directory {}", snapshotDir);
-                try
-                {
+                if (FBUtilities.isWindows())
+                    new SnapshotDeletingTask(snapshotDir).run();
+                else
                     FileUtils.deleteRecursive(snapshotDir);
-                }
-                catch (FSWriteError e)
-                {
-                    if (FBUtilities.isWindows())
-                    {
-                        logger.warn("Failed to delete snapshot directory [{}]. Folder will be deleted on JVM shutdown or next node restart on crash. You can safely attempt to delete this folder but it will fail so long as readers are open on the files.", snapshotDir);
-                        WindowsFailedSnapshotTracker.handleFailedSnapshot(snapshotDir);
-                    }
-                    else
-                    {
-                        throw e;
-                    }
-                }
             }
         }
     }

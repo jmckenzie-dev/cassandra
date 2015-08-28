@@ -106,6 +106,11 @@ public class SSTableDeletingTask implements Runnable
             failedTasks.remove(task);
             task.schedule();
         }
+
+        //  As snapshot deletion failures on Windows are due to segments of the original sstables being memory-mapped
+        // at the time of snapshot deletion, we need to wait until all the above deletions are retried before attempting
+        // to then clear pending snapshots.
+        SnapshotDeletingTask.rescheduleFailedTasks();
     }
 
     /** for tests */
