@@ -32,7 +32,6 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.WindowsFailedSnapshotTracker;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.io.sstable.SSTableDeletingTask;
 import org.apache.cassandra.io.sstable.SnapshotDeletingTask;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.GCInspector;
@@ -77,14 +76,10 @@ public class SnapshotDeletingTest
         store.clearSnapshot("snapshot1");
         assertEquals(1, SnapshotDeletingTask.pendingDeletionCount());
 
-        // Since SSTableDeletingTask's deletion is triggered by a gc and we depend on both that
-        // and the original sstables to be gone for snapshot deletion to work reliably on Windows,
-        // we need to write some more data, flush it, compact away the sstables, and then force a gc.
-        // After that point, the snapshot files should be deleted as expected.
+        // Compact the cf and confirm that the executor's after hook calls rescheduleDeletion
         populate(20000);
         store.forceBlockingFlush();
         store.forceMajorCompaction();
-        System.gc();
 
         long start = System.currentTimeMillis();
         while (System.currentTimeMillis() - start < 1000 && SnapshotDeletingTask.pendingDeletionCount() > 0)

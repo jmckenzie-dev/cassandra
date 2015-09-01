@@ -729,10 +729,17 @@ public class Directories
             if (snapshotDir.exists())
             {
                 logger.debug("Removing snapshot directory {}", snapshotDir);
-                if (FBUtilities.isWindows())
-                    new SnapshotDeletingTask(snapshotDir).run();
-                else
+                try
+                {
                     FileUtils.deleteRecursive(snapshotDir);
+                }
+                catch (FSWriteError e)
+                {
+                    if (FBUtilities.isWindows())
+                        new SnapshotDeletingTask(snapshotDir).run();
+                    else
+                        throw e;
+                }
             }
         }
     }

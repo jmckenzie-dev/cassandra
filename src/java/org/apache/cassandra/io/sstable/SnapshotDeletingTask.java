@@ -33,7 +33,7 @@ import org.apache.cassandra.io.util.FileUtils;
 
 public class SnapshotDeletingTask implements Runnable
 {
-    private static final Logger logger = LoggerFactory.getLogger(SSTableDeletingTask.class);
+    private static final Logger logger = LoggerFactory.getLogger(SnapshotDeletingTask.class);
 
     public final File path;
     private static final Set<SnapshotDeletingTask> failedTasks = new CopyOnWriteArraySet<>();
