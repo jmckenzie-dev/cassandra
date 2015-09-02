@@ -38,12 +38,16 @@ public class SnapshotDeletingTask implements Runnable
     public final File path;
     private static final Set<SnapshotDeletingTask> failedTasks = new CopyOnWriteArraySet<>();
 
-    public SnapshotDeletingTask(File path)
+    public static void addFailedSnapshot(File path)
     {
-        this.path = path;
         logger.warn("Failed to delete snapshot [{}]. Will retry after further sstable deletions. Folder will be deleted on JVM shutdown or next node restart on crash.", path);
         WindowsFailedSnapshotTracker.handleFailedSnapshot(path);
-        ScheduledExecutors.nonPeriodicTasks.submit(this);
+        failedTasks.add(new SnapshotDeletingTask(path));
+    }
+
+    private SnapshotDeletingTask(File path)
+    {
+        this.path = path;
     }
 
     public void run()
