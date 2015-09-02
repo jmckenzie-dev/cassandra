@@ -800,7 +800,7 @@ public class Directories
                 catch (FSWriteError e)
                 {
                     if (FBUtilities.isWindows())
-                        new SnapshotDeletingTask(snapshotDir).run();
+                        SnapshotDeletingTask.addFailedSnapshot(snapshotDir);
                     else
                         throw e;
                 }
