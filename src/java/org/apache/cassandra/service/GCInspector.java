@@ -40,7 +40,7 @@ public class GCInspector
     private static final Logger logger = LoggerFactory.getLogger(GCInspector.class);
     final static long INTERVAL_IN_MS = 1000;
     final static long MIN_DURATION = 200;
-    final static long GC_WARN_THRESHOLD_IN_MS = DatabaseDescriptor.getGCthreshold();
+    final static long GC_WARN_THRESHOLD_IN_MS = DatabaseDescriptor.getGCWarnThreshold();
 
     public static final GCInspector instance = new GCInspector();
 
@@ -86,7 +86,6 @@ public class GCInspector
 
     private void logGCResults()
     {
-
         for (GarbageCollectorMXBean gc : beans)
         {
             Long previousTotal = gctimes.get(gc.getName());
@@ -113,21 +112,15 @@ public class GCInspector
             long memoryMax = mu.getMax();
 
             String st = String.format("GC for %s: %s ms for %s collections, %s used; max is %s",
-                    gc.getName(), duration, count - previousCount, memoryUsed, memoryMax);
+                                      gc.getName(), duration, count - previousCount, memoryUsed, memoryMax);
             long durationPerCollection = duration / (count - previousCount);
 
-            if (durationPerCollection > GC_WARN_THRESHOLD_IN_MS)
-            {
+            if (GC_WARN_THRESHOLD_IN_MS != 0 && durationPerCollection > GC_WARN_THRESHOLD_IN_MS)
                 logger.warn(st);
-            }
             else if (durationPerCollection > MIN_DURATION)
-            {
                 logger.info(st);
-            }
             else if (logger.isDebugEnabled())
-            {
                 logger.debug(st);
-            }
 
             if (durationPerCollection > GC_WARN_THRESHOLD_IN_MS)
                 StatusLogger.log();

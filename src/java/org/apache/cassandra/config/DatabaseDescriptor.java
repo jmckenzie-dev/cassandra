@@ -232,7 +232,7 @@ public class DatabaseDescriptor
         }
         paritionerName = partitioner.getClass().getCanonicalName();
 
-        if (conf.gc_warn_threshold_in_ms <= 0)
+        if (conf.gc_warn_threshold_in_ms < 0)
         {
             throw new ConfigurationException("gc_warn_threshold_in_ms must be a positive integer");
         }
@@ -1487,7 +1487,7 @@ public class DatabaseDescriptor
         return arch.contains("64") || arch.contains("sparcv9");
     }
 
-    public static long getGCthreshold()
+    public static long getGCWarnThreshold()
     {
         return conf.gc_warn_threshold_in_ms;
     }
