@@ -380,21 +380,6 @@ public class CassandraDaemon
 
         SystemKeyspace.finishStartup();
 
-        // start server internals
-        StorageService.instance.registerDaemon(this);
-        try
-        {
-            StorageService.instance.initServer();
-        }
-        catch (ConfigurationException e)
-        {
-            logger.error("Fatal configuration error", e);
-            System.err.println(e.getMessage() + "\nFatal configuration error; unable to start server.  See log for stacktrace.");
-            System.exit(1);
-        }
-
-        Mx4jTool.maybeLoad();
-
         // Metrics
         String metricsReporterConfigFile = System.getProperty("cassandra.metricsReporterConfigFile");
         if (metricsReporterConfigFile != null)
@@ -410,6 +395,21 @@ public class CassandraDaemon
                 logger.warn("Failed to load metrics-reporter-config, metric sinks will not be activated", e);
             }
         }
+
+        // start server internals
+        StorageService.instance.registerDaemon(this);
+        try
+        {
+            StorageService.instance.initServer();
+        }
+        catch (ConfigurationException e)
+        {
+            logger.error("Fatal configuration error", e);
+            System.err.println(e.getMessage() + "\nFatal configuration error; unable to start server.  See log for stacktrace.");
+            System.exit(1);
+        }
+
+        Mx4jTool.maybeLoad();
 
         if (!FBUtilities.getBroadcastAddress().equals(InetAddress.getLoopbackAddress()))
             waitForGossipToSettle();
