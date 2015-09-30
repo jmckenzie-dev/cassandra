@@ -32,7 +32,6 @@ import java.util.Map;
 
 public class SettingsGraph implements Serializable
 {
-
     public final String file;
     public final String revision;
     public final String title;
@@ -43,23 +42,13 @@ public class SettingsGraph implements Serializable
     {
         file = options.file.value();
         revision = options.revision.value();
-        if (options.title.value() == null)
-        {
-            title = "cassandra-stress - " + new SimpleDateFormat("yyyy-mm-dd hh:mm:ss").format(new Date());
-        }
-        else
-        {
-            title = options.title.value();
-        }
+        title = options.revision.value() == null
+            ? "cassandra-stress - " + new SimpleDateFormat("yyyy-mm-dd hh:mm:ss").format(new Date())
+            : options.title.value();
 
-        if (options.operation.value() == null)
-        {
-            operation = stressCommand.type.name();
-        }
-        else
-        {
-            operation = options.operation.value();
-        }
+        operation = options.operation.value() == null
+            ? stressCommand.type.name()
+            : options.operation.value();
 
         if (inGraphMode())
         {
@@ -78,16 +67,12 @@ public class SettingsGraph implements Serializable
         }
     }
 
-    /**
-     * Are we in graphing mode?
-     */
     public boolean inGraphMode()
     {
         return this.file == null ? false : true;
     }
 
     // Option Declarations
-
     private static final class GraphOptions extends GroupedOptions
     {
         final OptionSimple file = new OptionSimple("file=", ".*", null, "HTML file to create or append to", true);
@@ -103,7 +88,6 @@ public class SettingsGraph implements Serializable
     }
 
     // CLI Utility Methods
-
     public static SettingsGraph get(Map<String, String[]> clArgs, SettingsCommand stressCommand)
     {
         String[] params = clArgs.remove("-graph");

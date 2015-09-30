@@ -63,13 +63,12 @@ public class SettingsLog implements Serializable
 
     public MultiPrintStream getOutput() throws FileNotFoundException
     {
-        //Always print to stdout:
+        // Always print to stdout regardless of whether we're graphing or not
         MultiPrintStream stream = new MultiPrintStream(new PrintStream(System.out));
-        //If log file is specified, record to that file in addition to stdout:
+
         if (file != null)
-        {
             stream.addStream(new PrintStream(file));
-        }
+
         return stream;
     }
 
@@ -123,5 +122,4 @@ public class SettingsLog implements Serializable
             }
         };
     }
-
 }

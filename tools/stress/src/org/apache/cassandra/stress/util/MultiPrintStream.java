@@ -1,4 +1,3 @@
-package org.apache.cassandra.stress.util;
 /*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -19,7 +18,7 @@ package org.apache.cassandra.stress.util;
  * under the License.
  *
  */
-
+package org.apache.cassandra.stress.util;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -34,12 +33,6 @@ public class MultiPrintStream extends PrintStream
     {
         super(baseStream);
         this.newStreams = new ArrayList();
-    }
-
-    public MultiPrintStream(PrintStream baseStream, List<PrintStream> newStreams)
-    {
-        super(baseStream);
-        this.newStreams = newStreams;
     }
 
     @Override

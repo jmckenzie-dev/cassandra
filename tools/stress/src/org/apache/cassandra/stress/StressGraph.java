@@ -1,31 +1,3 @@
-package org.apache.cassandra.stress;
-
-import com.google.common.io.ByteStreams;
-
-import org.apache.cassandra.stress.settings.StressSettings;
-import org.json.simple.JSONArray;
-import org.json.simple.JSONObject;
-import org.json.simple.JSONValue;
-import org.omg.SendingContext.RunTime;
-
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
-import org.apache.commons.lang3.StringUtils;
-
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -44,11 +16,43 @@ import org.apache.commons.lang3.StringUtils;
  * limitations under the License.
  */
 
+package org.apache.cassandra.stress;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import com.google.common.io.ByteStreams;
+import org.apache.commons.lang3.StringUtils;
+
+import org.apache.cassandra.stress.settings.StressSettings;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
+
+
 public class StressGraph
 {
-
     private StressSettings stressSettings;
-    private enum readingMode {START, METRICS, AGGREGATES, NEXTITERATION, END};
+    private enum ReadingMode
+    {
+        START,
+        METRICS,
+        AGGREGATES,
+        NEXTITERATION
+    }
     private String[] stressArguments;
 
     public StressGraph(StressSettings stressSetttings, String[] stressArguments)
@@ -128,27 +132,18 @@ public class StressGraph
         boolean runningMultipleThreadCounts = false;
         String currentThreadCount = null;
         Pattern threadCountMessage = Pattern.compile("Running ([A-Z]+) with ([0-9]+) threads .*");
-        readingMode mode = readingMode.START;
+        ReadingMode mode = ReadingMode.START;
 
         try
         {
             String line;
-            while (!mode.equals(readingMode.END))
+            while ((line = reader.readLine()) != null)
             {
-                //Read the next line, break if null:
-                line = reader.readLine();
-                if (line == null)
-                {
-                    break;
-                }
-
-                //Detect if we are running multiple thread counts:
+                // Detect if we are running multiple thread counts:
                 if (line.startsWith("Thread count was not specified"))
-                {
                     runningMultipleThreadCounts = true;
-                }
 
-                //Detect thread count:
+                // Detect thread count:
                 Matcher tc = threadCountMessage.matcher(line);
                 if (tc.matches())
                 {
@@ -158,29 +153,28 @@ public class StressGraph
                     }
                 }
 
-                //Detect mode changes:
+                // Detect mode changes
                 if (line.equals(StressMetrics.HEAD))
                 {
-                    mode = readingMode.METRICS;
+                    mode = ReadingMode.METRICS;
                     continue;
                 }
                 else if (line.equals("Results:"))
                 {
-                    mode = readingMode.AGGREGATES;
+                    mode = ReadingMode.AGGREGATES;
                     continue;
                 }
-                else if (mode == readingMode.AGGREGATES && line.equals(""))
+                else if (mode == ReadingMode.AGGREGATES && line.equals(""))
                 {
-                    mode = readingMode.NEXTITERATION;
+                    mode = ReadingMode.NEXTITERATION;
                 }
                 else if (line.equals("END") || line.equals("FAILURE"))
                 {
-                    mode = readingMode.END;
                     break;
                 }
 
-                //Process lines:
-                if (mode == readingMode.METRICS)
+                // Process lines
+                if (mode == ReadingMode.METRICS)
                 {
                     JSONArray metrics = new JSONArray();
                     String[] parts = line.split(",");
@@ -201,7 +195,7 @@ public class StressGraph
                     }
                     intervals.add(metrics);
                 }
-                else if (mode == readingMode.AGGREGATES)
+                else if (mode == ReadingMode.AGGREGATES)
                 {
                     String[] parts = line.split(":",2);
                     if (parts.length != 2)
@@ -210,7 +204,7 @@ public class StressGraph
                     }
                     json.put(parts[0].trim(), parts[1].trim());
                 }
-                else if (mode == readingMode.NEXTITERATION)
+                else if (mode == ReadingMode.NEXTITERATION)
                 {
                     //Wrap up the results of this test and append to the array.
                     json.put("metrics", Arrays.asList(StressMetrics.HEADMETRICS));
@@ -222,10 +216,11 @@ public class StressGraph
                     json.put("command", StringUtils.join(stressArguments, " "));
                     json.put("intervals", intervals);
                     stats.add(json);
+
                     //Start fresh for next iteration:
                     json = new JSONObject();
                     intervals = new JSONArray();
-                    mode = readingMode.START;
+                    mode = ReadingMode.START;
                 }
             }
         }
@@ -240,11 +235,13 @@ public class StressGraph
     private JSONObject createJSONStats(JSONObject json)
     {
         JSONArray stats;
-        JSONObject parsedMetrics;
-        if(json == null){
+        if (json == null)
+        {
             json = new JSONObject();
             stats = new JSONArray();
-        } else {
+        }
+        else
+        {
             stats = (JSONArray) json.get("stats");
         }
 

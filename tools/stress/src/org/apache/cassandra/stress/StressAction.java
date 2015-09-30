@@ -34,7 +34,6 @@ import org.apache.cassandra.stress.settings.SettingsCommand;
 import org.apache.cassandra.stress.settings.StressSettings;
 import org.apache.cassandra.stress.util.JavaDriverClient;
 import org.apache.cassandra.stress.util.ThriftClient;
-import org.apache.cassandra.stress.util.TimingInterval;
 import org.apache.cassandra.transport.SimpleClient;
 
 public class StressAction implements Runnable

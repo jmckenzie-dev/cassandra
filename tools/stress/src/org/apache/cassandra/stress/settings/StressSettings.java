@@ -56,7 +56,21 @@ public class StressSettings implements Serializable
     public final String sendToDaemon;
     public final SettingsGraph graph;
 
-    public StressSettings(SettingsCommand command, SettingsRate rate, SettingsPopulation generate, SettingsInsert insert, SettingsColumn columns, SettingsSamples samples, SettingsErrors errors, SettingsLog log, SettingsMode mode, SettingsNode node, SettingsSchema schema, SettingsTransport transport, SettingsPort port, String sendToDaemon, SettingsGraph graph)
+    public StressSettings(SettingsCommand command,
+                          SettingsRate rate,
+                          SettingsPopulation generate,
+                          SettingsInsert insert,
+                          SettingsColumn columns,
+                          SettingsSamples samples,
+                          SettingsErrors errors,
+                          SettingsLog log,
+                          SettingsMode mode,
+                          SettingsNode node,
+                          SettingsSchema schema,
+                          SettingsTransport transport,
+                          SettingsPort port,
+                          String sendToDaemon,
+                          SettingsGraph graph)
     {
         this.command = command;
         this.rate = rate;

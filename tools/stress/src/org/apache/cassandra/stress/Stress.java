@@ -121,9 +121,7 @@ public final class Stress
                 stressAction.run();
                 logout.flush();
                 if (settings.graph.inGraphMode())
-                {
                     new StressGraph(settings, arguments).generateGraph();
-                }
             }
 
         }
