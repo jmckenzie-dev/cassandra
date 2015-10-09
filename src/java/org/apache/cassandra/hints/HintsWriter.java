@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.hints;
 
 import java.io.File;
@@ -27,10 +28,15 @@ import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.zip.CRC32;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.io.FSWriteError;
+import org.apache.cassandra.io.compress.ICompressor;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputBufferFixed;
+import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.utils.CLibrary;
 import org.apache.cassandra.utils.SyncUtil;
 import org.apache.cassandra.utils.Throwables;
@@ -39,31 +45,26 @@ import static org.apache.cassandra.utils.FBUtilities.updateChecksum;
 import static org.apache.cassandra.utils.FBUtilities.updateChecksumInt;
 import static org.apache.cassandra.utils.Throwables.perform;
 
-final class HintsWriter implements AutoCloseable
+class HintsWriter implements AutoCloseable
 {
     static final int PAGE_SIZE = 4096;
 
-    private final File directory;
-    private final HintsDescriptor descriptor;
-    private final File file;
-    private final FileChannel channel;
-    private final int fd;
-    private final CRC32 globalCRC;
+    protected final File directory;
+    protected final HintsDescriptor descriptor;
+    protected final File file;
+    protected final FileChannel channel;
+    protected final int fd;
+    protected final CRC32 globalCRC;
 
-    private volatile long lastSyncPosition = 0L;
+    protected volatile long lastSyncPosition = 0L;
 
-    private HintsWriter(File directory, HintsDescriptor descriptor, File file, FileChannel channel, int fd, CRC32 globalCRC)
+    static ICompressor hintsCompressor;
+
     {
-        this.directory = directory;
-        this.descriptor = descriptor;
-        this.file = file;
-        this.channel = channel;
-        this.fd = fd;
-        this.globalCRC = globalCRC;
+        initHintsCompressor();
     }
 
-    @SuppressWarnings("resource") // HintsWriter owns channel
-    static HintsWriter create(File directory, HintsDescriptor descriptor) throws IOException
+    public HintsWriter(File directory, HintsDescriptor descriptor) throws IOException
     {
         File file = new File(directory, descriptor.fileName());
 
@@ -86,7 +87,19 @@ final class HintsWriter implements AutoCloseable
             throw e;
         }
 
-        return new HintsWriter(directory, descriptor, file, channel, fd, crc);
+        this.directory = directory;
+        this.descriptor = descriptor;
+        this.file = file;
+        this.channel = channel;
+        this.fd = fd;
+        this.globalCRC = crc;
+    }
+
+    public static HintsWriter create(File directory, HintsDescriptor descriptor) throws IOException
+    {
+        return hintsCompressor == null
+            ? new HintsWriter(directory, descriptor)
+            : new CompressedHintsWriter(directory, descriptor);
     }
 
     HintsDescriptor descriptor()
@@ -94,7 +107,7 @@ final class HintsWriter implements AutoCloseable
         return descriptor;
     }
 
-    private void writeChecksum()
+    protected void writeChecksum()
     {
         File checksumFile = new File(directory, descriptor.checksumFileName());
         try (OutputStream out = Files.newOutputStream(checksumFile.toPath()))
@@ -107,10 +120,32 @@ final class HintsWriter implements AutoCloseable
         }
     }
 
+    Session newSession(ByteBuffer buffer)
+    {
+        try
+        {
+            return new Session(buffer, channel.size());
+        }
+        catch (IOException e)
+        {
+            throw new FSWriteError(e, file);
+        }
+    }
+
+    protected void write(ByteBuffer buffer) throws IOException
+    {
+        channel.write(buffer);
+    }
+
+    protected void write(ByteBuffer bufferedHints, ByteBuffer singleHint) throws IOException
+    {
+        write(bufferedHints);
+        write(singleHint);
+    }
+
     public void close()
     {
         perform(file, Throwables.FileOpType.WRITE, this::doFsync, channel::close);
-
         writeChecksum();
     }
 
@@ -123,18 +158,6 @@ final class HintsWriter implements AutoCloseable
     {
         SyncUtil.force(channel, true);
         lastSyncPosition = channel.position();
-    }
-
-    Session newSession(ByteBuffer buffer)
-    {
-        try
-        {
-            return new Session(buffer, channel.size());
-        }
-        catch (IOException e)
-        {
-            throw new FSWriteError(e, file);
-        }
     }
 
     /**
@@ -187,7 +210,7 @@ final class HintsWriter implements AutoCloseable
             updateChecksum(globalCRC, buffer);
             updateChecksum(globalCRC, hint);
 
-            channel.write(new ByteBuffer[] { buffer, hint });
+            write(buffer, hint);
             buffer.clear();
         }
 
@@ -248,7 +271,7 @@ final class HintsWriter implements AutoCloseable
             if (buffer.remaining() > 0)
             {
                 updateChecksum(globalCRC, buffer);
-                channel.write(buffer);
+                write(buffer);
             }
 
             buffer.clear();
@@ -269,5 +292,12 @@ final class HintsWriter implements AutoCloseable
             if (position >= DatabaseDescriptor.getTrickleFsyncIntervalInKb() * 1024L)
                 CLibrary.trySkipCache(fd, 0, position - (position % PAGE_SIZE), file.getPath());
         }
+    }
+
+    @VisibleForTesting
+    public static void initHintsCompressor()
+    {
+        ParameterizedClass compressorClass = DatabaseDescriptor.getHintsCompression();
+        hintsCompressor = compressorClass != null ? CompressionParams.createCompressor(compressorClass) : null;
     }
 }

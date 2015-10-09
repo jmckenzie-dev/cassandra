@@ -27,10 +27,10 @@ import org.apache.cassandra.io.util.FileMark;
 import org.apache.cassandra.io.util.RandomAccessReader;
 
 /**
- * A {@link RandomAccessReader} wrapper that calctulates the CRC in place.
+ * A {@link RandomAccessReader} wrapper that calculates the CRC in place.
  *
  * Useful for {@link org.apache.cassandra.hints.HintsReader}, for example, where we must verify the CRC, yet don't want
- * to allocate an extra byte array just that purpose. The CRC can be embedded in the input stream and checked via checkCrc().
+ * to allocate an extra byte array just for that purpose. The CRC can be embedded in the input stream and checked via checkCrc().
  *
  * In addition to calculating the CRC, it allows to enforce a maximim known size. This is needed
  * so that {@link org.apache.cassandra.db.Mutation.MutationSerializer} doesn't blow up the heap when deserializing a

@@ -29,7 +29,7 @@ import org.apache.cassandra.io.FSWriteError;
 /**
  * A single threaded executor that exclusively writes all the hints and otherwise manipulate the writers.
  *
- * Flushing demultiplexes the provided {@link HintsBuffer} and sequentially writes to each {@link HintsWriter},
+ * Flushing demultiplexes the provided {@link HintsBuffer} and sequentially writes to each {@link UncompressedHintsWriter},
  * using the same shared write buffer. In the near future, when CASSANDRA-9428 (compression) is implemented,
  * will also share a compression buffer.
  */

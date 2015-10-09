@@ -1220,6 +1220,21 @@ public class DatabaseDescriptor
         return conf.commitlog_max_compression_buffers_in_pool;
     }
 
+    public static ParameterizedClass getHintsCompression()
+    {
+        return conf.hints_compression;
+    }
+
+    public static void setHintsCompression(ParameterizedClass compressor)
+    {
+        conf.hints_compression = compressor;
+    }
+
+    public static int getHintsMaxCompressionBuffersInPool()
+    {
+        return conf.hints_max_compression_buffers_in_pool;
+    }
+
     public static int getMaxMutationSize()
     {
         return conf.max_mutation_size_in_kb * 1024;

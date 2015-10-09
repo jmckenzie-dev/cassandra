@@ -35,7 +35,8 @@ import org.apache.cassandra.utils.SyncUtil;
  */
 public class CompressedSegment extends CommitLogSegment
 {
-    private static final ThreadLocal<ByteBuffer> compressedBufferHolder = new ThreadLocal<ByteBuffer>() {
+    private static final ThreadLocal<ByteBuffer> compressedBufferHolder = new ThreadLocal<ByteBuffer>()
+    {
         protected ByteBuffer initialValue()
         {
             return ByteBuffer.allocate(0);
@@ -85,7 +86,8 @@ public class CompressedSegment extends CommitLogSegment
         {
             // this.compressor is not yet set, so we must use the commitLog's one.
             buf = commitLog.compressor.preferredBufferType().allocate(DatabaseDescriptor.getCommitLogSegmentSize());
-        } else
+        }
+        else
             buf.clear();
         return buf;
     }
