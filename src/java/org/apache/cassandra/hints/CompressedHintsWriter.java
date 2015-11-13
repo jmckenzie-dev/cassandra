@@ -23,6 +23,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.zip.CRC32;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.util.FileUtils;
@@ -30,6 +33,8 @@ import org.apache.cassandra.utils.SyncUtil;
 
 final class CompressedHintsWriter extends HintsWriter
 {
+    private static final Logger logger = LoggerFactory.getLogger(CompressedHintsWriter.class);
+
     private static final int COMPRESSED_HEADER_SIZE = 4 + 4; // uncompressed len + checksum
     private ByteBuffer compressedBuffer;
     private volatile long lastWrittenPos = 0;
@@ -56,12 +61,19 @@ final class CompressedHintsWriter extends HintsWriter
     @Override
     protected void write(ByteBuffer buffer, ByteBuffer optionalBuffer) throws IOException
     {
+        maybeLog("Write call");
+        maybeLog("channel.Pos at entry: " + channel.position());
         try
         {
+            compressedBuffer.clear();
             int bufferedHintLength = buffer.remaining();
             if (optionalBuffer != null)
                 bufferedHintLength += optionalBuffer.remaining();
             int neededBufferSize = hintsCompressor.initialCompressedBufferLength(bufferedHintLength + COMPRESSED_HEADER_SIZE);
+
+            maybeLog("START: buffer:" + buffer);
+            if (optionalBuffer != null)
+                maybeLog("START: optionalBuffer: " + optionalBuffer);
 
             // Lazy init compressedBuffer to desired size
             if (hintsCompressor.preferredBufferType() != BufferType.typeOf(compressedBuffer) ||
@@ -74,9 +86,11 @@ final class CompressedHintsWriter extends HintsWriter
             /* Visualization of format:
                   [(int)Len] [(int)Checksum] [CompressedData]
             */
+            maybeLog("START: compressedBuffer: " + compressedBuffer + ". bufferedHintLength: " + bufferedHintLength);
+            maybeLog("compressedBuffer remaining: " + compressedBuffer.remaining());
+            compressedBuffer.limit(compressedBuffer.capacity()).position(COMPRESSED_HEADER_SIZE);
             compressedBuffer.putInt(bufferedHintLength);
 
-            compressedBuffer.limit(compressedBuffer.capacity()).position(COMPRESSED_HEADER_SIZE);
             hintsCompressor.compress(buffer.duplicate(), compressedBuffer);
             if (optionalBuffer != null)
                 hintsCompressor.compress(optionalBuffer.duplicate(), compressedBuffer);
@@ -89,16 +103,28 @@ final class CompressedHintsWriter extends HintsWriter
             compressedBuffer.rewind();
 
             // TODO: Add to metric tracking total used compressed disk space
+            maybeLog("channel.position before write: " + channel.position());
             channel.write(compressedBuffer);
-            long val = channel.position();
+            maybeLog("channel.position after write: " + channel.position());
+            maybeLog("lastWrittenPos: " + lastWrittenPos);
+            maybeLog("cB.limit: " + compressedBuffer.limit());
+            maybeLog("pos - lastWritten: " + (channel.position() - lastWrittenPos));
             assert channel.position() - lastWrittenPos == compressedBuffer.limit();
             lastWrittenPos = channel.position();
             SyncUtil.force(channel, true);
+
+            maybeLog("END: compressedBuffer: " + compressedBuffer);
+            maybeLog("END: channel.position on exit: " + channel.position());
         }
         catch (Exception e)
         {
             throw new FSWriteError(e, file);
         }
-        channel.write(buffer);
+    }
+
+    private boolean _debug = false;
+    private void maybeLog(String msg) {
+        if (_debug)
+            logger.warn(msg);
     }
 }
