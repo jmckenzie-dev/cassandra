@@ -29,6 +29,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.SyncUtil;
 
 final class CompressedHintsWriter extends HintsWriter
@@ -45,11 +46,6 @@ final class CompressedHintsWriter extends HintsWriter
         super(directory, descriptor);
         compressedBuffer = ByteBuffer.allocate(0);
         lastWrittenPos = channel.position();
-    }
-
-    HintsDescriptor descriptor()
-    {
-        return descriptor;
     }
 
     @Override
@@ -102,9 +98,14 @@ final class CompressedHintsWriter extends HintsWriter
             compressedBuffer.putInt(4, (int)writeCRC.getValue());
             compressedBuffer.rewind();
 
+            System.err.println("compressedBuffer before write to globalCRC: " + compressedBuffer);
+            // Update file global CRC w/compressed buffer
+            FBUtilities.updateChecksum(globalCRC, compressedBuffer);
+
             // TODO: Add to metric tracking total used compressed disk space
             maybeLog("channel.position before write: " + channel.position());
             channel.write(compressedBuffer);
+
             maybeLog("channel.position after write: " + channel.position());
             maybeLog("lastWrittenPos: " + lastWrittenPos);
             maybeLog("cB.limit: " + compressedBuffer.limit());

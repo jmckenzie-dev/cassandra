@@ -53,14 +53,16 @@ final class HintsDescriptor
     static final Pattern pattern =
         Pattern.compile("^[a-fA-F0-9]{8}\\-[a-fA-F0-9]{4}\\-[a-fA-F0-9]{4}\\-[a-fA-F0-9]{4}\\-[a-fA-F0-9]{12}\\-(\\d+)\\-(\\d+)\\.hints$");
 
+    static final String COMPRESSION_PARAMETERS_KEY = "compressionParameters";
+    static final String COMPRESSION_CLASS_KEY = "compressionClass";
+
     final UUID hostId;
     final int version;
     final long timestamp;
 
-    // implemented for future compression support - see CASSANDRA-9428
-    final ImmutableMap<String, Object> parameters;
+    final Map<String, Object> parameters;
 
-    HintsDescriptor(UUID hostId, int version, long timestamp, ImmutableMap<String, Object> parameters)
+    HintsDescriptor(UUID hostId, int version, long timestamp, Map<String, Object> parameters)
     {
         this.hostId = hostId;
         this.version = version;
@@ -68,9 +70,9 @@ final class HintsDescriptor
         this.parameters = parameters;
     }
 
-    HintsDescriptor(UUID hostId, long timestamp)
+    HintsDescriptor(UUID hostId, long timestamp, Map<String, Object> parameters)
     {
-        this(hostId, CURRENT_VERSION, timestamp, ImmutableMap.<String, Object>of());
+        this(hostId, CURRENT_VERSION, timestamp, parameters);
     }
 
     String fileName()
@@ -165,6 +167,7 @@ final class HintsDescriptor
         out.writeLong(hostId.getLeastSignificantBits());
         updateChecksumLong(crc, hostId.getLeastSignificantBits());
 
+        System.err.println("JsonParams for HintsDescriptor: " + JSONValue.toJSONString(parameters));
         byte[] paramsBytes = JSONValue.toJSONString(parameters).getBytes(StandardCharsets.UTF_8);
         out.writeInt(paramsBytes.length);
         updateChecksumInt(crc, paramsBytes.length);

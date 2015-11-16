@@ -25,9 +25,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.service.StorageService;
@@ -179,7 +182,20 @@ final class HintsStore
     private HintsWriter openWriter()
     {
         lastUsedTimestamp = Math.max(System.currentTimeMillis(), lastUsedTimestamp + 1);
-        HintsDescriptor descriptor = new HintsDescriptor(hostId, lastUsedTimestamp);
+
+        ParameterizedClass compressionClass = DatabaseDescriptor.getHintsCompression();
+        Map<String, Object> params;
+        if (compressionClass == null)
+        {
+            params = ImmutableMap.<String, Object>of();
+        }
+        else
+        {
+            params = new TreeMap<>();
+            params.put(HintsDescriptor.COMPRESSION_CLASS_KEY, compressionClass.class_name);
+            params.put(HintsDescriptor.COMPRESSION_PARAMETERS_KEY, compressionClass.parameters);
+        }
+        HintsDescriptor descriptor = new HintsDescriptor(hostId, lastUsedTimestamp, params);
 
         try
         {

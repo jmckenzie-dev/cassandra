@@ -23,10 +23,13 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.util.Iterator;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.CRC32;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import org.junit.Test;
 
@@ -55,7 +58,8 @@ public class CompressedHintsTest
     private static final String KEYSPACE = "hints_write_then_read_test";
     private static final String TABLE = "table";
 
-    private static final int HINTS_COUNT = 10_000_000;
+    // private static final int HINTS_COUNT = 1_000_000;
+    private static final int HINTS_COUNT = 1;
 
     @Test
     public void testWriteReadCycle() throws IOException
@@ -63,7 +67,6 @@ public class CompressedHintsTest
         SchemaLoader.prepareServer();
         SchemaLoader.createKeyspace(KEYSPACE, KeyspaceParams.simple(1), SchemaLoader.standardCFMD(KEYSPACE, TABLE));
 
-        HintsDescriptor descriptor = new HintsDescriptor(UUID.randomUUID(), System.currentTimeMillis());
 
         for (ParameterizedClass compressor : new ParameterizedClass[] {
                 new ParameterizedClass("LZ4Compressor", null),
@@ -75,6 +78,10 @@ public class CompressedHintsTest
             File directory = Files.createTempDirectory(null).toFile();
             try
             {
+                Map<String, Object> params = new TreeMap<>();
+                params.put(HintsDescriptor.COMPRESSION_CLASS_KEY, compressor.class_name);
+                params.put(HintsDescriptor.COMPRESSION_PARAMETERS_KEY, compressor.parameters);
+                HintsDescriptor descriptor = new HintsDescriptor(UUID.randomUUID(), System.currentTimeMillis(), params);
                 testWriteReadCycle(directory, descriptor);
             }
             finally
@@ -90,7 +97,7 @@ public class CompressedHintsTest
         writeHints(directory, descriptor);
 
         // calculate the checksum of the file, then compare to the .crc32 checksum file content
-        // verifyChecksum(directory, descriptor);
+        verifyChecksum(directory, descriptor);
 
         // iterate over the written hints, make sure they are all present
         // verifyHints(directory, descriptor);
@@ -109,6 +116,8 @@ public class CompressedHintsTest
     {
         File hintsFile = new File(directory, descriptor.fileName());
         File checksumFile = new File(directory, descriptor.checksumFileName());
+
+        System.err.println("size of hintsFile: " + hintsFile.length());
 
         assertTrue(checksumFile.exists());
 

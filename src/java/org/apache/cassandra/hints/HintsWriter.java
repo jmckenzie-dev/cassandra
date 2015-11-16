@@ -28,8 +28,13 @@ import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.zip.CRC32;
 
-import com.google.common.annotations.VisibleForTesting;
+import javax.annotation.concurrent.Immutable;
+import javax.xml.crypto.Data;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableMap;
+
+import junit.framework.Assert;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.io.FSWriteError;
@@ -49,11 +54,11 @@ class HintsWriter implements AutoCloseable
 {
     static final int PAGE_SIZE = 4096;
 
-    protected final File directory;
-    protected final HintsDescriptor descriptor;
+    private final File directory;
+    private final HintsDescriptor descriptor;
     protected final File file;
     protected final FileChannel channel;
-    protected final int fd;
+    private final int fd;
     protected final CRC32 globalCRC;
 
     protected volatile long lastSyncPosition = 0L;
@@ -71,14 +76,14 @@ class HintsWriter implements AutoCloseable
         FileChannel channel = FileChannel.open(file.toPath(), StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
         int fd = CLibrary.getfd(channel);
 
-        CRC32 crc = new CRC32();
+        CRC32 globalCRC = new CRC32();
 
         try (DataOutputBuffer dob = new DataOutputBuffer())
         {
             // write the descriptor
             descriptor.serialize(dob);
             ByteBuffer descriptorBytes = dob.buffer();
-            updateChecksum(crc, descriptorBytes);
+            updateChecksum(globalCRC, descriptorBytes);
             channel.write(descriptorBytes);
         }
         catch (Throwable e)
@@ -92,12 +97,12 @@ class HintsWriter implements AutoCloseable
         this.file = file;
         this.channel = channel;
         this.fd = fd;
-        this.globalCRC = crc;
+        this.globalCRC = globalCRC;
     }
 
     public static HintsWriter create(File directory, HintsDescriptor descriptor) throws IOException
     {
-        return hintsCompressor == null
+        return DatabaseDescriptor.getHintsCompression() == null
             ? new HintsWriter(directory, descriptor)
             : new CompressedHintsWriter(directory, descriptor);
     }
@@ -134,6 +139,8 @@ class HintsWriter implements AutoCloseable
 
     protected void write(ByteBuffer buffer) throws IOException
     {
+        // update file-global CRC checksum
+        updateChecksum(globalCRC, buffer);
         channel.write(buffer);
     }
 
@@ -205,11 +212,6 @@ class HintsWriter implements AutoCloseable
             }
 
             buffer.flip();
-
-            // update file-global CRC checksum
-            updateChecksum(globalCRC, buffer);
-            updateChecksum(globalCRC, hint);
-
             write(buffer, hint);
             buffer.clear();
         }
@@ -270,7 +272,6 @@ class HintsWriter implements AutoCloseable
 
             if (buffer.remaining() > 0)
             {
-                updateChecksum(globalCRC, buffer);
                 write(buffer);
             }
 
