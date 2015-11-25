@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.hints;
 
 import java.io.File;
@@ -29,7 +30,7 @@ import org.apache.cassandra.io.util.RandomAccessReader;
 /**
  * A {@link RandomAccessReader} wrapper that calculates the CRC in place.
  *
- * Useful for {@link org.apache.cassandra.hints.HintsReader}, for example, where we must verify the CRC, yet don't want
+ * Useful for {@link HintsReader}, for example, where we must verify the CRC, yet don't want
  * to allocate an extra byte array just for that purpose. The CRC can be embedded in the input stream and checked via checkCrc().
  *
  * In addition to calculating the CRC, it allows to enforce a maximim known size. This is needed
@@ -37,7 +38,7 @@ import org.apache.cassandra.io.util.RandomAccessReader;
  * corrupted sequence by reading a huge corrupted length of bytes via
  * via {@link org.apache.cassandra.utils.ByteBufferUtil#readWithLength(java.io.DataInput)}.
  */
-public class ChecksummedDataInput extends RandomAccessReader.RandomAccessReaderWithOwnChannel
+public class CompressedChecksummedDataInput extends ChecksummedDataInput
 {
     private final CRC32 crc;
     private int crcPosition;
@@ -46,7 +47,7 @@ public class ChecksummedDataInput extends RandomAccessReader.RandomAccessReaderW
     private long limit;
     private FileMark limitMark;
 
-    private ChecksummedDataInput(Builder builder)
+    private CompressedChecksummedDataInput(Builder builder)
     {
         super(builder);
 
@@ -58,7 +59,7 @@ public class ChecksummedDataInput extends RandomAccessReader.RandomAccessReaderW
     }
 
     @SuppressWarnings("resource")   // channel owned by RandomAccessReaderWithOwnChannel
-    public static ChecksummedDataInput open(File file)
+    public static CompressedChecksummedDataInput open(File file)
     {
         return new Builder(new ChannelProxy(file)).build();
     }
@@ -157,9 +158,9 @@ public class ChecksummedDataInput extends RandomAccessReader.RandomAccessReaderW
             super(channel);
         }
 
-        public ChecksummedDataInput build()
+        public CompressedChecksummedDataInput build()
         {
-            return new ChecksummedDataInput(this);
+            return new CompressedChecksummedDataInput(this);
         }
     }
 }

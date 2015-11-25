@@ -21,41 +21,56 @@ package org.apache.cassandra.hints;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.zip.CRC32;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.compress.BufferType;
+import org.apache.cassandra.io.compress.ICompressor;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.SyncUtil;
 
-final class CompressedHintsWriter extends HintsWriter
+final class CompressedHintsFileWriter implements HintsFileWriter
 {
-    private static final Logger logger = LoggerFactory.getLogger(CompressedHintsWriter.class);
-
+    private static final Logger logger = LoggerFactory.getLogger(CompressedHintsFileWriter.class);
     private static final int COMPRESSED_HEADER_SIZE = 4 + 4; // uncompressed len + checksum
+
     private ByteBuffer compressedBuffer;
     private volatile long lastWrittenPos = 0;
     private CRC32 writeCRC = new CRC32();
 
-    CompressedHintsWriter(File directory, HintsDescriptor descriptor) throws IOException
+    private final File file;
+    private final FileChannel channel;
+    private final CRC32 globalCRC;
+
+    static ICompressor hintsCompressor;
+
+    // Static init
+    { initHintsCompressor(); }
+
+    public CompressedHintsFileWriter(File file, FileChannel channel, CRC32 crc) throws IOException
     {
-        super(directory, descriptor);
+        this.file = file;
+        this.channel = channel;
+        this.globalCRC = crc;
         compressedBuffer = ByteBuffer.allocate(0);
         lastWrittenPos = channel.position();
     }
 
-    @Override
-    protected void write(ByteBuffer bufferedHints) throws IOException
+    public void write(ByteBuffer bufferedHints) throws IOException
     {
         write(bufferedHints, null);
     }
 
-    @Override
-    protected void write(ByteBuffer buffer, ByteBuffer optionalBuffer) throws IOException
+    public void write(ByteBuffer buffer, ByteBuffer optionalBuffer) throws IOException
     {
         maybeLog("Write call");
         maybeLog("channel.Pos at entry: " + channel.position());
@@ -127,5 +142,12 @@ final class CompressedHintsWriter extends HintsWriter
     private void maybeLog(String msg) {
         if (_debug)
             logger.warn(msg);
+    }
+
+    @VisibleForTesting
+    public static void initHintsCompressor()
+    {
+        ParameterizedClass compressorClass = DatabaseDescriptor.getHintsCompression();
+        hintsCompressor = compressorClass != null ? CompressionParams.createCompressor(compressorClass) : null;
     }
 }

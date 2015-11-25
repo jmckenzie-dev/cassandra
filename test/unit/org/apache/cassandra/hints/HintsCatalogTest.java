@@ -81,7 +81,7 @@ public class HintsCatalogTest
     @SuppressWarnings("EmptyTryBlock")
     private static void writeDescriptor(File directory, HintsDescriptor descriptor) throws IOException
     {
-        try (HintsWriter ignored = HintsWriter.create(directory, descriptor))
+        try (HintsWriter ignored = new HintsWriter(directory, descriptor))
         {
         }
     }

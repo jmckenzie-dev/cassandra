@@ -103,7 +103,7 @@ public class HintsDescriptorTest
         File directory = Files.createTempDir();
         try
         {
-            try (HintsWriter ignored = HintsWriter.create(directory, expected))
+            try (HintsWriter ignored = new HintsWriter(directory, expected))
             {
             }
             HintsDescriptor actual = HintsDescriptor.readFromFile(new File(directory, expected.fileName()).toPath());

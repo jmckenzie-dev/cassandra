@@ -199,7 +199,7 @@ final class HintsStore
 
         try
         {
-            return HintsWriter.create(hintsDirectory, descriptor);
+            return new HintsWriter(hintsDirectory, descriptor);
         }
         catch (IOException e)
         {

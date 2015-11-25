@@ -166,7 +166,7 @@ public final class LegacyHintsMigrator
     {
         HintsDescriptor descriptor = new HintsDescriptor(hostId, System.currentTimeMillis());
 
-        try (HintsWriter writer = HintsWriter.create(hintsDirectory, descriptor))
+        try (HintsWriter writer = new HintsWriter(hintsDirectory, descriptor))
         {
             try (HintsWriter.Session session = writer.newSession(buffer))
             {

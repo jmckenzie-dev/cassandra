@@ -29,7 +29,6 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.CRC32;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import org.junit.Test;
 
@@ -105,9 +104,8 @@ public class CompressedHintsTest
 
     private void writeHints(File directory, HintsDescriptor descriptor) throws IOException
     {
-        try (HintsWriter writer = HintsWriter.create(directory, descriptor))
+        try (HintsWriter writer = new HintsWriter(directory, descriptor))
         {
-            assert writer instanceof CompressedHintsWriter : "Writer not instanceof CompressedHintsWriter, is instead: " + writer.getClass();
             write(writer, descriptor.timestamp);
         }
     }

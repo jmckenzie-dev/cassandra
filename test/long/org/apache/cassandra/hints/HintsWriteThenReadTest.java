@@ -88,7 +88,7 @@ public class HintsWriteThenReadTest
 
     private void writeHints(File directory, HintsDescriptor descriptor) throws IOException
     {
-        try (HintsWriter writer = HintsWriter.create(directory, descriptor))
+        try (HintsWriter writer = new HintsWriter(directory, descriptor))
         {
             write(writer, descriptor.timestamp);
         }

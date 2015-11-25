@@ -28,13 +28,8 @@ import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.zip.CRC32;
 
-import javax.annotation.concurrent.Immutable;
-import javax.xml.crypto.Data;
-
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableMap;
 
-import junit.framework.Assert;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.io.FSWriteError;
@@ -50,24 +45,19 @@ import static org.apache.cassandra.utils.FBUtilities.updateChecksum;
 import static org.apache.cassandra.utils.FBUtilities.updateChecksumInt;
 import static org.apache.cassandra.utils.Throwables.perform;
 
-class HintsWriter implements AutoCloseable
+final class HintsWriter implements AutoCloseable
 {
     static final int PAGE_SIZE = 4096;
 
     private final File directory;
     private final HintsDescriptor descriptor;
-    protected final File file;
-    protected final FileChannel channel;
+    private final File file;
+    private final FileChannel channel;
     private final int fd;
-    protected final CRC32 globalCRC;
+    private final CRC32 globalCRC;
+    private final HintsFileWriter fileWriter;
 
-    protected volatile long lastSyncPosition = 0L;
-
-    static ICompressor hintsCompressor;
-
-    {
-        initHintsCompressor();
-    }
+    private volatile long lastSyncPosition = 0L;
 
     public HintsWriter(File directory, HintsDescriptor descriptor) throws IOException
     {
@@ -98,13 +88,9 @@ class HintsWriter implements AutoCloseable
         this.channel = channel;
         this.fd = fd;
         this.globalCRC = globalCRC;
-    }
-
-    public static HintsWriter create(File directory, HintsDescriptor descriptor) throws IOException
-    {
-        return DatabaseDescriptor.getHintsCompression() == null
-            ? new HintsWriter(directory, descriptor)
-            : new CompressedHintsWriter(directory, descriptor);
+        fileWriter = DatabaseDescriptor.getHintsCompression() == null
+            ? new DirectHintsFileWriter(channel, globalCRC)
+            : new CompressedHintsFileWriter(file, channel, globalCRC);
     }
 
     HintsDescriptor descriptor()
@@ -112,7 +98,7 @@ class HintsWriter implements AutoCloseable
         return descriptor;
     }
 
-    protected void writeChecksum()
+    private void writeChecksum()
     {
         File checksumFile = new File(directory, descriptor.checksumFileName());
         try (OutputStream out = Files.newOutputStream(checksumFile.toPath()))
@@ -135,19 +121,6 @@ class HintsWriter implements AutoCloseable
         {
             throw new FSWriteError(e, file);
         }
-    }
-
-    protected void write(ByteBuffer buffer) throws IOException
-    {
-        // update file-global CRC checksum
-        updateChecksum(globalCRC, buffer);
-        channel.write(buffer);
-    }
-
-    protected void write(ByteBuffer bufferedHints, ByteBuffer singleHint) throws IOException
-    {
-        write(bufferedHints);
-        write(singleHint);
     }
 
     public void close()
@@ -212,7 +185,7 @@ class HintsWriter implements AutoCloseable
             }
 
             buffer.flip();
-            write(buffer, hint);
+            fileWriter.write(buffer, hint);
             buffer.clear();
         }
 
@@ -272,7 +245,7 @@ class HintsWriter implements AutoCloseable
 
             if (buffer.remaining() > 0)
             {
-                write(buffer);
+                fileWriter.write(buffer);
             }
 
             buffer.clear();
@@ -293,12 +266,5 @@ class HintsWriter implements AutoCloseable
             if (position >= DatabaseDescriptor.getTrickleFsyncIntervalInKb() * 1024L)
                 CLibrary.trySkipCache(fd, 0, position - (position % PAGE_SIZE), file.getPath());
         }
-    }
-
-    @VisibleForTesting
-    public static void initHintsCompressor()
-    {
-        ParameterizedClass compressorClass = DatabaseDescriptor.getHintsCompression();
-        hintsCompressor = compressorClass != null ? CompressionParams.createCompressor(compressorClass) : null;
     }
 }
