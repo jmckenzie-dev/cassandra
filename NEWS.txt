@@ -61,6 +61,8 @@ New features
    - Hinted handoff has been completely rewritten. Hints are now stored in flat
      files, with less overhead for storage and more efficient dispatch.
      See CASSANDRA-6230 for full details.
+   - Hinted handoff supports compression. See cassandra.yaml:hints_compression.
+     Compression is disabled by default.
    - Option to not purge unrepaired tombstones. To avoid users having data resurrected
      if repair has not been run within gc_grace_seconds, an option has been added to
      only allow tombstones from repaired sstables to be purged. To enable, set the
@@ -69,6 +71,7 @@ New features
      can cause other problems.
    - Enabled warning on GC taking longer than 1000ms. See
      cassandra.yaml:gc_warn_threshold_in_ms
+
 
 Upgrading
 ---------
