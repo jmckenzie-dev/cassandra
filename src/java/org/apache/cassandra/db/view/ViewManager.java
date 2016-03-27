@@ -30,7 +30,7 @@ import com.google.common.util.concurrent.Striped;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.ViewDefinition;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.commitlog.ReplayPosition;
+import org.apache.cassandra.db.commitlog.CommitLogSegmentPosition;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.repair.SystemDistributedKeyspace;
@@ -89,7 +89,7 @@ public class ViewManager
         {
             for (ColumnFamilyStore viewCfs : allViewsCfs())
             {
-                ReplayPosition replayAfter = viewCfs.discardSSTables(truncatedAt);
+                CommitLogSegmentPosition replayAfter = viewCfs.discardSSTables(truncatedAt);
                 SystemKeyspace.saveTruncationRecord(viewCfs, truncatedAt, replayAfter);
             }
         }

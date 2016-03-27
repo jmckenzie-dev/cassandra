@@ -298,7 +298,7 @@ public class MmappedRegionsTest
         cf.deleteOnExit();
 
         MetadataCollector sstableMetadataCollector = new MetadataCollector(new ClusteringComparator(BytesType.instance))
-                                                     .replayPosition(null);
+                                                     .commitLogSegmentPosition(null);
         try(SequentialWriter writer = new CompressedSequentialWriter(f,
                                                                      cf.getAbsolutePath(),
                                                                      CompressionParams.snappy(),

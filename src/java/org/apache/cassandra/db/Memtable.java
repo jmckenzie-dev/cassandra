@@ -33,22 +33,19 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.commitlog.CommitLog;
-import org.apache.cassandra.db.commitlog.ReplayPosition;
-import org.apache.cassandra.db.compaction.OperationType;
+import org.apache.cassandra.db.commitlog.CommitLogSegmentPosition;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
-import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.dht.Murmur3Partitioner.LongToken;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
-import org.apache.cassandra.io.sstable.SSTableTxnWriter;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -56,7 +53,6 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.concurrent.OpOrder;
-import org.apache.cassandra.utils.memory.HeapAllocator;
 import org.apache.cassandra.utils.memory.MemtableAllocator;
 import org.apache.cassandra.utils.memory.MemtablePool;
 
@@ -73,20 +69,21 @@ public class Memtable implements Comparable<Memtable>
 
     // the write barrier for directing writes to this memtable during a switch
     private volatile OpOrder.Barrier writeBarrier;
-    // the last ReplayPosition owned by this Memtable; all ReplayPositions lower are owned by this or an earlier Memtable
-    private volatile AtomicReference<ReplayPosition> lastReplayPosition;
-    // the "first" ReplayPosition owned by this Memtable; this is inaccurate, and only used as a convenience to prevent CLSM flushing wantonly
-    private final ReplayPosition minReplayPosition = CommitLog.instance.getContext();
+    // the last CommitLogSegmentPosition owned by this Memtable; all CommitLogSegmentPosition lower are owned by this or an earlier Memtable
+    private volatile AtomicReference<CommitLogSegmentPosition> lastCommitLogSegmentPosition;
+
+    // the "first" CommitLogSegmentPosition owned by this Memtable; this is inaccurate, and only used as a convenience to prevent CLSM flushing wantonly
+    private final CommitLogSegmentPosition minCommitLogSegmentPosition;
 
     public int compareTo(Memtable that)
     {
-        return this.minReplayPosition.compareTo(that.minReplayPosition);
+        return this.minCommitLogSegmentPosition.compareTo(that.minCommitLogSegmentPosition);
     }
 
-    public static final class LastReplayPosition extends ReplayPosition
+    public static final class LastCommitLogSegmentPosition extends CommitLogSegmentPosition
     {
-        public LastReplayPosition(ReplayPosition copy) {
-            super(copy.segment, copy.position);
+        public LastCommitLogSegmentPosition(CommitLogSegmentPosition copy) {
+            super(copy.segmentId, copy.position);
         }
     }
 
@@ -116,6 +113,7 @@ public class Memtable implements Comparable<Memtable>
         this.initialComparator = cfs.metadata.comparator;
         this.cfs.scheduleFlush();
         this.columnsCollector = new ColumnsCollector(cfs.metadata.partitionColumns());
+        this.minCommitLogSegmentPosition = CommitLog.instance.getCurrentSegmentPosition(cfs.keyspace);
     }
 
     // ONLY to be used for testing, to create a mock Memtable
@@ -126,6 +124,7 @@ public class Memtable implements Comparable<Memtable>
         this.cfs = null;
         this.allocator = null;
         this.columnsCollector = new ColumnsCollector(metadata.partitionColumns());
+        this.minCommitLogSegmentPosition = CommitLog.instance.getCurrentSegmentPosition(metadata.ksName);
     }
 
     public MemtableAllocator getAllocator()
@@ -144,10 +143,10 @@ public class Memtable implements Comparable<Memtable>
     }
 
     @VisibleForTesting
-    public void setDiscarding(OpOrder.Barrier writeBarrier, AtomicReference<ReplayPosition> lastReplayPosition)
+    public void setDiscarding(OpOrder.Barrier writeBarrier, AtomicReference<CommitLogSegmentPosition> lastCommitLogSegmentPosition)
     {
         assert this.writeBarrier == null;
-        this.lastReplayPosition = lastReplayPosition;
+        this.lastCommitLogSegmentPosition = lastCommitLogSegmentPosition;
         this.writeBarrier = writeBarrier;
         allocator.setDiscarding();
     }
@@ -158,7 +157,7 @@ public class Memtable implements Comparable<Memtable>
     }
 
     // decide if this memtable should take the write, or if it should go to the next memtable
-    public boolean accepts(OpOrder.Group opGroup, ReplayPosition replayPosition)
+    public boolean accepts(OpOrder.Group opGroup, CommitLogSegmentPosition commitLogSegmentPosition)
     {
         // if the barrier hasn't been set yet, then this memtable is still taking ALL writes
         OpOrder.Barrier barrier = this.writeBarrier;
@@ -168,7 +167,7 @@ public class Memtable implements Comparable<Memtable>
         if (!barrier.isAfter(opGroup))
             return false;
         // if we aren't durable we are directed only by the barrier
-        if (replayPosition == null)
+        if (commitLogSegmentPosition == null)
             return true;
         while (true)
         {
@@ -177,12 +176,12 @@ public class Memtable implements Comparable<Memtable>
             // its current value and ours; if it HAS been finalised, we simply accept its judgement
             // this permits us to coordinate a safe boundary, as the boundary choice is made
             // atomically wrt our max() maintenance, so an operation cannot sneak into the past
-            ReplayPosition currentLast = lastReplayPosition.get();
-            if (currentLast instanceof LastReplayPosition)
-                return currentLast.compareTo(replayPosition) >= 0;
-            if (currentLast != null && currentLast.compareTo(replayPosition) >= 0)
+            CommitLogSegmentPosition currentLast = lastCommitLogSegmentPosition.get();
+            if (currentLast instanceof LastCommitLogSegmentPosition)
+                return currentLast.compareTo(commitLogSegmentPosition) >= 0;
+            if (currentLast != null && currentLast.compareTo(commitLogSegmentPosition) >= 0)
                 return true;
-            if (lastReplayPosition.compareAndSet(currentLast, replayPosition))
+            if (lastCommitLogSegmentPosition.compareAndSet(currentLast, commitLogSegmentPosition))
                 return true;
         }
     }
@@ -197,9 +196,9 @@ public class Memtable implements Comparable<Memtable>
         return partitions.isEmpty();
     }
 
-    public boolean isCleanAfter(ReplayPosition position)
+    public boolean isCleanAfter(CommitLogSegmentPosition position)
     {
-        return isClean() || (position != null && minReplayPosition.compareTo(position) >= 0);
+        return isClean() || (position != null && minCommitLogSegmentPosition.compareTo(position) >= 0);
     }
 
     /**
@@ -215,7 +214,7 @@ public class Memtable implements Comparable<Memtable>
      * Should only be called by ColumnFamilyStore.apply via Keyspace.apply, which supplies the appropriate
      * OpOrdering.
      *
-     * replayPosition should only be null if this is a secondary index, in which case it is *expected* to be null
+     * commitLogSegmentPosition should only be null if this is a secondary index, in which case it is *expected* to be null
      */
     long put(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup)
     {
@@ -262,7 +261,7 @@ public class Memtable implements Comparable<Memtable>
         List<Range<Token>> localRanges = Range.sort(StorageService.instance.getLocalRanges(cfs.keyspace.getName()));
 
         if (!cfs.getPartitioner().splitter().isPresent() || localRanges.isEmpty())
-            return Collections.singletonList(new FlushRunnable(lastReplayPosition.get(), txn));
+            return Collections.singletonList(new FlushRunnable(lastCommitLogSegmentPosition.get(), txn));
 
         return createFlushRunnables(localRanges, txn);
     }
@@ -275,7 +274,7 @@ public class Memtable implements Comparable<Memtable>
         List<PartitionPosition> boundaries = StorageService.getDiskBoundaries(localRanges, cfs.getPartitioner(), locations);
         List<FlushRunnable> runnables = new ArrayList<>(boundaries.size());
         PartitionPosition rangeStart = cfs.getPartitioner().getMinimumToken().minKeyBound();
-        ReplayPosition context = lastReplayPosition.get();
+        CommitLogSegmentPosition context = lastCommitLogSegmentPosition.get();
         try
         {
             for (int i = 0; i < boundaries.size(); i++)
@@ -364,7 +363,7 @@ public class Memtable implements Comparable<Memtable>
 
     class FlushRunnable implements Callable<SSTableMultiWriter>
     {
-        public final ReplayPosition context;
+        public final CommitLogSegmentPosition context;
         private final long estimatedSize;
         private final ConcurrentNavigableMap<PartitionPosition, AtomicBTreePartition> toFlush;
 
@@ -375,17 +374,17 @@ public class Memtable implements Comparable<Memtable>
         private final PartitionPosition from;
         private final PartitionPosition to;
 
-        FlushRunnable(ReplayPosition context, PartitionPosition from, PartitionPosition to, Directories.DataDirectory flushLocation, LifecycleTransaction txn)
+        FlushRunnable(CommitLogSegmentPosition context, PartitionPosition from, PartitionPosition to, Directories.DataDirectory flushLocation, LifecycleTransaction txn)
         {
             this(context, partitions.subMap(from, to), flushLocation, from, to, txn);
         }
 
-        FlushRunnable(ReplayPosition context, LifecycleTransaction txn)
+        FlushRunnable(CommitLogSegmentPosition context, LifecycleTransaction txn)
         {
             this(context, partitions, null, null, null, txn);
         }
 
-        FlushRunnable(ReplayPosition context, ConcurrentNavigableMap<PartitionPosition, AtomicBTreePartition> toFlush, Directories.DataDirectory flushLocation, PartitionPosition from, PartitionPosition to, LifecycleTransaction txn)
+        FlushRunnable(CommitLogSegmentPosition context, ConcurrentNavigableMap<PartitionPosition, AtomicBTreePartition> toFlush, Directories.DataDirectory flushLocation, PartitionPosition from, PartitionPosition to, LifecycleTransaction txn)
         {
             this.context = context;
             this.toFlush = toFlush;
@@ -417,7 +416,7 @@ public class Memtable implements Comparable<Memtable>
             return cfs.getDirectories();
         }
 
-        private void writeSortedContents(ReplayPosition context)
+        private void writeSortedContents(CommitLogSegmentPosition context)
         {
             logger.debug("Writing {}, flushed range = ({}, {}]", Memtable.this.toString(), from, to);
 
@@ -464,7 +463,7 @@ public class Memtable implements Comparable<Memtable>
                                                   PartitionColumns columns,
                                                   EncodingStats stats)
         {
-            MetadataCollector sstableMetadataCollector = new MetadataCollector(cfs.metadata.comparator).replayPosition(context);
+            MetadataCollector sstableMetadataCollector = new MetadataCollector(cfs.metadata.comparator).commitLogSegmentPosition(context);
             return cfs.createSSTableMultiWriter(Descriptor.fromFilename(filename),
                                                 (long)toFlush.size(),
                                                 ActiveRepairService.UNREPAIRED_SSTABLE,

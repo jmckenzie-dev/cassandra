@@ -28,7 +28,7 @@ import com.google.common.collect.Maps;
 import com.clearspring.analytics.stream.cardinality.HyperLogLogPlus;
 import com.clearspring.analytics.stream.cardinality.ICardinality;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.commitlog.ReplayPosition;
+import org.apache.cassandra.db.commitlog.CommitLogSegmentPosition;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
 import org.apache.cassandra.db.rows.Cell;
@@ -65,7 +65,7 @@ public class MetadataCollector implements PartitionStatisticsCollector
     {
         return new StatsMetadata(defaultPartitionSizeHistogram(),
                                  defaultCellPerPartitionCountHistogram(),
-                                 ReplayPosition.NONE,
+                                 CommitLogSegmentPosition.NONE,
                                  Long.MIN_VALUE,
                                  Long.MAX_VALUE,
                                  Integer.MAX_VALUE,
@@ -86,7 +86,7 @@ public class MetadataCollector implements PartitionStatisticsCollector
     protected EstimatedHistogram estimatedPartitionSize = defaultPartitionSizeHistogram();
     // TODO: cound the number of row per partition (either with the number of cells, or instead)
     protected EstimatedHistogram estimatedCellPerPartitionCount = defaultCellPerPartitionCountHistogram();
-    protected ReplayPosition replayPosition = ReplayPosition.NONE;
+    protected CommitLogSegmentPosition commitLogSegmentPosition = CommitLogSegmentPosition.NONE;
     protected final MinMaxLongTracker timestampTracker = new MinMaxLongTracker();
     protected final MinMaxIntTracker localDeletionTimeTracker = new MinMaxIntTracker(Cell.NO_DELETION_TIME, Cell.NO_DELETION_TIME);
     protected final MinMaxIntTracker ttlTracker = new MinMaxIntTracker(Cell.NO_TTL, Cell.NO_TTL);
@@ -120,7 +120,7 @@ public class MetadataCollector implements PartitionStatisticsCollector
     {
         this(comparator);
 
-        replayPosition(ReplayPosition.getReplayPosition(sstables));
+        commitLogSegmentPosition(CommitLogSegmentPosition.getCommitLogSegmentPosition(sstables));
         sstableLevel(level);
     }
 
@@ -207,9 +207,9 @@ public class MetadataCollector implements PartitionStatisticsCollector
         ttlTracker.update(newTTL);
     }
 
-    public MetadataCollector replayPosition(ReplayPosition replayPosition)
+    public MetadataCollector commitLogSegmentPosition(CommitLogSegmentPosition commitLogSegmentPosition)
     {
-        this.replayPosition = replayPosition;
+        this.commitLogSegmentPosition = commitLogSegmentPosition;
         return this;
     }
 
@@ -274,7 +274,7 @@ public class MetadataCollector implements PartitionStatisticsCollector
         components.put(MetadataType.VALIDATION, new ValidationMetadata(partitioner, bloomFilterFPChance));
         components.put(MetadataType.STATS, new StatsMetadata(estimatedPartitionSize,
                                                              estimatedCellPerPartitionCount,
-                                                             replayPosition,
+                                                             commitLogSegmentPosition,
                                                              timestampTracker.min(),
                                                              timestampTracker.max(),
                                                              localDeletionTimeTracker.min(),

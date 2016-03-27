@@ -44,7 +44,8 @@ import org.apache.cassandra.cache.*;
 import org.apache.cassandra.concurrent.*;
 import org.apache.cassandra.config.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
-import org.apache.cassandra.db.commitlog.ReplayPosition;
+import org.apache.cassandra.db.commitlog.AbstractCommitLogSegmentManager;
+import org.apache.cassandra.db.commitlog.CommitLogSegmentPosition;
 import org.apache.cassandra.db.compaction.*;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.DataLimits;
@@ -822,7 +823,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         synchronized (data)
         {
             logFlush();
-            Flush flush = new Flush(false);
+            Flush flush = new Flush(false, AbstractCommitLogSegmentManager.getSegmentManagerType(keyspace));
             flushExecutor.execute(flush);
             ListenableFutureTask<?> task = ListenableFutureTask.create(flush.postFlush, null);
             postFlushExecutor.submit(task);
@@ -873,7 +874,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @return a Future such that when the future completes, all data inserted before forceFlush was called,
      * will be flushed.
      */
-    public ListenableFuture<?> forceFlush(ReplayPosition flushIfDirtyBefore)
+    public ListenableFuture<?> forceFlush(CommitLogSegmentPosition flushIfDirtyBefore)
     {
         // we synchronize on the data tracker to ensure we don't race against other calls to switchMemtable(),
         // unnecessarily queueing memtables that are about to be made clean
@@ -920,14 +921,19 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         final boolean flushSecondaryIndexes;
         final OpOrder.Barrier writeBarrier;
         final CountDownLatch latch = new CountDownLatch(1);
-        final ReplayPosition lastReplayPosition;
+        final CommitLogSegmentPosition lastCommitLogSegmentPosition;
         volatile Throwable flushFailure = null;
+        final AbstractCommitLogSegmentManager.SegmentManagerType segmentType;
 
-        private PostFlush(boolean flushSecondaryIndexes, OpOrder.Barrier writeBarrier, ReplayPosition lastReplayPosition)
+        private PostFlush(boolean flushSecondaryIndexes,
+                          OpOrder.Barrier writeBarrier,
+                          CommitLogSegmentPosition lastCommitLogSegmentPosition,
+                          AbstractCommitLogSegmentManager.SegmentManagerType segmentType)
         {
             this.writeBarrier = writeBarrier;
             this.flushSecondaryIndexes = flushSecondaryIndexes;
-            this.lastReplayPosition = lastReplayPosition;
+            this.lastCommitLogSegmentPosition = lastCommitLogSegmentPosition;
+            this.segmentType = segmentType;
         }
 
         public void run()
@@ -946,7 +952,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
             try
             {
-                // we wait on the latch for the lastReplayPosition to be set, and so that waiters
+                // we wait on the latch for the lastCommitLogSegmentPosition to be set, and so that waiters
                 // on this task can rely on all prior flushes being complete
                 latch.await();
             }
@@ -955,12 +961,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 throw new IllegalStateException();
             }
 
-            // must check lastReplayPosition != null because Flush may find that all memtables are clean
-            // and so not set a lastReplayPosition
+            // must check lastCommitLogSegmentPosition != null because Flush may find that all memtables are clean
+            // and so not set a lastCommitLogSegmentPosition
             // If a flush errored out but the error was ignored, make sure we don't discard the commit log.
-            if (lastReplayPosition != null && flushFailure == null)
+            if (lastCommitLogSegmentPosition != null && flushFailure == null)
             {
-                CommitLog.instance.discardCompletedSegments(metadata.cfId, lastReplayPosition);
+                CommitLog.instance.discardCompletedSegments(metadata.cfId,
+                                                            lastCommitLogSegmentPosition,
+                                                            segmentType);
             }
 
             metric.pendingFlushes.dec();
@@ -985,7 +993,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         final PostFlush postFlush;
         final boolean truncate;
 
-        private Flush(boolean truncate)
+        private Flush(boolean truncate, AbstractCommitLogSegmentManager.SegmentManagerType segmentType)
         {
             // if true, we won't flush, we'll just wait for any outstanding writes, switch the memtable, and discard
             this.truncate = truncate;
@@ -997,43 +1005,43 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
              * that all write operations register themselves with, and assigning this barrier to the memtables,
              * after which we *.issue()* the barrier. This barrier is used to direct write operations started prior
              * to the barrier.issue() into the memtable we have switched out, and any started after to its replacement.
-             * In doing so it also tells the write operations to update the lastReplayPosition of the memtable, so
+             * In doing so it also tells the write operations to update the lastCommitLogSegmentPosition of the memtable, so
              * that we know the CL position we are dirty to, which can be marked clean when we complete.
              */
             writeBarrier = keyspace.writeOrder.newBarrier();
             memtables = new ArrayList<>();
 
             // submit flushes for the memtable for any indexed sub-cfses, and our own
-            AtomicReference<ReplayPosition> lastReplayPositionHolder = new AtomicReference<>();
+            AtomicReference<CommitLogSegmentPosition> lastCommitLogSegmentPositionHolder = new AtomicReference<>();
             for (ColumnFamilyStore cfs : concatWithIndexes())
             {
                 // switch all memtables, regardless of their dirty status, setting the barrier
                 // so that we can reach a coordinated decision about cleanliness once they
                 // are no longer possible to be modified
                 Memtable mt = cfs.data.switchMemtable(truncate);
-                mt.setDiscarding(writeBarrier, lastReplayPositionHolder);
+                mt.setDiscarding(writeBarrier, lastCommitLogSegmentPositionHolder);
                 memtables.add(mt);
             }
 
-            // we now attempt to define the lastReplayPosition; we do this by grabbing the current limit from the CL
+            // we now attempt to define the lastCommitLogSegmentPosition; we do this by grabbing the current limit from the CL
             // and attempting to set the holder to this value. at the same time all writes to the memtables are
             // also maintaining this value, so if somebody sneaks ahead of us somehow (should be rare) we simply retry,
             // so that we know all operations prior to the position have not reached it yet
-            ReplayPosition lastReplayPosition;
+            CommitLogSegmentPosition lastCommitLogSegmentPosition;
             while (true)
             {
-                lastReplayPosition = new Memtable.LastReplayPosition(CommitLog.instance.getContext());
-                ReplayPosition currentLast = lastReplayPositionHolder.get();
-                if ((currentLast == null || currentLast.compareTo(lastReplayPosition) <= 0)
-                    && lastReplayPositionHolder.compareAndSet(currentLast, lastReplayPosition))
+                lastCommitLogSegmentPosition = new Memtable.LastCommitLogSegmentPosition(CommitLog.instance.getCurrentSegmentPosition(segmentType));
+                CommitLogSegmentPosition currentLast = lastCommitLogSegmentPositionHolder.get();
+                if ((currentLast == null || currentLast.compareTo(lastCommitLogSegmentPosition) <= 0)
+                    && lastCommitLogSegmentPositionHolder.compareAndSet(currentLast, lastCommitLogSegmentPosition))
                     break;
             }
 
             // we then issue the barrier; this lets us wait for all operations started prior to the barrier to complete;
-            // since this happens after wiring up the lastReplayPosition, we also know all operations with earlier
-            // replay positions have also completed, i.e. the memtables are done and ready to flush
+            // since this happens after wiring up the lastCommitLogSegmentPosition, we also know all operations with earlier
+            // commit log segment position have also completed, i.e. the memtables are done and ready to flush
             writeBarrier.issue();
-            postFlush = new PostFlush(!truncate, writeBarrier, lastReplayPosition);
+            postFlush = new PostFlush(!truncate, writeBarrier, lastCommitLogSegmentPosition, segmentType);
         }
 
         public void run()
@@ -1257,11 +1265,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * param @ key - key for update/insert
      * param @ columnFamily - columnFamily changes
      */
-    public void apply(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup, ReplayPosition replayPosition)
+    public void apply(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup, CommitLogSegmentPosition commitLogSegmentPosition)
 
     {
         long start = System.nanoTime();
-        Memtable mt = data.getMemtableFor(opGroup, replayPosition);
+        Memtable mt = data.getMemtableFor(opGroup, commitLogSegmentPosition);
         long timeDelta = mt.put(update, indexer, opGroup);
         DecoratedKey key = update.partitionKey();
         invalidateCachedPartition(key);
@@ -2036,7 +2044,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // recording the timestamp IN BETWEEN those actions. Any sstables created
         // with this timestamp or greater time, will not be marked for delete.
         //
-        // Bonus complication: since we store replay position in sstable metadata,
+        // Bonus complication: since we store commit log segment position in sstable metadata,
         // truncating those sstables means we will replay any CL segments from the
         // beginning if we restart before they [the CL segments] are discarded for
         // normal reasons post-truncate.  To prevent this, we store truncation
@@ -2072,7 +2080,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 if (DatabaseDescriptor.isAutoSnapshot())
                     snapshot(Keyspace.getTimestampedSnapshotName(name));
 
-                ReplayPosition replayAfter = discardSSTables(truncatedAt);
+                CommitLogSegmentPosition replayAfter = discardSSTables(truncatedAt);
 
                 indexManager.truncateAllIndexesBlocking(truncatedAt);
 
@@ -2095,7 +2103,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         synchronized (data)
         {
-            final Flush flush = new Flush(true);
+            final Flush flush = new Flush(true, AbstractCommitLogSegmentManager.getSegmentManagerType(keyspace));
             flushExecutor.execute(flush);
             postFlushExecutor.submit(flush.postFlush);
         }
@@ -2342,7 +2350,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public Iterable<ColumnFamilyStore> concatWithIndexes()
     {
         // we return the main CFS first, which we rely on for simplicity in switchMemtable(), for getting the
-        // latest replay position
+        // latest commit log segment position
         return Iterables.concat(Collections.singleton(this), indexManager.getAllIndexColumnFamilyStores());
     }
 
@@ -2425,9 +2433,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @param truncatedAt The timestamp of the truncation
      *                    (all SSTables before that timestamp are going be marked as compacted)
      *
-     * @return the most recent replay position of the truncated data
+     * @return the most recent commit log segment position of the truncated data
      */
-    public ReplayPosition discardSSTables(long truncatedAt)
+    public CommitLogSegmentPosition discardSSTables(long truncatedAt)
     {
         assert data.getCompacting().isEmpty() : data.getCompacting();
 
@@ -2440,10 +2448,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
 
         if (truncatedSSTables.isEmpty())
-            return ReplayPosition.NONE;
+            return CommitLogSegmentPosition.NONE;
 
         markObsolete(truncatedSSTables, OperationType.UNKNOWN);
-        return ReplayPosition.getReplayPosition(truncatedSSTables);
+        return CommitLogSegmentPosition.getCommitLogSegmentPosition(truncatedSSTables);
     }
 
     public double getDroppableTombstoneRatio()

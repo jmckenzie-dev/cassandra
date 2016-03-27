@@ -30,7 +30,7 @@ import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.SerializationHeader;
-import org.apache.cassandra.db.commitlog.ReplayPosition;
+import org.apache.cassandra.db.commitlog.CommitLogSegmentPosition;
 import org.apache.cassandra.dht.RandomPartitioner;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -49,9 +49,9 @@ public class MetadataSerializerTest
 
         CFMetaData cfm = SchemaLoader.standardCFMD("ks1", "cf1");
 
-        ReplayPosition rp = new ReplayPosition(11L, 12);
+        CommitLogSegmentPosition rp = new CommitLogSegmentPosition(11L, 12);
 
-        MetadataCollector collector = new MetadataCollector(cfm.comparator).replayPosition(rp);
+        MetadataCollector collector = new MetadataCollector(cfm.comparator).commitLogSegmentPosition(rp);
 
         String partitioner = RandomPartitioner.class.getCanonicalName();
         double bfFpChance = 0.1;
