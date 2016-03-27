@@ -1402,7 +1402,7 @@ explain_completion('alterTypeInstructions', 'newcol', '<new_field_name>')
 
 syntax_rules += r'''
 <alterKeyspaceStatement> ::= "ALTER" wat=( "KEYSPACE" | "SCHEMA" ) ks=<alterableKeyspaceName>
-                                 ( "DROP" "cdc_log" )?
+                                 ( "DROP" "CDCLOG")?
                                  ( "WITH" <property> ( "AND" <property> )* )?
                            ;
 '''
