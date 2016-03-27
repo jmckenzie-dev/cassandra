@@ -35,13 +35,11 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.CRC32;
 
-import com.codahale.metrics.Timer;
-
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.codahale.metrics.Timer;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
@@ -115,18 +113,25 @@ public abstract class CommitLogSegment
     final FileChannel channel;
     final int fd;
 
+    protected final AbstractCommitLogSegmentManager manager;
+
     ByteBuffer buffer;
     private volatile boolean headerWritten;
 
     final CommitLog commitLog;
     public final CommitLogDescriptor descriptor;
 
-    static CommitLogSegment createSegment(CommitLog commitLog, Runnable onClose)
+    static CommitLogSegment createSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager, Runnable onClose)
     {
         Configuration config = commitLog.configuration;
         CommitLogSegment segment = config.useEncryption() ? new EncryptedSegment(commitLog, onClose)
                                                           : config.useCompression() ? new CompressedSegment(commitLog, onClose)
                                                                                     : new MemoryMappedSegment(commitLog);
+        CommitLogSegment segment = commitLog.encryptionContext.isEnabled() ?
+            new EncryptedSegment(commitLog, commitLog.encryptionContext, manager, onClose) :
+               commitLog.compressor != null ?
+               new CompressedSegment(commitLog, manager, onClose) :
+               new MemoryMappedSegment(commitLog, manager);
         segment.writeLogHeader();
         return segment;
     }
@@ -150,15 +155,17 @@ public abstract class CommitLogSegment
 
     /**
      * Constructs a new segment file.
+     * @param commitLog not null, recycles the existing file by renaming it and truncating it to CommitLog.SEGMENT_SIZE.
      */
-    CommitLogSegment(CommitLog commitLog)
+    CommitLogSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
     {
         this.commitLog = commitLog;
+        this.manager = manager;
         id = getNextId();
         descriptor = new CommitLogDescriptor(id,
                                              commitLog.configuration.getCompressorClass(),
+        logFile = new File(manager.storageDirectory, descriptor.fileName());
                                              commitLog.configuration.getEncryptionContext());
-        logFile = new File(commitLog.location, descriptor.fileName());
 
         try
         {
@@ -368,23 +375,20 @@ public abstract class CommitLogSegment
         return allocatePosition.get() < endOfBuffer;
     }
 
-    /**
-     * Completely discards a segment file by deleting it. (Potentially blocking operation)
-     */
-    void discard(boolean deleteFile)
+    void move()
     {
         close();
-        if (deleteFile)
-            FileUtils.deleteWithConfirm(logFile);
-        commitLog.allocator.addSize(-onDiskSize());
+        System.err.println("Moving file to cdc_overflow. Src: " + logFile.getAbsolutePath());
+        FileUtils.renameWithConfirm(logFile.getAbsolutePath(), DatabaseDescriptor.getCDCOverflowLocation() + File.separator + logFile.getName());
+        manager.addSize(-onDiskSize());
     }
 
     /**
-     * @return the current ReplayPosition for this log segment
+     * @return the current CommitLogSegmentPosition for this log segment
      */
-    public ReplayPosition getContext()
+    public CommitLogSegmentPosition getCurrentSegmentPosition()
     {
-        return new ReplayPosition(id, allocatePosition.get());
+        return new CommitLogSegmentPosition(id, allocatePosition.get());
     }
 
     /**
@@ -474,13 +478,13 @@ public abstract class CommitLogSegment
      * @param cfId    the column family ID that is now clean
      * @param context the optional clean offset
      */
-    public synchronized void markClean(UUID cfId, ReplayPosition context)
+    public synchronized void markClean(UUID cfId, CommitLogSegmentPosition context)
     {
         if (!cfDirty.containsKey(cfId))
             return;
-        if (context.segment == id)
+        if (context.segmentId == id)
             markClean(cfId, context.position);
-        else if (context.segment > id)
+        else if (context.segmentId > id)
             markClean(cfId, Integer.MAX_VALUE);
     }
 
@@ -565,14 +569,14 @@ public abstract class CommitLogSegment
     }
 
     /**
-     * Check to see if a certain ReplayPosition is contained by this segment file.
+     * Check to see if a certain CommitLogSegmentPosition is contained by this segment file.
      *
-     * @param   context the replay position to be checked
-     * @return  true if the replay position is contained by this segment file.
+     * @param   context the commit log segment position to be checked
+     * @return  true if the commit log segment position is contained by this segment file.
      */
-    public boolean contains(ReplayPosition context)
+    public boolean contains(CommitLogSegmentPosition context)
     {
-        return context.segment == id;
+        return context.segmentId == id;
     }
 
     // For debugging, not fast
@@ -615,7 +619,7 @@ public abstract class CommitLogSegment
      * The constructor leaves the fields uninitialized for population by CommitlogManager, so that it can be
      * stack-allocated by escape analysis in CommitLog.add.
      */
-    static class Allocation
+    protected static class Allocation
     {
         private final CommitLogSegment segment;
         private final OpOrder.Group appendOp;
@@ -652,9 +656,9 @@ public abstract class CommitLogSegment
             segment.waitForSync(position, waitingOnCommit);
         }
 
-        public ReplayPosition getReplayPosition()
+        public CommitLogSegmentPosition getCommitLogSegmentPosition()
         {
-            return new ReplayPosition(segment.id, buffer.limit());
+            return new CommitLogSegmentPosition(segment.id, buffer.limit());
         }
     }
 }
