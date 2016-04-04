@@ -1704,4 +1704,3 @@ basic_unreserved_keyword returns [String str]
         | K_PARTITION
         ) { $str = $k.text; }
     ;
-
