@@ -2018,6 +2018,12 @@ public class DatabaseDescriptor
         return localDC;
     }
 
+    @VisibleForTesting
+    public static void setLocalDataCenter(String input)
+    {
+        localDC = input;
+    }
+
     public static Comparator<InetAddress> getLocalComparator()
     {
         return localComparator;
