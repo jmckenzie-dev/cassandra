@@ -42,7 +42,6 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.db.commitlog.CommitLogReplayer.CommitLogReplayException;
-import org.apache.cassandra.db.commitlog.AbstractCommitLogSegmentManager.SegmentManagerType;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.BytesType;
@@ -249,13 +248,13 @@ public class CommitLogTest
                       .build();
         CommitLog.instance.add(ks, m2);
 
-        assertEquals(2, CommitLog.instance.getSegmentManager(SegmentManagerType.STANDARD).getActiveSegments().size());
+        assertEquals(2, CommitLog.instance.segmentManager.getActiveSegments().size());
 
         UUID cfid2 = m2.getColumnFamilyIds().iterator().next();
-        CommitLog.instance.discardCompletedSegments(cfid2, CommitLog.instance.getCurrentSegmentPosition(SegmentManagerType.STANDARD), SegmentManagerType.STANDARD);
+        CommitLog.instance.discardCompletedSegments(cfid2, CommitLog.instance.getCurrentSegmentPosition());
 
         // Assert we still have both our segments
-        assertEquals(2, CommitLog.instance.getSegmentManager(SegmentManagerType.STANDARD).getActiveSegments().size());
+        assertEquals(2, CommitLog.instance.segmentManager.getActiveSegments().size());
     }
 
     @Test
@@ -275,14 +274,14 @@ public class CommitLogTest
         CommitLog.instance.add(ks, rm);
         CommitLog.instance.add(ks, rm);
 
-        assertEquals(1, CommitLog.instance.getSegmentManager(SegmentManagerType.STANDARD).getActiveSegments().size());
+        assertEquals(1, CommitLog.instance.segmentManager.getActiveSegments().size());
 
         // "Flush": this won't delete anything
         UUID cfid1 = rm.getColumnFamilyIds().iterator().next();
         CommitLog.instance.sync(true);
-        CommitLog.instance.discardCompletedSegments(cfid1, CommitLog.instance.getCurrentSegmentPosition(SegmentManagerType.STANDARD), SegmentManagerType.STANDARD);
+        CommitLog.instance.discardCompletedSegments(cfid1, CommitLog.instance.getCurrentSegmentPosition());
 
-        assertEquals(1, CommitLog.instance.getSegmentManager(SegmentManagerType.STANDARD).getActiveSegments().size());
+        assertEquals(1, CommitLog.instance.segmentManager.getActiveSegments().size());
 
         // Adding new mutation on another CF, large enough (including CL entry overhead) that a new segment is created
         Mutation rm2 = new RowUpdateBuilder(cfs2.metadata, 0, "k")
@@ -294,16 +293,16 @@ public class CommitLogTest
         CommitLog.instance.add(ks, rm2);
         CommitLog.instance.add(ks, rm2);
 
-        assertEquals(3, CommitLog.instance.getSegmentManager(SegmentManagerType.STANDARD).getActiveSegments().size());
+        assertEquals(3, CommitLog.instance.segmentManager.getActiveSegments().size());
 
         // "Flush" second cf: The first segment should be deleted since we
         // didn't write anything on cf1 since last flush (and we flush cf2)
 
         UUID cfid2 = rm2.getColumnFamilyIds().iterator().next();
-        CommitLog.instance.discardCompletedSegments(cfid2, CommitLog.instance.getCurrentSegmentPosition(SegmentManagerType.STANDARD), SegmentManagerType.STANDARD);
+        CommitLog.instance.discardCompletedSegments(cfid2, CommitLog.instance.getCurrentSegmentPosition());
 
         // Assert we still have both our segment
-        assertEquals(1, CommitLog.instance.getSegmentManager(SegmentManagerType.STANDARD).getActiveSegments().size());
+        assertEquals(1, CommitLog.instance.segmentManager.getActiveSegments().size());
     }
 
     private static int getMaxRecordDataSize(String keyspace, ByteBuffer key, String cfName, String colName)
@@ -548,13 +547,13 @@ public class CommitLogTest
             for (int i = 0 ; i < 5 ; i++)
                 CommitLog.instance.add(ks, m2);
 
-            assertEquals(2, CommitLog.instance.getSegmentManager(SegmentManagerType.STANDARD).getActiveSegments().size());
-            CommitLogSegmentPosition position = CommitLog.instance.getCurrentSegmentPosition(SegmentManagerType.STANDARD);
+            assertEquals(2, CommitLog.instance.segmentManager.getActiveSegments().size());
+            CommitLogSegmentPosition position = CommitLog.instance.getCurrentSegmentPosition();
             for (Keyspace keyspace : Keyspace.system())
                 for (ColumnFamilyStore syscfs : keyspace.getColumnFamilyStores())
-                    CommitLog.instance.discardCompletedSegments(syscfs.metadata.cfId, position, SegmentManagerType.STANDARD);
-            CommitLog.instance.discardCompletedSegments(cfs2.metadata.cfId, position, SegmentManagerType.STANDARD);
-            assertEquals(1, CommitLog.instance.getSegmentManager(SegmentManagerType.STANDARD).getActiveSegments().size());
+                    CommitLog.instance.discardCompletedSegments(syscfs.metadata.cfId, position);
+            CommitLog.instance.discardCompletedSegments(cfs2.metadata.cfId, position);
+            assertEquals(1, CommitLog.instance.segmentManager.getActiveSegments().size());
         }
         finally
         {
