@@ -2183,7 +2183,7 @@ public class DatabaseDescriptor
 
     public static boolean isCDCEnabled()
     {
-        return conf.cdc_enabled == true;
+        return conf.cdc_enabled;
     }
 
     public static String getCDCLogLocation()
