@@ -1393,11 +1393,6 @@ public class DatabaseDescriptor
         return conf.commitlog_directory;
     }
 
-    public static void setCommitLogLocation(String input)
-    {
-        conf.commitlog_directory = input;
-    }
-
     public static ParameterizedClass getCommitLogCompression()
     {
         return conf.commitlog_compression;
@@ -1415,7 +1410,7 @@ public class DatabaseDescriptor
     */
     public static int getCommitLogMaxCompressionBuffersPerPool()
     {
-        return conf.commitlog_max_compression_buffers_per_pool;
+        return conf.commitlog_max_compression_buffers_in_pool;
     }
 
     public static int getMaxMutationSize()
@@ -1885,7 +1880,7 @@ public class DatabaseDescriptor
         conf.disk_optimization_page_cross_chance = chance;
     }
 
-    public static long getCommitLogSpaceInMBStandard()
+    public static long getTotalCommitlogSpaceInMB()
     {
         return conf.commitlog_total_space_in_mb;
     }
@@ -2013,12 +2008,6 @@ public class DatabaseDescriptor
     public static String getLocalDataCenter()
     {
         return localDC;
-    }
-
-    @VisibleForTesting
-    public static void setLocalDataCenter(String input)
-    {
-        localDC = input;
     }
 
     public static Comparator<InetAddress> getLocalComparator()
@@ -2191,13 +2180,13 @@ public class DatabaseDescriptor
         return conf.cdc_raw_directory;
     }
 
-    public static Integer getCommitLogSpaceInMBCDC()
+    public static Integer getCDCSpaceInMB()
     {
         return conf.cdc_total_space_in_mb;
     }
 
     @VisibleForTesting
-    public static void setCommitLogSpaceInMBCDC(Integer input)
+    public static void setCDCSpaceInMB(Integer input)
     {
         conf.cdc_total_space_in_mb = input;
     }

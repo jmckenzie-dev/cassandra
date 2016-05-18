@@ -235,18 +235,18 @@ public class CommitLogTest
                      .build();
 
         // Adding it 5 times
-        CommitLog.instance.add(ks, m);
-        CommitLog.instance.add(ks, m);
-        CommitLog.instance.add(ks, m);
-        CommitLog.instance.add(ks, m);
-        CommitLog.instance.add(ks, m);
+        CommitLog.instance.add(m);
+        CommitLog.instance.add(m);
+        CommitLog.instance.add(m);
+        CommitLog.instance.add(m);
+        CommitLog.instance.add(m);
 
         // Adding new mutation on another CF
         Mutation m2 = new RowUpdateBuilder(cfs2.metadata, 0, "k")
                       .clustering("bytes")
                       .add("val", ByteBuffer.allocate(4))
                       .build();
-        CommitLog.instance.add(ks, m2);
+        CommitLog.instance.add(m2);
 
         assertEquals(2, CommitLog.instance.segmentManager.getActiveSegments().size());
 
@@ -271,8 +271,8 @@ public class CommitLogTest
                   .build();
 
         // Adding it twice (won't change segment)
-        CommitLog.instance.add(ks, rm);
-        CommitLog.instance.add(ks, rm);
+        CommitLog.instance.add(rm);
+        CommitLog.instance.add(rm);
 
         assertEquals(1, CommitLog.instance.segmentManager.getActiveSegments().size());
 
@@ -288,10 +288,10 @@ public class CommitLogTest
                        .clustering("bytes")
                        .add("val", ByteBuffer.allocate(DatabaseDescriptor.getMaxMutationSize() - 200))
                        .build();
-        CommitLog.instance.add(ks, rm2);
+        CommitLog.instance.add(rm2);
         // also forces a new segment, since each entry-with-overhead is just under half the CL size
-        CommitLog.instance.add(ks, rm2);
-        CommitLog.instance.add(ks, rm2);
+        CommitLog.instance.add(rm2);
+        CommitLog.instance.add(rm2);
 
         assertEquals(3, CommitLog.instance.segmentManager.getActiveSegments().size());
 
@@ -338,13 +338,12 @@ public class CommitLogTest
     @Test
     public void testEqualRecordLimit() throws Exception
     {
-        Keyspace ks = Keyspace.open(KEYSPACE1);
-        ColumnFamilyStore cfs = ks.getColumnFamilyStore(STANDARD1);
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(STANDARD1);
         Mutation rm = new RowUpdateBuilder(cfs.metadata, 0, "k")
                       .clustering("bytes")
                       .add("val", ByteBuffer.allocate(getMaxRecordDataSize()))
                       .build();
-        CommitLog.instance.add(ks, rm);
+        CommitLog.instance.add(rm);
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -356,7 +355,7 @@ public class CommitLogTest
                       .clustering("bytes")
                       .add("val", ByteBuffer.allocate(1 + getMaxRecordDataSize()))
                       .build();
-        CommitLog.instance.add(ks, rm);
+        CommitLog.instance.add(rm);
         throw new AssertionError("mutation larger than limit was accepted");
     }
 
@@ -545,7 +544,7 @@ public class CommitLogTest
                           .build();
 
             for (int i = 0 ; i < 5 ; i++)
-                CommitLog.instance.add(ks, m2);
+                CommitLog.instance.add(m2);
 
             assertEquals(2, CommitLog.instance.segmentManager.getActiveSegments().size());
             CommitLogSegmentPosition position = CommitLog.instance.getCurrentSegmentPosition();
@@ -594,21 +593,20 @@ public class CommitLogTest
     public void replaySimple() throws IOException
     {
         int cellCount = 0;
-        Keyspace ks = Keyspace.open(KEYSPACE1);
-        ColumnFamilyStore cfs = ks.getColumnFamilyStore(STANDARD1);
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(STANDARD1);
         final Mutation rm1 = new RowUpdateBuilder(cfs.metadata, 0, "k1")
                              .clustering("bytes")
                              .add("val", bytes("this is a string"))
                              .build();
         cellCount += 1;
-        CommitLog.instance.add(rm1);
+        commitLog.add(rm1);
 
         final Mutation rm2 = new RowUpdateBuilder(cfs.metadata, 0, "k2")
                              .clustering("bytes")
                              .add("val", bytes("this is a string"))
                              .build();
         cellCount += 1;
-        CommitLog.instance.add(rm2);
+        commitLog.add(rm2);
 
         CommitLog.instance.sync(true);
 
@@ -629,8 +627,7 @@ public class CommitLogTest
         int max = 1024;
         int discardPosition = (int)(max * .8); // an arbitrary number of entries that we'll skip on the replay
         CommitLogSegmentPosition commitLogSegmentPosition = null;
-        Keyspace ks = Keyspace.open(KEYSPACE1);
-        ColumnFamilyStore cfs = ks.getColumnFamilyStore(STANDARD1);
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(STANDARD1);
 
         for (int i = 0; i < max; i++)
         {
@@ -638,7 +635,7 @@ public class CommitLogTest
                                  .clustering("bytes")
                                  .add("val", bytes("this is a string"))
                                  .build();
-            CommitLogSegmentPosition position = commitLog.add(ks, rm1);
+            CommitLogSegmentPosition position = commitLog.add(rm1);
 
             if (i == discardPosition)
                 commitLogSegmentPosition = position;
