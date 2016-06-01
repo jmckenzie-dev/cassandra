@@ -57,7 +57,7 @@ public class CompressedSegment extends FileDirectSegment
 
     ByteBuffer createBuffer(CommitLog commitLog)
     {
-        return manager.getBufferPool().createBuffer(commitLog.compressor.preferredBufferType());
+        return manager.getBufferPool().createBuffer(commitLog.configuration.getCompressor().preferredBufferType());
     }
 
     @Override

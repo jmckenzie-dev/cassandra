@@ -56,7 +56,12 @@ public abstract class CommitLogSegment
 
     private final static long idBase;
 
-    public final AtomicBoolean containsCDCMutations = new AtomicBoolean(false);
+    private volatile CDCState cdcState = CDCState.PERMITTED;
+    public enum CDCState {
+        PERMITTED,
+        FORBIDDEN,
+        CONTAINS
+    }
 
     private final static AtomicInteger nextId = new AtomicInteger(1);
     private static long replayLimitId;
@@ -118,14 +123,9 @@ public abstract class CommitLogSegment
     static CommitLogSegment createSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager, Runnable onClose)
     {
         Configuration config = commitLog.configuration;
-        CommitLogSegment segment = config.useEncryption() ? new EncryptedSegment(commitLog, onClose)
-                                                          : config.useCompression() ? new CompressedSegment(commitLog, onClose)
-                                                                                    : new MemoryMappedSegment(commitLog);
-        CommitLogSegment segment = commitLog.encryptionContext.isEnabled()
-                                   ? new EncryptedSegment(commitLog, commitLog.encryptionContext, manager, onClose)
-                                   : commitLog.compressor != null
-                                     ? new CompressedSegment(commitLog, manager, onClose)
-                                     : new MemoryMappedSegment(commitLog, manager);
+        CommitLogSegment segment = config.useEncryption() ? new EncryptedSegment(commitLog, manager, onClose)
+                                                          : config.useCompression() ? new CompressedSegment(commitLog, manager, onClose)
+                                                                                    : new MemoryMappedSegment(commitLog, manager);
         segment.writeLogHeader();
         return segment;
     }
@@ -158,8 +158,8 @@ public abstract class CommitLogSegment
         id = getNextId();
         descriptor = new CommitLogDescriptor(id,
                                              commitLog.configuration.getCompressorClass(),
-        logFile = new File(manager.storageDirectory, descriptor.fileName());
                                              commitLog.configuration.getEncryptionContext());
+        logFile = new File(manager.storageDirectory, descriptor.fileName());
 
         try
         {
@@ -598,6 +598,24 @@ public abstract class CommitLogSegment
             CommitLogDescriptor desc2 = CommitLogDescriptor.fromFileName(f2.getName());
             return Long.compare(desc.id, desc2.id);
         }
+    }
+
+    public CDCState getCDCState()
+    {
+        return cdcState;
+    }
+
+    public void setCDCState(CDCState newState)
+    {
+        if (cdcState == CDCState.CONTAINS && newState != CDCState.CONTAINS)
+            throw new IllegalArgumentException("Cannot transition from CONTAINS to any other state.");
+
+        if (cdcState == CDCState.FORBIDDEN && newState != CDCState.PERMITTED)
+            throw new IllegalArgumentException("Only transition from FORBIDDEN to PERMITTED is allowed.");
+
+        // Allow any state to transition into PERMITTED. Could race on allocation of new segment as PERMITTED
+        // and previous call on cdcSize calculation.
+        cdcState = newState;
     }
 
     /**

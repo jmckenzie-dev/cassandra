@@ -65,8 +65,7 @@ public class EncryptedSegment extends FileDirectSegment
     private final EncryptionContext encryptionContext;
     private final Cipher cipher;
 
-    public EncryptedSegment(CommitLog commitLog, Runnable onClose)
-    public EncryptedSegment(CommitLog commitLog, EncryptionContext encryptionContext, AbstractCommitLogSegmentManager manager, Runnable onClose)
+    public EncryptedSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager, Runnable onClose)
     {
         super(commitLog, manager, onClose);
         this.encryptionContext = commitLog.configuration.getEncryptionContext();

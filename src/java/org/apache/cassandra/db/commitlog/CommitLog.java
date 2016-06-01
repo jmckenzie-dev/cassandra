@@ -145,7 +145,6 @@ public class CommitLog implements CommitLogMBean
 
         // submit all files for this segment manager for archiving prior to recovery - CASSANDRA-6904
         for (File file : new File(segmentManager.storageDirectory).listFiles(unmanagedFilesFilter))
-        for (File file : listFiles)
         {
             archiver.maybeArchive(file.getPath(), file.getName());
             archiver.maybeWaitForArchiving(file.getName());
@@ -444,7 +443,7 @@ public class CommitLog implements CommitLogMBean
         CommitLogSegment.resetReplayLimit();
         if (DatabaseDescriptor.isCDCEnabled() && deleteSegments)
             for (File f : new File(DatabaseDescriptor.getCDCLogLocation()).listFiles())
-                FileUtils.delete(f);
+                FileUtils.deleteWithConfirm(f);
 
     }
 

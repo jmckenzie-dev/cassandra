@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.commitlog.CommitLogSegment.CDCState;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.DirectorySizeCalculator;
@@ -38,39 +39,33 @@ import org.apache.cassandra.utils.DirectorySizeCalculator;
 public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
 {
     static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentManagerCDC.class);
-    private final CDCSizeCalculator cdcSizeCalculator;
+    private final CDCSizeTracker cdcSizeTracker;
 
     public CommitLogSegmentManagerCDC(final CommitLog commitLog, String storageDirectory)
     {
         super(commitLog, storageDirectory);
-        cdcSizeCalculator = new CDCSizeCalculator(new File(DatabaseDescriptor.getCDCLogLocation()));
+        cdcSizeTracker = new CDCSizeTracker(this, new File(DatabaseDescriptor.getCDCLogLocation()));
     }
 
     @Override
     void start()
     {
         super.start();
-        cdcSizeCalculator.start();
+        cdcSizeTracker.start();
     }
 
     public void discard(CommitLogSegment segment, boolean delete)
     {
         segment.close();
         addSize(-segment.onDiskSize());
-        if (segment.containsCDCMutations.get())
-        {
-            // Remove the worst-case full segment size we track in allocate()
-            cdcSizeCalculator.removeUnflushedSize(DatabaseDescriptor.getCommitLogSegmentSize());
-            FileUtils.renameWithConfirm(segment.logFile.getAbsolutePath(), DatabaseDescriptor.getCDCLogLocation() + File.separator + segment.logFile.getName());
 
-            cdcSizeCalculator.addFlushedSize(segment.onDiskSize());
-            cdcSizeCalculator.submitOverflowSizeRecalculation();
-        }
+        cdcSizeTracker.processDiscardedSegment(segment);
+
+        if (segment.getCDCState() == CDCState.CONTAINS)
+            FileUtils.renameWithConfirm(segment.logFile.getAbsolutePath(), DatabaseDescriptor.getCDCLogLocation() + File.separator + segment.logFile.getName());
         else
-        {
             if (delete)
                 FileUtils.deleteWithConfirm(segment.logFile);
-        }
     }
 
     /**
@@ -79,22 +74,18 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
     public void shutdown()
     {
         run = false;
-        cdcSizeCalculator.shutdown();
+        cdcSizeTracker.shutdown();
         wakeManager();
     }
 
     /**
      * Reserve space in the current segment for the provided mutation or, if there isn't space available,
-     * create a new segment. For CDC mutations, allocation is expected to throw WTE if we're at CDC capacity.
-     *
-     * We allow advancement of non-CDC enabled segments if at CDC limit since we'll reject CDC-enabled mutations until space
-     * is freed in cdc_raw. Subsequent non-CDC mutations won't flag cdc on the CommitLogSegment and thus the segment
-     * will be deleted on discard() rather than further pushing the total CDC on disk footprint.
+     * create a new segment. For CDC mutations, allocation is expected to throw WTE if the segment disallows CDC mutations.
      *
      * @param mutation Mutation to allocate in segment manager
      * @param size total size (overhead + serialized) of mutation
-     * @return the provided Allocation object
-     * @throws WriteTimeoutException If CDC directory is at configured limit, we throw an exception rather than allocate.
+     * @return the created Allocation object
+     * @throws WriteTimeoutException If segment disallows CDC mutations, we throw WTE
      */
     @Override
     public CommitLogSegment.Allocation allocate(Mutation mutation, int size) throws WriteTimeoutException
@@ -102,38 +93,29 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         CommitLogSegment segment = allocatingFrom();
         CommitLogSegment.Allocation alloc;
 
-        // If we're at our capacity of unflushed + flushed cdc data but the current segment a) contains cdc data and b)
-        // still has room left to allow this allocation, we allow it.
-        if (mutation.trackedByCDC() && atCapacity())
+        ThrowIfForbidden(mutation, segment);
+        while ( null == (alloc = segment.allocate(mutation, size)) )
         {
-            if (!segment.containsCDCMutations.get() || (null == (alloc = segment.allocate(mutation, size))))
-            {
-                cdcSizeCalculator.submitOverflowSizeRecalculation();
-                throw new WriteTimeoutException(WriteType.CDC, ConsistencyLevel.LOCAL_ONE, 0, 1);
-            }
-            return alloc;
-        }
-        else
-        {
-            while ( null == (alloc = segment.allocate(mutation, size)) )
-            {
-                if (mutation.trackedByCDC() && atCapacity())
-                {
-                    cdcSizeCalculator.submitOverflowSizeRecalculation();
-                    throw new WriteTimeoutException(WriteType.CDC, ConsistencyLevel.LOCAL_ONE, 0, 1);
-                }
+            // Failed to allocate, so move to a new segment with enough room if possible.
+            advanceAllocatingFrom(segment);
+            segment = allocatingFrom;
 
-                // Failed to allocate, so move to a new segment with enough room if possible.
-                advanceAllocatingFrom(segment);
-                segment = allocatingFrom;
-            }
+            ThrowIfForbidden(mutation, segment);
         }
 
-        // Operate with a worst-case estimate of full DBD.getCommitLogSegmentSize as being the size of this segment
-        if (mutation.trackedByCDC() && segment.containsCDCMutations.compareAndSet(false, true))
-            cdcSizeCalculator.addUnflushedSize(DatabaseDescriptor.getCommitLogSegmentSize());
+        if (mutation.trackedByCDC())
+            segment.setCDCState(CDCState.CONTAINS);
 
         return alloc;
+    }
+
+    private void ThrowIfForbidden(Mutation mutation, CommitLogSegment segment) throws WriteTimeoutException
+    {
+        if (mutation.trackedByCDC() && segment.getCDCState() == CDCState.FORBIDDEN)
+        {
+            cdcSizeTracker.submitOverflowSizeRecalculation();
+            throw new WriteTimeoutException(WriteType.CDC, ConsistencyLevel.LOCAL_ONE, 0, 1);
+        }
     }
 
     /**
@@ -144,31 +126,18 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
     {
         logger.trace("Moving (Unopened) segment {} to cdc_raw directory after replay", file);
         FileUtils.renameWithConfirm(file.getAbsolutePath(), DatabaseDescriptor.getCDCLogLocation() + File.separator + file.getName());
-        cdcSizeCalculator.addFlushedSize(file.length());
+        cdcSizeTracker.addFlushedSize(file.length());
     }
 
-    /*
-     * We operate with a somewhat "lazy" tracked view of how much space is in the cdc_raw directory. While we deterministically
-     * increment the size of the cdc_raw directory on each segment discard, we cannot afford to synchronously process the full
-     * directory size to decrement based on file consumption. Similarly, adding piping for a consumer to notify the C*
-     * process is a large complexity burden and would introduce a longer delay between deletion and C*'s view of the dir
-     * size rather than just recalculating it ourselves.
-     *
-     * Synchronous size recalculation on each allocation call could lead to very long delays in new segment allocation,
-     * thus long delays in thread signaling to wake waiting allocation / writer threads.
-     *
-     * While we can race and have our discard logic incorrectly add a discarded segment's size to this value, it will
-     * be corrected on the next pass at allocation when a new re-calculation task is submitted. Essentially, if you're
-     * flirting with the edge of your possible allocation space for CDC, it's likely that some mutations will be
-     * rejected if we happen to race right at this boundary until next recalc succeeds. This process on default settings
-     * should take < 500 usec.
-     *
-     * Reference DirectorySizerBench for more information about performance of the directory size recalc.
+    /**
+     * On segment creation, flag whether the segment should accept CDC mutations or not based on the total currently
+     * allocated unflushed CDC segments and the contents of cdc_raw
      */
-    @VisibleForTesting
-    public boolean atCapacity()
+    public CommitLogSegment createSegment()
     {
-        return cdcSizeCalculator.getTotalCDCSizeOnDisk() >= (long)DatabaseDescriptor.getCDCSpaceInMB() * 1024 * 1024;
+        CommitLogSegment segment = CommitLogSegment.createSegment(commitLog, this, () -> wakeManager());
+        cdcSizeTracker.processNewSegment(segment);
+        return segment;
     }
 
     /**
@@ -176,21 +145,23 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
      * data in them and all segments archived into cdc_raw.
      *
      * Allows atomic increment/decrement of unflushed size, however only allows increment on flushed and requires a full
-     * directory walk to determine actual on-disk size of cdc_raw as we have an external consumer deleting those files.
+     * directory walk to determine any potential deletions by CDC consumer.
      *
      * TODO: linux performs approximately 25% better with the following one-liner instead of this walker:
      *      Arrays.stream(path.listFiles()).mapToLong(File::length).sum();
      * However this solution is 375% slower on Windows. Revisit this and split logic to per-OS
      */
-    private class CDCSizeCalculator extends DirectorySizeCalculator
+    private class CDCSizeTracker extends DirectorySizeCalculator
     {
-        private AtomicLong unflushedCDCSizeOnDisk = new AtomicLong(0);
-        private final RateLimiter rateLimiter = RateLimiter.create(4);
+        private final RateLimiter rateLimiter = RateLimiter.create(1000 / DatabaseDescriptor.getCDCDiskCheckInterval());
         private ExecutorService cdcSizeCalculationExecutor;
+        private CommitLogSegmentManagerCDC segmentManager;
+        private AtomicLong unflushedCDCSize = new AtomicLong(0);
 
-        CDCSizeCalculator(File path)
+        CDCSizeTracker(CommitLogSegmentManagerCDC segmentManager, File path)
         {
             super(path);
+            this.segmentManager = segmentManager;
         }
 
         /**
@@ -199,17 +170,55 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         public void start()
         {
             cdcSizeCalculationExecutor = Executors.newSingleThreadExecutor();
-            unflushedCDCSizeOnDisk.set(0);
+        }
+
+        /**
+         * Synchronous size recalculation on each segment creation/deletion call could lead to very long delays in new
+         * segment allocation, thus long delays in thread signaling to wake waiting allocation / writer threads.
+         *
+         * Reference DirectorySizerBench for more information about performance of the directory size recalc.
+         */
+        void processNewSegment(CommitLogSegment segment)
+        {
+            synchronized(this)
+            {
+                segment.setCDCState(defaultSegmentSize() + totalCDCSizeOnDisk() > allowableCDCBytes()
+                                    ? CDCState.FORBIDDEN
+                                    : CDCState.PERMITTED);
+                if (segment.getCDCState() == CDCState.PERMITTED)
+                    unflushedCDCSize.addAndGet(defaultSegmentSize());
+            }
+
+            // Take this opportunity to kick off a recalc to pick up any consumer file deletion.
+            submitOverflowSizeRecalculation();
+        }
+
+        void processDiscardedSegment(CommitLogSegment segment)
+        {
+            synchronized(this)
+            {
+                // Remove pre-allocated worst-case amount from unflushed queue and add actual amount to flushed on segments
+                // that contain CDC-enabled mutations.
+                if (segment.getCDCState() != CDCState.FORBIDDEN)
+                    unflushedCDCSize.addAndGet(-defaultSegmentSize());
+                if (segment.getCDCState() == CDCState.CONTAINS)
+                    size.addAndGet(segment.onDiskSize());
+            }
+
+            // Take this opportunity to kick off a recalc to pick up any consumer file deletion.
+            submitOverflowSizeRecalculation();
+        }
+
+        private long allowableCDCBytes()
+        {
+            return (long)DatabaseDescriptor.getCDCSpaceInMB() * 1024 * 1024;
         }
 
         public void submitOverflowSizeRecalculation()
         {
             try
             {
-                cdcSizeCalculationExecutor.submit(() -> {
-                        rateLimiter.acquire();
-                        calculateSize();
-                });
+                cdcSizeCalculationExecutor.submit(() -> recalculateOverflowSize());
             }
             catch (RejectedExecutionException e)
             {
@@ -217,10 +226,30 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
             }
         }
 
+        private void recalculateOverflowSize()
+        {
+            rateLimiter.acquire();
+            calculateSize();
+            CommitLogSegment allocatingFrom = segmentManager.allocatingFrom;
+            if (allocatingFrom.getCDCState() == CDCState.FORBIDDEN)
+                processNewSegment(allocatingFrom);
+        }
+
+        private int defaultSegmentSize()
+        {
+            return DatabaseDescriptor.getCommitLogSegmentSize();
+        }
+
         private void calculateSize()
         {
             try
             {
+                // Since we don't synchronize around either rebuilding our file list or walking the tree and adding to
+                // size, it's possible we could have changes take place underneath us and end up with a slightly incorrect
+                // view of our flushed size by the time this walking completes. Given that there's a linear growth in
+                // runtime on both rebuildFileList and walkFileTree (about 50% for each one on runtime), and that the
+                // window for this race should be very small, this is an acceptable trade-off since it will be resolved
+                // on the next segment creation / deletion with a subsequent call to submitOverflowSizeRecalculation.
                 rebuildFileList();
                 Files.walkFileTree(path.toPath(), this);
             }
@@ -230,24 +259,14 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
             }
         }
 
-        public long addFlushedSize(long toAdd)
+        private long addFlushedSize(long toAdd)
         {
             return size.addAndGet(toAdd);
         }
 
-        public void addUnflushedSize(long value)
+        private long totalCDCSizeOnDisk()
         {
-            unflushedCDCSizeOnDisk.addAndGet(value);
-        }
-
-        public void removeUnflushedSize(long value)
-        {
-            unflushedCDCSizeOnDisk.addAndGet(-value);
-        }
-
-        public long getTotalCDCSizeOnDisk()
-        {
-            return size.get() + unflushedCDCSizeOnDisk.get();
+            return unflushedCDCSize.get() + size.get();
         }
 
         public void shutdown()
@@ -257,12 +276,12 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
     }
 
     /**
-     * Only use for testing / validation that size summer is working. Not for production use.
+     * Only use for testing / validation that size tracker is working. Not for production use.
      */
     @VisibleForTesting
-    public long updateCDCOverflowSize()
+    public long updateCDCTotalSize()
     {
-        cdcSizeCalculator.submitOverflowSizeRecalculation();
+        cdcSizeTracker.submitOverflowSizeRecalculation();
 
         // Give the update time to run
         try
@@ -271,6 +290,6 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         }
         catch (InterruptedException e) {}
 
-        return cdcSizeCalculator.getAllocatedSize();
+        return cdcSizeTracker.totalCDCSizeOnDisk();
     }
 }

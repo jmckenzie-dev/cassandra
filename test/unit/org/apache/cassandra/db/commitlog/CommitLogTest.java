@@ -74,12 +74,12 @@ public class CommitLogTest
     private static final String STANDARD1 = "Standard1";
     private static final String STANDARD2 = "Standard2";
 
-    public CommitLogTest(ParameterizedClass commitLogCompression, EncryptionContext encryptionContext)
-    {
-        DatabaseDescriptor.setCommitLogCompression(commitLogCompression);
     private static JVMStabilityInspector.Killer oldKiller;
     private static KillerForTests testKiller;
 
+    public CommitLogTest(ParameterizedClass commitLogCompression, EncryptionContext encryptionContext)
+    {
+        DatabaseDescriptor.setCommitLogCompression(commitLogCompression);
         DatabaseDescriptor.setEncryptionContext(encryptionContext);
     }
 
@@ -107,7 +107,6 @@ public class CommitLogTest
                                     SchemaLoader.standardCFMD(KEYSPACE1, STANDARD1, 0, AsciiType.instance, BytesType.instance),
                                     SchemaLoader.standardCFMD(KEYSPACE1, STANDARD2, 0, AsciiType.instance, BytesType.instance));
         CompactionManager.instance.disableAutoCompaction();
-        CommitLog.instance.resetUnsafe(true);
 
         testKiller = new KillerForTests();
 
@@ -126,8 +125,7 @@ public class CommitLogTest
     @Before
     public void beforeTest() throws IOException
     {
-        logDirectory = DatabaseDescriptor.getCommitLogLocation() + "/unit";
-        new File(logDirectory).mkdirs();
+        CommitLog.instance.resetUnsafe(true);
     }
 
     @After
@@ -599,22 +597,22 @@ public class CommitLogTest
                              .add("val", bytes("this is a string"))
                              .build();
         cellCount += 1;
-        commitLog.add(rm1);
+        CommitLog.instance.add(rm1);
 
         final Mutation rm2 = new RowUpdateBuilder(cfs.metadata, 0, "k2")
                              .clustering("bytes")
                              .add("val", bytes("this is a string"))
                              .build();
         cellCount += 1;
-        commitLog.add(rm2);
+        CommitLog.instance.add(rm2);
 
         CommitLog.instance.sync(true);
 
-        SimpleCountingReplayer replayer = new SimpleCountingReplayer(commitLog, CommitLogSegmentPosition.NONE);
+        SimpleCountingReplayer replayer = new SimpleCountingReplayer(CommitLog.instance, CommitLogSegmentPosition.NONE);
         List<String> activeSegments = CommitLog.instance.getActiveSegmentNames();
         Assert.assertFalse(activeSegments.isEmpty());
 
-        File[] files = new File(CommitLog.instance.location).listFiles((file, name) -> activeSegments.contains(name));
+        File[] files = new File(CommitLog.instance.segmentManager.storageDirectory).listFiles((file, name) -> activeSegments.contains(name));
         replayer.replayFiles(files);
 
         assertEquals(cellCount, replayer.cells);
@@ -635,7 +633,7 @@ public class CommitLogTest
                                  .clustering("bytes")
                                  .add("val", bytes("this is a string"))
                                  .build();
-            CommitLogSegmentPosition position = commitLog.add(rm1);
+            CommitLogSegmentPosition position = CommitLog.instance.add(rm1);
 
             if (i == discardPosition)
                 commitLogSegmentPosition = position;
@@ -647,11 +645,11 @@ public class CommitLogTest
 
         CommitLog.instance.sync(true);
 
-        SimpleCountingReplayer replayer = new SimpleCountingReplayer(commitLog, commitLogSegmentPosition);
+        SimpleCountingReplayer replayer = new SimpleCountingReplayer(CommitLog.instance, commitLogSegmentPosition);
         List<String> activeSegments = CommitLog.instance.getActiveSegmentNames();
         Assert.assertFalse(activeSegments.isEmpty());
 
-        File[] files = new File(CommitLog.instance.location).listFiles((file, name) -> activeSegments.contains(name));
+        File[] files = new File(CommitLog.instance.segmentManager.storageDirectory).listFiles((file, name) -> activeSegments.contains(name));
         replayer.replayFiles(files);
 
         assertEquals(cellCount, replayer.cells);
