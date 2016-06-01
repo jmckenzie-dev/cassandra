@@ -55,7 +55,12 @@ public abstract class CommitLogSegment
 
     private final static long idBase;
 
-    public final AtomicBoolean containsCDCMutations = new AtomicBoolean(false);
+    private volatile CDCState cdcState = CDCState.PERMITTED;
+    public enum CDCState {
+        PERMITTED,
+        FORBIDDEN,
+        CONTAINS
+    }
 
     private final static AtomicInteger nextId = new AtomicInteger(1);
     private static long replayLimitId;
@@ -590,6 +595,24 @@ public abstract class CommitLogSegment
             CommitLogDescriptor desc2 = CommitLogDescriptor.fromFileName(f2.getName());
             return Long.compare(desc.id, desc2.id);
         }
+    }
+
+    public CDCState getCDCState()
+    {
+        return cdcState;
+    }
+
+    public void setCDCState(CDCState newState)
+    {
+        if (cdcState == CDCState.CONTAINS && newState != CDCState.CONTAINS)
+            throw new IllegalArgumentException("Cannot transition from CONTAINS to any other state.");
+
+        if (cdcState == CDCState.FORBIDDEN && newState != CDCState.PERMITTED)
+            throw new IllegalArgumentException("Only transition from FORBIDDEN to PERMITTED is allowed.");
+
+        // Allow any state to transition into PERMITTED. Could race on allocation of new segment as PERMITTED
+        // and previous call on cdcSize calculation.
+        cdcState = newState;
     }
 
     /**

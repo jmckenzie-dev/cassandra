@@ -438,7 +438,7 @@ public class CommitLog implements CommitLogMBean
         CommitLogSegment.resetReplayLimit();
         if (DatabaseDescriptor.isCDCEnabled() && deleteSegments)
             for (File f : new File(DatabaseDescriptor.getCDCLogLocation()).listFiles())
-                FileUtils.delete(f);
+                FileUtils.deleteWithConfirm(f);
 
     }
 

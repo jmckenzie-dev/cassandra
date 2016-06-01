@@ -75,9 +75,12 @@ public abstract class AbstractCommitLogSegmentManager
      */
     volatile boolean createReserveSegments = false;
 
+    // Used by tests to determine if segment manager is active or not.
+    volatile boolean processingTask = false;
+
     private Thread managerThread;
     protected volatile boolean run = true;
-    private final CommitLog commitLog;
+    protected final CommitLog commitLog;
 
     private static final SimpleCachedBufferPool bufferPool =
         new SimpleCachedBufferPool(DatabaseDescriptor.getCommitLogMaxCompressionBuffersPerPool(), DatabaseDescriptor.getCommitLogSegmentSize());
@@ -90,8 +93,6 @@ public abstract class AbstractCommitLogSegmentManager
 
     void start()
     {
-        final AbstractCommitLogSegmentManager parent = this;
-
         // The run loop for the manager thread
         Runnable runnable = new WrappedRunnable()
         {
@@ -102,6 +103,7 @@ public abstract class AbstractCommitLogSegmentManager
                     try
                     {
                         Runnable task = segmentManagementTasks.poll();
+                        processingTask = true;
                         if (task == null)
                         {
                             // if we have no more work to do, check if we should create a new segment
@@ -111,7 +113,7 @@ public abstract class AbstractCommitLogSegmentManager
                             {
                                 logger.trace("No segments in reserve; creating a fresh one");
                                 // TODO : some error handling in case we fail to create a new segment
-                                availableSegments.add(CommitLogSegment.createSegment(commitLog, parent, () -> wakeManager() ));
+                                availableSegments.add(createSegment());
                                 hasAvailableSegments.signalAll();
                             }
 
@@ -145,6 +147,7 @@ public abstract class AbstractCommitLogSegmentManager
                             }
                         }
                         task.run();
+                        processingTask = false;
                     }
                     catch (Throwable t)
                     {
@@ -192,6 +195,11 @@ public abstract class AbstractCommitLogSegmentManager
      * decide what to do with those segments on disk after they've been replayed.
      */
     abstract void handleReplayedSegment(final File file);
+
+    /**
+     * Hook to allow segment managers to track state surrounding creation of new segments.
+     */
+    abstract CommitLogSegment createSegment();
 
     /**
      * Grab the current CommitLogSegment we're allocating from. Also serves as a utility method to block while the allocator
@@ -558,6 +566,12 @@ public abstract class AbstractCommitLogSegmentManager
                 return;
             segment.sync();
         }
+    }
+
+    @VisibleForTesting
+    public boolean isActive()
+    {
+        return segmentManagementTasks.size() > 0 || processingTask;
     }
 
     /**

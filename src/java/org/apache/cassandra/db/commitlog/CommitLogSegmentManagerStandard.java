@@ -82,5 +82,8 @@ public class CommitLogSegmentManagerStandard extends AbstractCommitLogSegmentMan
         FileUtils.deleteWithConfirm(file);
     }
 
-
+    public CommitLogSegment createSegment()
+    {
+        return CommitLogSegment.createSegment(commitLog, this, () -> wakeManager());
+    }
 }

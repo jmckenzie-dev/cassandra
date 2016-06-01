@@ -2199,12 +2199,6 @@ public class DatabaseDescriptor
     }
 
     @VisibleForTesting
-    public static void setCDCDiskCheckInterval(Integer value)
-    {
-        conf.cdc_free_space_check_interval_ms = value;
-    }
-
-    @VisibleForTesting
     public static void setEncryptionContext(EncryptionContext ec)
     {
         encryptionContext = ec;
