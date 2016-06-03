@@ -139,6 +139,7 @@ public abstract class AbstractCommitLogSegmentManager
                             // queue rather than looping, grabbing another null, and repeating the above work.
                             try
                             {
+                                processingTask = false;
                                 task = segmentManagementTasks.take();
                             }
                             catch (InterruptedException e)
