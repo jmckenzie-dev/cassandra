@@ -94,6 +94,7 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
             // Confirm that, on flush+recyle, we see files show up in cdc_raw
             Keyspace.open(keyspace()).getColumnFamilyStore(currentTable()).forceBlockingFlush();
             CommitLog.instance.forceRecycleAllSegments();
+            cdcMgr.awaitManagementTasksCompletion();
             Assert.assertTrue("Expected files to be moved to overflow.", getCDCRawCount() > 0);
 
             // Simulate a CDC consumer reading files then deleting them
@@ -144,7 +145,7 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
         expectCurrentCDCState(CDCState.PERMITTED);
 
         // On flush, PERMITTED is deleted, CONTAINS is preserved.
-        while (cdcMgr.isActive()) {}
+        cdcMgr.awaitManagementTasksCompletion();
         int seen = getCDCRawCount();
         Assert.assertTrue("Expected >3 files in cdc_raw, saw: " + seen, seen >= 3);
     }

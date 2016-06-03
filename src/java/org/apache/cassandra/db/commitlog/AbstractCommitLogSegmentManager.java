@@ -507,12 +507,8 @@ public abstract class AbstractCommitLogSegmentManager
     // Used by tests only.
     void awaitManagementTasksCompletion()
     {
-        while (!segmentManagementTasks.isEmpty())
+        while (segmentManagementTasks.size() > 0 || processingTask)
             Thread.yield();
-        // The last management task is not yet complete. Wait a while for it.
-        Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
-        // TODO: If this functionality is required by anything other than tests, signalling must be used to ensure
-        // waiting completes correctly.
     }
 
     /**
@@ -575,12 +571,6 @@ public abstract class AbstractCommitLogSegmentManager
                 return;
             segment.sync();
         }
-    }
-
-    @VisibleForTesting
-    public boolean isActive()
-    {
-        return segmentManagementTasks.size() > 0 || processingTask;
     }
 
     /**
