@@ -336,8 +336,14 @@ public class CommitLogReader
                 }
                 continue;
             }
-            readMutation(handler, buffer, serializedSize, minPosition, (int) reader.getFilePointer(), desc);
-            statusTracker.addProcessedMutation();
+
+            long mutationPosition = reader.getFilePointer();
+            readMutation(handler, buffer, serializedSize, minPosition, (int)mutationPosition, desc);
+
+            // Only count this as a processed mutation if it is after our min as we suppress reading of mutations that
+            // are before this mark.
+            if (mutationPosition >= minPosition.position)
+                statusTracker.addProcessedMutation();
         }
     }
 
