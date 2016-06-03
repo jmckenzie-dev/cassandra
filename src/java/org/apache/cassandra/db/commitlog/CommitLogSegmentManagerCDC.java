@@ -176,6 +176,10 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
          * Synchronous size recalculation on each segment creation/deletion call could lead to very long delays in new
          * segment allocation, thus long delays in thread signaling to wake waiting allocation / writer threads.
          *
+         * This can be reached either from the segment management thread in ABstractCommitLogSegmentManager or from the
+         * size recalculation executor, so we synchronize on this object to reduce the race overlap window available for
+         * size to get off.
+         *
          * Reference DirectorySizerBench for more information about performance of the directory size recalc.
          */
         void processNewSegment(CommitLogSegment segment)

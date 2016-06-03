@@ -19,7 +19,6 @@ package org.apache.cassandra.db.commitlog;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -40,8 +39,6 @@ import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.KillerForTests;
-
-import static org.junit.Assert.assertEquals;
 
 public class CommitLogReaderTest extends CQLTester
 {
@@ -181,7 +178,12 @@ public class CommitLogReaderTest extends CQLTester
             }
 
             for (Row r : pu)
-                assertEquals(ByteBuffer.wrap(Integer.toString(i + offset).getBytes()), r.getCell(cd).value());
+            {
+                String expected = Integer.toString(i + offset);
+                String seen = new String(r.getCell(cd).value().array());
+                if (!expected.equals(seen))
+                    Assert.fail("Mismatch at index: " + i + ". Offset: " + offset + " Expected: " + expected + " Seen: " + seen);
+            }
             i++;
         }
     }

@@ -29,14 +29,17 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Mutation;
-import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.UnknownColumnFamilyException;
-import org.apache.cassandra.db.commitlog.CommitLogReadHandler.*;
+import org.apache.cassandra.db.commitlog.CommitLogReadHandler.CommitLogReadErrorReason;
+import org.apache.cassandra.db.commitlog.CommitLogReadHandler.CommitLogReadException;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.SerializationHelper;
-import org.apache.cassandra.io.util.*;
+import org.apache.cassandra.io.util.ChannelProxy;
+import org.apache.cassandra.io.util.DataInputBuffer;
+import org.apache.cassandra.io.util.FileDataInput;
+import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.RebufferingInputStream;
 import org.apache.cassandra.utils.JVMStabilityInspector;
-
 
 import static org.apache.cassandra.utils.FBUtilities.updateChecksumInt;
 
@@ -129,7 +132,7 @@ public class CommitLogReader
                         reader.seek(minPosition.position);
                     ReadStatusTracker statusTracker = new ReadStatusTracker(ALL_MUTATIONS, tolerateTruncation);
                     statusTracker.errorContext = desc.fileName();
-                    readSection(handler, reader, (int) reader.length(), statusTracker, desc);
+                    readSection(handler, reader, minPosition, (int) reader.length(), statusTracker, desc);
                 }
                 return;
             }
@@ -190,11 +193,15 @@ public class CommitLogReader
                 {
                     statusTracker.tolerateErrorsInSection &= syncSegment.toleratesErrorsInSection;
 
+                    // Skip segments that are completely behind the desired minPosition
                     if (desc.id == minPosition.segmentId && syncSegment.endPosition < minPosition.position)
                         continue;
 
                     statusTracker.errorContext = String.format("Next section at %d in %s", syncSegment.fileStartPosition, desc.fileName());
-                    readSection(handler, syncSegment.input, syncSegment.endPosition, statusTracker, desc);
+
+                    // TODO: Since EncryptedFileSegmentInputStream doesn't implement seek(), we cannot pre-emptively seek
+                    // to the desired offset in the syncSegment before reading the section and deserializing the mutations.
+                    readSection(handler, syncSegment.input, minPosition, syncSegment.endPosition, statusTracker, desc);
                     if (!statusTracker.shouldContinue())
                         break;
                 }
@@ -235,12 +242,14 @@ public class CommitLogReader
      *
      * @param handler Handler that will take action based on deserialized Mutations
      * @param reader FileDataInput / logical buffer containing commitlog mutations
+     * @param minPosition CommitLogSegmentPosition indicating when we should start actively replaying mutations
      * @param end logical numeric end of the segment being read
      * @param statusTracker ReadStatusTracker with current state of mutation count, error state, etc
      * @param desc Descriptor for CommitLog serialization
      */
     private void readSection(CommitLogReadHandler handler,
                              FileDataInput reader,
+                             CommitLogSegmentPosition minPosition,
                              int end,
                              ReadStatusTracker statusTracker,
                              CommitLogDescriptor desc) throws IOException
@@ -327,7 +336,7 @@ public class CommitLogReader
                 }
                 continue;
             }
-            readMutation(handler, buffer, serializedSize, (int) reader.getFilePointer(), desc);
+            readMutation(handler, buffer, serializedSize, minPosition, (int) reader.getFilePointer(), desc);
             statusTracker.addProcessedMutation();
         }
     }
@@ -338,6 +347,7 @@ public class CommitLogReader
      * @param handler Handler that will take action based on deserialized Mutations
      * @param inputBuffer raw byte array w/Mutation data
      * @param size deserialized size of mutation
+     * @param minPosition We need to suppress replay of mutations that are before the required minPosition
      * @param entryLocation filePointer offset of mutation within CommitLogSegment
      * @param desc CommitLogDescriptor being worked on
      */
@@ -345,9 +355,14 @@ public class CommitLogReader
     protected void readMutation(CommitLogReadHandler handler,
                                 byte[] inputBuffer,
                                 int size,
+                                CommitLogSegmentPosition minPosition,
                                 final int entryLocation,
                                 final CommitLogDescriptor desc) throws IOException
     {
+        // For now, we need to go through the motions of deserializing the mutation to determine its size and move
+        // the file pointer forward accordingly, even if we're behind the requested minPosition within this SyncSegment.
+        boolean shouldReplay = entryLocation > minPosition.position;
+
         final Mutation mutation;
         try (RebufferingInputStream bufIn = new DataInputBuffer(inputBuffer, 0, size))
         {
@@ -397,7 +412,8 @@ public class CommitLogReader
             logger.trace("Read mutation for {}.{}: {}", mutation.getKeyspaceName(), mutation.key(),
                          "{" + StringUtils.join(mutation.getPartitionUpdates().iterator(), ", ") + "}");
 
-        handler.handleMutation(mutation, size, entryLocation, desc);
+        if (shouldReplay)
+            handler.handleMutation(mutation, size, entryLocation, desc);
     }
 
     /**

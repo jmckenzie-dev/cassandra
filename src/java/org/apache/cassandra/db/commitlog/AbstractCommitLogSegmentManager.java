@@ -172,13 +172,6 @@ public abstract class AbstractCommitLogSegmentManager
         managerThread.start();
     }
 
-    /**
-     * Indicates that a segment file has been flushed and is no longer needed.
-     *
-     * @param segment segment to be discarded
-     * @param delete  whether or not the segment is safe to be deleted.
-     */
-    abstract void discard(CommitLogSegment segment, boolean delete);
 
     /**
      * Shut down the CLSM. Used both during testing and during regular shutdown, so needs to stop everything.
@@ -197,9 +190,21 @@ public abstract class AbstractCommitLogSegmentManager
     abstract void handleReplayedSegment(final File file);
 
     /**
-     * Hook to allow segment managers to track state surrounding creation of new segments.
+     * Hook to allow segment managers to track state surrounding creation of new segments. Onl perform as task submit
+     * to segment manager so it's performed on segment management thread.
      */
     abstract CommitLogSegment createSegment();
+
+    /**
+     * Indicates that a segment file has been flushed and is no longer needed. Only perform as task submit to segment
+     * manager so it's performend on segment management thread, or perform while segment management thread is shutdown
+     * during testing resets.
+     *
+     * @param segment segment to be discarded
+     * @param delete  whether or not the segment is safe to be deleted.
+     */
+    abstract void discard(CommitLogSegment segment, boolean delete);
+
 
     /**
      * Grab the current CommitLogSegment we're allocating from. Also serves as a utility method to block while the allocator

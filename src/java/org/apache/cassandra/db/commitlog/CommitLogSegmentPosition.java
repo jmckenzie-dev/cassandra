@@ -20,13 +20,8 @@ package org.apache.cassandra.db.commitlog;
 import java.io.IOException;
 import java.util.Comparator;
 
-import com.google.common.base.Function;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Ordering;
-
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.ISerializer;
-import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 

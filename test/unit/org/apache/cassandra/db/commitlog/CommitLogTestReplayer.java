@@ -57,6 +57,7 @@ public class CommitLogTestReplayer extends CommitLogReplayer
         protected void readMutation(CommitLogReadHandler handler,
                                     byte[] inputBuffer,
                                     int size,
+                                    CommitLogSegmentPosition minPosition,
                                     final int entryLocation,
                                     final CommitLogDescriptor desc) throws IOException
         {
