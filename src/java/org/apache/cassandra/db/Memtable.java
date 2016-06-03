@@ -144,10 +144,10 @@ public class Memtable implements Comparable<Memtable>
     }
 
     @VisibleForTesting
-    public void setDiscarding(OpOrder.Barrier writeBarrier, AtomicReference<CommitLogSegmentPosition> lastCommitLogSegmentPosition)
+    public void setDiscarding(OpOrder.Barrier writeBarrier, AtomicReference<CommitLogSegmentPosition> commitLogUpperBound)
     {
         assert this.writeBarrier == null;
-        this.commitLogUpperBound = lastCommitLogSegmentPosition;
+        this.commitLogUpperBound = commitLogUpperBound;
         this.writeBarrier = writeBarrier;
         allocator.setDiscarding();
     }

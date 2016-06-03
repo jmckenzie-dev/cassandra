@@ -221,7 +221,7 @@ public class CommitLogReaderTest extends CQLTester
             this.cfm = cfm;
         }
 
-        public boolean shouldStopOnError(CommitLogReadException exception) throws IOException
+        public boolean shouldSkipSegmentOnError(CommitLogReadException exception) throws IOException
         {
             sawStopOnErrorCheck = true;
             return false;

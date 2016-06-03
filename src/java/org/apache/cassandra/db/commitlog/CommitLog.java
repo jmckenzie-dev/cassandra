@@ -363,7 +363,8 @@ public class CommitLog implements CommitLogMBean
     public List<String> getActiveSegmentNames()
     {
         List<String> segmentNames = new ArrayList<>();
-        segmentManager.getActiveSegments().forEach(seg -> segmentNames.add(seg.getName()));
+        for (CommitLogSegment seg : segmentManager.getActiveSegments())
+            segmentNames.add(seg.getName());
         return segmentNames;
     }
 
@@ -391,7 +392,8 @@ public class CommitLog implements CommitLogMBean
     public Map<String, Double> getActiveSegmentCompressionRatios()
     {
         Map<String, Double> segmentRatios = new TreeMap<>();
-        segmentManager.getActiveSegments().forEach(seg -> segmentRatios.put(seg.getName(), 1.0 * seg.onDiskSize() / seg.contentSize()));
+        for (CommitLogSegment seg : segmentManager.getActiveSegments())
+            segmentRatios.put(seg.getName(), 1.0 * seg.onDiskSize() / seg.contentSize());
         return segmentRatios;
     }
 

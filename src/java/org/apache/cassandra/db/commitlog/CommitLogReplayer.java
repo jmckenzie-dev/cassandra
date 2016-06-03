@@ -40,7 +40,6 @@ import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.FBUtilities;
@@ -424,7 +423,7 @@ public class CommitLogReplayer implements CommitLogReadHandler
         }
     }
 
-    public boolean shouldStopOnError(CommitLogReadException exception) throws IOException
+    public boolean shouldSkipSegmentOnError(CommitLogReadException exception) throws IOException
     {
         if (exception.permissible)
             logger.error("Ignoring commit log replay error likely due to incomplete flush to disk", exception);
@@ -446,7 +445,7 @@ public class CommitLogReplayer implements CommitLogReadHandler
     public void handleUnrecoverableError(CommitLogReadException exception) throws IOException
     {
         // Don't care about return value, use this simply to throw exception as appropriate.
-        shouldStopOnError(exception);
+        shouldSkipSegmentOnError(exception);
     }
 
     @SuppressWarnings("serial")

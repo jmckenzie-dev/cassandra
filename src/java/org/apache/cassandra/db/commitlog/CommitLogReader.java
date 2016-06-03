@@ -130,7 +130,7 @@ public class CommitLogReader
                 {
                     if (minPosition.segmentId == desc.id)
                         reader.seek(minPosition.position);
-                    ReadStatusTracker statusTracker = new ReadStatusTracker(ALL_MUTATIONS, tolerateTruncation);
+                    ReadStatusTracker statusTracker = new ReadStatusTracker(mutationLimit, tolerateTruncation);
                     statusTracker.errorContext = desc.fileName();
                     readSection(handler, reader, minPosition, (int) reader.length(), statusTracker, desc);
                 }
@@ -160,10 +160,10 @@ public class CommitLogReader
 
             if (segmentIdFromFilename != desc.id)
             {
-                if (handler.shouldStopOnError(new CommitLogReadException(String.format(
+                if (handler.shouldSkipSegmentOnError(new CommitLogReadException(String.format(
                     "Segment id mismatch (filename %d, descriptor %d) in file %s", segmentIdFromFilename, desc.id, file),
-                    CommitLogReadErrorReason.RECOVERABLE_DESCRIPTOR_ERROR,
-                    false)))
+                                                                                CommitLogReadErrorReason.RECOVERABLE_DESCRIPTOR_ERROR,
+                                                                                false)))
                 {
                     return;
                 }
@@ -280,7 +280,7 @@ public class CommitLogReader
                 // This prevents CRC by being fooled by special-case garbage in the file; see CASSANDRA-2128
                 if (serializedSize < 10)
                 {
-                    if (handler.shouldStopOnError(new CommitLogReadException(
+                    if (handler.shouldSkipSegmentOnError(new CommitLogReadException(
                                                     String.format("Invalid mutation size %d at %d in %s", serializedSize, mutationStart, statusTracker.errorContext),
                                                     CommitLogReadErrorReason.MUTATION_ERROR,
                                                     statusTracker.tolerateErrorsInSection)))
@@ -296,7 +296,7 @@ public class CommitLogReader
 
                 if (checksum.getValue() != claimedSizeChecksum)
                 {
-                    if (handler.shouldStopOnError(new CommitLogReadException(
+                    if (handler.shouldSkipSegmentOnError(new CommitLogReadException(
                                                     String.format("Mutation size checksum failure at %d in %s", mutationStart, statusTracker.errorContext),
                                                     CommitLogReadErrorReason.MUTATION_ERROR,
                                                     statusTracker.tolerateErrorsInSection)))
@@ -314,7 +314,7 @@ public class CommitLogReader
             }
             catch (EOFException eof)
             {
-                if (handler.shouldStopOnError(new CommitLogReadException(
+                if (handler.shouldSkipSegmentOnError(new CommitLogReadException(
                                                 String.format("Unexpected end of segment", mutationStart, statusTracker.errorContext),
                                                 CommitLogReadErrorReason.EOF,
                                                 statusTracker.tolerateErrorsInSection)))
@@ -327,7 +327,7 @@ public class CommitLogReader
             checksum.update(buffer, 0, serializedSize);
             if (claimedCRC32 != checksum.getValue())
             {
-                if (handler.shouldStopOnError(new CommitLogReadException(
+                if (handler.shouldSkipSegmentOnError(new CommitLogReadException(
                                                 String.format("Mutation checksum failure at %d in %s", mutationStart, statusTracker.errorContext),
                                                 CommitLogReadErrorReason.MUTATION_ERROR,
                                                 statusTracker.tolerateErrorsInSection)))

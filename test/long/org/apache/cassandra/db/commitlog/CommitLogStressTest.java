@@ -513,7 +513,7 @@ public class CommitLogStressTest
 
     class DummyHandler implements CommitLogReadHandler
     {
-        public boolean shouldStopOnError(CommitLogReadException exception) throws IOException { return false; }
+        public boolean shouldSkipSegmentOnError(CommitLogReadException exception) throws IOException { return false; }
 
         public void handleUnrecoverableError(CommitLogReadException exception) throws IOException { }
 

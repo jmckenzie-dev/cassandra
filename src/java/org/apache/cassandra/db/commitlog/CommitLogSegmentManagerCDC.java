@@ -201,12 +201,11 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         {
             synchronized(this)
             {
-                // Remove pre-allocated worst-case amount from unflushed queue and add actual amount to flushed on segments
-                // that contain CDC-enabled mutations.
-                if (segment.getCDCState() != CDCState.FORBIDDEN)
-                    unflushedCDCSize.addAndGet(-defaultSegmentSize());
+                // Add amount before removing old: be more conservative than lax.
                 if (segment.getCDCState() == CDCState.CONTAINS)
                     size.addAndGet(segment.onDiskSize());
+                if (segment.getCDCState() != CDCState.FORBIDDEN)
+                    unflushedCDCSize.addAndGet(-defaultSegmentSize());
             }
 
             // Take this opportunity to kick off a recalc to pick up any consumer file deletion.

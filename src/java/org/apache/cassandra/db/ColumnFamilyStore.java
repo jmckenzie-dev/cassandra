@@ -979,7 +979,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
             try
             {
-                // we wait on the latch for the lastCommitLogSegmentPosition to be set, and so that waiters
+                // we wait on the latch for the commitLogUpperBound to be set, and so that waiters
                 // on this task can rely on all prior flushes being complete
                 latch.await();
             }
@@ -988,8 +988,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 throw new IllegalStateException();
             }
 
-            // must check lastCommitLogSegmentPosition != null because Flush may find that all memtables are clean
-            // and so not set a lastCommitLogSegmentPosition
+            // Must check commitLogUpperBound != null because Flush may find that all memtables are clean
+            // and so not set a commitLogUpperBound
             // If a flush errored out but the error was ignored, make sure we don't discard the commit log.
             if (flushFailure == null)
             {
@@ -1040,7 +1040,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
              * that all write operations register themselves with, and assigning this barrier to the memtables,
              * after which we *.issue()* the barrier. This barrier is used to direct write operations started prior
              * to the barrier.issue() into the memtable we have switched out, and any started after to its replacement.
-             * In doing so it also tells the write operations to update the lastCommitLogSegmentPosition of the memtable, so
+             * In doing so it also tells the write operations to update the commitLogUpperBound of the memtable, so
              * that we know the CL position we are dirty to, which can be marked clean when we complete.
              */
             writeBarrier = keyspace.writeOrder.newBarrier();
