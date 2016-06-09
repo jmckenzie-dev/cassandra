@@ -25,7 +25,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.CRC32;
 
@@ -56,7 +55,7 @@ public abstract class CommitLogSegment
 
     private final static long idBase;
 
-    private volatile CDCState cdcState = CDCState.PERMITTED;
+    private CDCState cdcState = CDCState.PERMITTED;
     public enum CDCState {
         PERMITTED,
         FORBIDDEN,
@@ -605,17 +604,26 @@ public abstract class CommitLogSegment
         return cdcState;
     }
 
+    /**
+     * Change the current cdcState on this CommitLogSegment. There are some restrictions on state transitions and this
+     * method is idempotent.
+     */
     public void setCDCState(CDCState newState)
     {
-        if (cdcState == CDCState.CONTAINS && newState != CDCState.CONTAINS)
-            throw new IllegalArgumentException("Cannot transition from CONTAINS to any other state.");
+        if (newState == cdcState)
+            return;
 
-        if (cdcState == CDCState.FORBIDDEN && newState != CDCState.PERMITTED)
-            throw new IllegalArgumentException("Only transition from FORBIDDEN to PERMITTED is allowed.");
+        // Also synchronized in CDCSizeTracker.processNewSegment and .processDiscardedSegment
+        synchronized(this)
+        {
+            if (cdcState == CDCState.CONTAINS && newState != CDCState.CONTAINS)
+                throw new IllegalArgumentException("Cannot transition from CONTAINS to any other state.");
 
-        // Allow any state to transition into PERMITTED. Could race on allocation of new segment as PERMITTED
-        // and previous call on cdcSize calculation.
-        cdcState = newState;
+            if (cdcState == CDCState.FORBIDDEN && newState != CDCState.PERMITTED)
+                throw new IllegalArgumentException("Only transition from FORBIDDEN to PERMITTED is allowed.");
+
+            cdcState = newState;
+        }
     }
 
     /**

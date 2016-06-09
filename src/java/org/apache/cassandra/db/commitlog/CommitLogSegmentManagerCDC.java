@@ -93,14 +93,14 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         CommitLogSegment segment = allocatingFrom();
         CommitLogSegment.Allocation alloc;
 
-        ThrowIfForbidden(mutation, segment);
+        throwIfForbidden(mutation, segment);
         while ( null == (alloc = segment.allocate(mutation, size)) )
         {
             // Failed to allocate, so move to a new segment with enough room if possible.
             advanceAllocatingFrom(segment);
             segment = allocatingFrom;
 
-            ThrowIfForbidden(mutation, segment);
+            throwIfForbidden(mutation, segment);
         }
 
         if (mutation.trackedByCDC())
@@ -109,7 +109,7 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         return alloc;
     }
 
-    private void ThrowIfForbidden(Mutation mutation, CommitLogSegment segment) throws WriteTimeoutException
+    private void throwIfForbidden(Mutation mutation, CommitLogSegment segment) throws WriteTimeoutException
     {
         if (mutation.trackedByCDC() && segment.getCDCState() == CDCState.FORBIDDEN)
         {
@@ -169,7 +169,7 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
          */
         public void start()
         {
-            cdcSizeCalculationExecutor = Executors.newSingleThreadExecutor();
+            cdcSizeCalculationExecutor = new ThreadPoolExecutor(1, 1, 1000, TimeUnit.SECONDS, new SynchronousQueue<>(), new ThreadPoolExecutor.DiscardPolicy());
         }
 
         /**
@@ -184,7 +184,8 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
          */
         void processNewSegment(CommitLogSegment segment)
         {
-            synchronized(this)
+            // See synchronization in CommitLogSegment.setCDCState
+            synchronized(segment)
             {
                 segment.setCDCState(defaultSegmentSize() + totalCDCSizeOnDisk() > allowableCDCBytes()
                                     ? CDCState.FORBIDDEN
@@ -199,13 +200,14 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
 
         void processDiscardedSegment(CommitLogSegment segment)
         {
-            synchronized(this)
+            // See synchronization in CommitLogSegment.setCDCState
+            synchronized(segment)
             {
-                // Add amount before removing old: be more conservative than lax.
-                if (segment.getCDCState() == CDCState.CONTAINS)
-                    size.addAndGet(segment.onDiskSize());
+                // Add to flushed size before decrementing unflushed so we don't have a window of false generosity
                 if (segment.getCDCState() != CDCState.FORBIDDEN)
                     unflushedCDCSize.addAndGet(-defaultSegmentSize());
+                if (segment.getCDCState() == CDCState.CONTAINS)
+                    size.addAndGet(segment.onDiskSize());
             }
 
             // Take this opportunity to kick off a recalc to pick up any consumer file deletion.
