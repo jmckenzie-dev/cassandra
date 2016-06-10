@@ -204,10 +204,10 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
             synchronized(segment)
             {
                 // Add to flushed size before decrementing unflushed so we don't have a window of false generosity
-                if (segment.getCDCState() != CDCState.FORBIDDEN)
-                    unflushedCDCSize.addAndGet(-defaultSegmentSize());
                 if (segment.getCDCState() == CDCState.CONTAINS)
                     size.addAndGet(segment.onDiskSize());
+                if (segment.getCDCState() != CDCState.FORBIDDEN)
+                    unflushedCDCSize.addAndGet(-defaultSegmentSize());
             }
 
             // Take this opportunity to kick off a recalc to pick up any consumer file deletion.
