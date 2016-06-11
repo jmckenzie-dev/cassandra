@@ -113,7 +113,7 @@ public class CommitLogStressTest
     volatile boolean stop = false;
     boolean randomSize = false;
     boolean discardedRun = false;
-    CommitLogSegmentPosition discardedPos;
+    CommitLogPosition discardedPos;
 
     @BeforeClass
     static public void initialize() throws IOException
@@ -231,7 +231,7 @@ public class CommitLogStressTest
         final List<CommitlogThread> threads = new ArrayList<>();
         ScheduledExecutorService scheduled = startThreads(commitLog, threads);
 
-        discardedPos = CommitLogSegmentPosition.NONE;
+        discardedPos = CommitLogPosition.NONE;
         if (discardedRun)
         {
             // Makes sure post-break data is not deleted, and that replayer correctly rejects earlier mutations.
@@ -412,7 +412,7 @@ public class CommitLogStressTest
         final CommitLog commitLog;
         final Random random;
 
-        volatile CommitLogSegmentPosition clsp;
+        volatile CommitLogPosition clsp;
 
         public CommitlogThread(CommitLog commitLog, Random rand)
         {
@@ -459,7 +459,7 @@ public class CommitLogStressTest
         protected void readMutation(CommitLogReadHandler handler,
                                     byte[] inputBuffer,
                                     int size,
-                                    CommitLogSegmentPosition minPosition,
+                                    CommitLogPosition minPosition,
                                     final int entryLocation,
                                     final CommitLogDescriptor desc) throws IOException
         {

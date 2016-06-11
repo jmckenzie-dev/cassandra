@@ -324,7 +324,7 @@ public abstract class AbstractCommitLogSegmentManager
 
             for (CommitLogSegment segment : activeSegments)
                 for (UUID cfId : droppedCfs)
-                    segment.markClean(cfId, segment.getCurrentSegmentPosition());
+                    segment.markClean(cfId, segment.GetCurrentCommitLogPosition());
 
             // now recycle segments that are unused, as we may not have triggered a discardCompletedSegments()
             // if the previous active segment was the only one to recycle (since an active segment isn't
@@ -432,7 +432,7 @@ public abstract class AbstractCommitLogSegmentManager
     {
         if (segments.isEmpty())
             return Futures.immediateFuture(null);
-        final CommitLogSegmentPosition maxCommitLogSegmentPosition = segments.get(segments.size() - 1).getCurrentSegmentPosition();
+        final CommitLogPosition maxCommitLogPosition = segments.get(segments.size() - 1).GetCurrentCommitLogPosition();
 
         // a map of CfId -> forceFlush() to ensure we only queue one flush per cf
         final Map<UUID, ListenableFuture<?>> flushes = new LinkedHashMap<>();
@@ -447,7 +447,7 @@ public abstract class AbstractCommitLogSegmentManager
                     // even though we remove the schema entry before a final flush when dropping a CF,
                     // it's still possible for a writer to race and finish his append after the flush.
                     logger.trace("Marking clean CF {} that doesn't exist anymore", dirtyCFId);
-                    segment.markClean(dirtyCFId, segment.getCurrentSegmentPosition());
+                    segment.markClean(dirtyCFId, segment.GetCurrentCommitLogPosition());
                 }
                 else if (!flushes.containsKey(dirtyCFId))
                 {
@@ -455,7 +455,7 @@ public abstract class AbstractCommitLogSegmentManager
                     final ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(dirtyCFId);
                     // can safely call forceFlush here as we will only ever block (briefly) for other attempts to flush,
                     // no deadlock possibility since switchLock removal
-                    flushes.put(dirtyCFId, force ? cfs.forceFlush() : cfs.forceFlush(maxCommitLogSegmentPosition));
+                    flushes.put(dirtyCFId, force ? cfs.forceFlush() : cfs.forceFlush(maxCommitLogPosition));
                 }
             }
         }
@@ -552,11 +552,11 @@ public abstract class AbstractCommitLogSegmentManager
     }
 
     /**
-     * @return the current CommitLogSegmentPosition of the active segment we're allocating from
+     * @return the current CommitLogPosition of the active segment we're allocating from
      */
-    CommitLogSegmentPosition getCurrentSegmentPosition()
+    CommitLogPosition getCurrentPosition()
     {
-        return allocatingFrom().getCurrentSegmentPosition();
+        return allocatingFrom().GetCurrentCommitLogPosition();
     }
 
     /**

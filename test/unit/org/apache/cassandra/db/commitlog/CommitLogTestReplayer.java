@@ -39,7 +39,7 @@ public class CommitLogTestReplayer extends CommitLogReplayer
 
     public CommitLogTestReplayer(Predicate<Mutation> processor) throws IOException
     {
-        super(CommitLog.instance, CommitLogSegmentPosition.NONE, null, ReplayFilter.create());
+        super(CommitLog.instance, CommitLogPosition.NONE, null, ReplayFilter.create());
         CommitLog.instance.sync(true);
 
         this.processor = processor;
@@ -57,7 +57,7 @@ public class CommitLogTestReplayer extends CommitLogReplayer
         protected void readMutation(CommitLogReadHandler handler,
                                     byte[] inputBuffer,
                                     int size,
-                                    CommitLogSegmentPosition minPosition,
+                                    CommitLogPosition minPosition,
                                     final int entryLocation,
                                     final CommitLogDescriptor desc) throws IOException
         {

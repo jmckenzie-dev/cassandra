@@ -219,7 +219,7 @@ public class CommitLogUpgradeTestMaker
         int dataSize = 0;
         final CommitLog commitLog;
 
-        volatile CommitLogSegmentPosition clsp;
+        volatile CommitLogPosition clsp;
 
         public CommitlogExecutor(CommitLog commitLog)
         {

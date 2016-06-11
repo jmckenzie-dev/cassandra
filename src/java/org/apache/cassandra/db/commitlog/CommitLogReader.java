@@ -73,13 +73,13 @@ public class CommitLogReader
      */
     public void readAllFiles(CommitLogReadHandler handler, File[] files) throws IOException
     {
-        readAllFiles(handler, files, CommitLogSegmentPosition.NONE);
+        readAllFiles(handler, files, CommitLogPosition.NONE);
     }
 
     /**
      * Reads all passed in files with minPosition, no start, and no mutation limit.
      */
-    public void readAllFiles(CommitLogReadHandler handler, File[] files, CommitLogSegmentPosition minPosition) throws IOException
+    public void readAllFiles(CommitLogReadHandler handler, File[] files, CommitLogPosition minPosition) throws IOException
     {
         for (int i = 0; i < files.length; i++)
             readCommitLogSegment(handler, files[i], minPosition, ALL_MUTATIONS, i + 1 == files.length);
@@ -90,7 +90,7 @@ public class CommitLogReader
      */
     public void readcommitLogSegment(CommitLogReadHandler handler, File file, boolean tolerateTruncation) throws IOException
     {
-        readCommitLogSegment(handler, file, CommitLogSegmentPosition.NONE, ALL_MUTATIONS, tolerateTruncation);
+        readCommitLogSegment(handler, file, CommitLogPosition.NONE, ALL_MUTATIONS, tolerateTruncation);
     }
 
     /**
@@ -99,14 +99,14 @@ public class CommitLogReader
     @VisibleForTesting
     public void readCommitLogSegment(CommitLogReadHandler handler, File file, int mutationLimit, boolean tolerateTruncation) throws IOException
     {
-        readCommitLogSegment(handler, file, CommitLogSegmentPosition.NONE, mutationLimit, tolerateTruncation);
+        readCommitLogSegment(handler, file, CommitLogPosition.NONE, mutationLimit, tolerateTruncation);
     }
 
     /**
      * Reads mutations from file, handing them off to handler
      * @param handler Handler that will take action based on deserialized Mutations
      * @param file CommitLogSegment file to read
-     * @param minPosition Optional minimum CommitLogSegmentPosition - all segments with id > or matching w/greater position will be read
+     * @param minPosition Optional minimum CommitLogPosition - all segments with id > or matching w/greater position will be read
      * @param mutationLimit Optional limit on # of mutations to replay. Local ALL_MUTATIONS serves as marker to play all.
      * @param tolerateTruncation Whether or not we should allow truncation of this file or throw if EOF found
      *
@@ -114,7 +114,7 @@ public class CommitLogReader
      */
     public void readCommitLogSegment(CommitLogReadHandler handler,
                                      File file,
-                                     CommitLogSegmentPosition minPosition,
+                                     CommitLogPosition minPosition,
                                      int mutationLimit,
                                      boolean tolerateTruncation) throws IOException
     {
@@ -221,7 +221,7 @@ public class CommitLogReader
     /**
      * Any segment with id >= minPosition.segmentId is a candidate for read.
      */
-    private boolean shouldSkipSegmentId(File file, CommitLogDescriptor desc, CommitLogSegmentPosition minPosition)
+    private boolean shouldSkipSegmentId(File file, CommitLogDescriptor desc, CommitLogPosition minPosition)
     {
         logger.debug("Reading {} (CL version {}, messaging version {}, compression {})",
             file.getPath(),
@@ -242,14 +242,14 @@ public class CommitLogReader
      *
      * @param handler Handler that will take action based on deserialized Mutations
      * @param reader FileDataInput / logical buffer containing commitlog mutations
-     * @param minPosition CommitLogSegmentPosition indicating when we should start actively replaying mutations
+     * @param minPosition CommitLogPosition indicating when we should start actively replaying mutations
      * @param end logical numeric end of the segment being read
      * @param statusTracker ReadStatusTracker with current state of mutation count, error state, etc
      * @param desc Descriptor for CommitLog serialization
      */
     private void readSection(CommitLogReadHandler handler,
                              FileDataInput reader,
-                             CommitLogSegmentPosition minPosition,
+                             CommitLogPosition minPosition,
                              int end,
                              ReadStatusTracker statusTracker,
                              CommitLogDescriptor desc) throws IOException
@@ -361,7 +361,7 @@ public class CommitLogReader
     protected void readMutation(CommitLogReadHandler handler,
                                 byte[] inputBuffer,
                                 int size,
-                                CommitLogSegmentPosition minPosition,
+                                CommitLogPosition minPosition,
                                 final int entryLocation,
                                 final CommitLogDescriptor desc) throws IOException
     {

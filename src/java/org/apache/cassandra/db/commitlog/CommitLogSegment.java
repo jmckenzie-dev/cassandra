@@ -369,11 +369,11 @@ public abstract class CommitLogSegment
     }
 
     /**
-     * @return the current CommitLogSegmentPosition for this log segment
+     * @return the current CommitLogPosition for this log segment
      */
-    public CommitLogSegmentPosition getCurrentSegmentPosition()
+    public CommitLogPosition GetCurrentCommitLogPosition()
     {
-        return new CommitLogSegmentPosition(id, allocatePosition.get());
+        return new CommitLogPosition(id, allocatePosition.get());
     }
 
     /**
@@ -463,7 +463,7 @@ public abstract class CommitLogSegment
      * @param cfId    the column family ID that is now clean
      * @param context the optional clean offset
      */
-    public synchronized void markClean(UUID cfId, CommitLogSegmentPosition context)
+    public synchronized void markClean(UUID cfId, CommitLogPosition context)
     {
         if (!cfDirty.containsKey(cfId))
             return;
@@ -554,12 +554,12 @@ public abstract class CommitLogSegment
     }
 
     /**
-     * Check to see if a certain CommitLogSegmentPosition is contained by this segment file.
+     * Check to see if a certain CommitLogPosition is contained by this segment file.
      *
      * @param   context the commit log segment position to be checked
      * @return  true if the commit log segment position is contained by this segment file.
      */
-    public boolean contains(CommitLogSegmentPosition context)
+    public boolean contains(CommitLogPosition context)
     {
         return context.segmentId == id;
     }
@@ -666,9 +666,9 @@ public abstract class CommitLogSegment
             segment.waitForSync(position, waitingOnCommit);
         }
 
-        public CommitLogSegmentPosition getCommitLogSegmentPosition()
+        public CommitLogPosition GetCommitLogPosition()
         {
-            return new CommitLogSegmentPosition(segment.id, buffer.limit());
+            return new CommitLogPosition(segment.id, buffer.limit());
         }
     }
 }

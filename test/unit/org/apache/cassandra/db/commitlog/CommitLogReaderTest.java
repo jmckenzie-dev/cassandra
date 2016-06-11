@@ -97,7 +97,7 @@ public class CommitLogReaderTest extends CQLTester
     {
         int samples = 1000;
         int readCount = 500;
-        CommitLogSegmentPosition midpoint = populateData(samples);
+        CommitLogPosition midpoint = populateData(samples);
         ArrayList<File> toCheck = getCommitLogs();
 
         CommitLogReader reader = new CommitLogReader();
@@ -119,7 +119,7 @@ public class CommitLogReaderTest extends CQLTester
     {
         int samples = 1000;
         int readCount = 5000;
-        CommitLogSegmentPosition midpoint = populateData(samples);
+        CommitLogPosition midpoint = populateData(samples);
         ArrayList<File> toCheck = getCommitLogs();
 
         CommitLogReader reader = new CommitLogReader();
@@ -141,7 +141,7 @@ public class CommitLogReaderTest extends CQLTester
     {
         int samples = 1000;
         int readCount = 10;
-        CommitLogSegmentPosition midpoint = populateData(samples);
+        CommitLogPosition midpoint = populateData(samples);
         ArrayList<File> toCheck = getCommitLogs();
 
         CommitLogReader reader = new CommitLogReader();
@@ -245,7 +245,7 @@ public class CommitLogReaderTest extends CQLTester
     /**
      * Returns offset of active written data at halfway point of data
      */
-    CommitLogSegmentPosition populateData(int entryCount) throws Throwable
+    CommitLogPosition populateData(int entryCount) throws Throwable
     {
         Assert.assertEquals("entryCount must be an even number.", 0, entryCount % 2);
 
@@ -256,7 +256,7 @@ public class CommitLogReaderTest extends CQLTester
             execute("INSERT INTO %s (idx, data) VALUES (?, ?)", i, Integer.toString(i));
         }
 
-        CommitLogSegmentPosition result = CommitLog.instance.getCurrentSegmentPosition();
+        CommitLogPosition result = CommitLog.instance.getCurrentPosition();
 
         for (int i = midpoint; i < entryCount; i++)
             execute("INSERT INTO %s (idx, data) VALUES (?, ?)", i, Integer.toString(i));

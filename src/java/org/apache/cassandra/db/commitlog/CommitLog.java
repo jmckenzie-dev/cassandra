@@ -203,12 +203,12 @@ public class CommitLog implements CommitLogMBean
     }
 
     /**
-     * @return a CommitLogSegmentPosition which, if {@code >= one} returned from add(), implies add() was started
+     * @return a CommitLogPosition which, if {@code >= one} returned from add(), implies add() was started
      * (but not necessarily finished) prior to this call
      */
-    public CommitLogSegmentPosition getCurrentSegmentPosition()
+    public CommitLogPosition getCurrentPosition()
     {
-        return segmentManager.getCurrentSegmentPosition();
+        return segmentManager.getCurrentPosition();
     }
 
     /**
@@ -249,7 +249,7 @@ public class CommitLog implements CommitLogMBean
      * @param mutation the Mutation to add to the log
      * @throws WriteTimeoutException
      */
-    public CommitLogSegmentPosition add(Mutation mutation) throws WriteTimeoutException
+    public CommitLogPosition add(Mutation mutation) throws WriteTimeoutException
     {
         assert mutation != null;
 
@@ -289,7 +289,7 @@ public class CommitLog implements CommitLogMBean
         }
 
         executor.finishWriteFor(alloc);
-        return alloc.getCommitLogSegmentPosition();
+        return alloc.GetCommitLogPosition();
     }
 
     /**
@@ -299,12 +299,12 @@ public class CommitLog implements CommitLogMBean
      * @param cfId    the column family ID that was flushed
      * @param context the commit log segment position of the flush
      */
-    public void discardCompletedSegments(final UUID cfId, final CommitLogSegmentPosition context)
+    public void discardCompletedSegments(final UUID cfId, final CommitLogPosition context)
     {
         logger.trace("discard completed log segments for {}, table {}", context, cfId);
 
         // Go thru the active segment files, which are ordered oldest to newest, marking the
-        // flushed CF as clean, until we reach the segment file containing the CommitLogSegmentPosition passed
+        // flushed CF as clean, until we reach the segment file containing the CommitLogPosition passed
         // in the arguments. Any segments that become unused after they are marked clean will be
         // recycled or discarded.
         for (Iterator<CommitLogSegment> iter = segmentManager.getActiveSegments().iterator(); iter.hasNext();)

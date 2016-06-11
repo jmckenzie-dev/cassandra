@@ -249,7 +249,7 @@ public class CommitLogTest
         assertEquals(2, CommitLog.instance.segmentManager.getActiveSegments().size());
 
         UUID cfid2 = m2.getColumnFamilyIds().iterator().next();
-        CommitLog.instance.discardCompletedSegments(cfid2, CommitLog.instance.getCurrentSegmentPosition());
+        CommitLog.instance.discardCompletedSegments(cfid2, CommitLog.instance.getCurrentPosition());
 
         // Assert we still have both our segments
         assertEquals(2, CommitLog.instance.segmentManager.getActiveSegments().size());
@@ -277,7 +277,7 @@ public class CommitLogTest
         // "Flush": this won't delete anything
         UUID cfid1 = rm.getColumnFamilyIds().iterator().next();
         CommitLog.instance.sync(true);
-        CommitLog.instance.discardCompletedSegments(cfid1, CommitLog.instance.getCurrentSegmentPosition());
+        CommitLog.instance.discardCompletedSegments(cfid1, CommitLog.instance.getCurrentPosition());
 
         assertEquals(1, CommitLog.instance.segmentManager.getActiveSegments().size());
 
@@ -297,7 +297,7 @@ public class CommitLogTest
         // didn't write anything on cf1 since last flush (and we flush cf2)
 
         UUID cfid2 = rm2.getColumnFamilyIds().iterator().next();
-        CommitLog.instance.discardCompletedSegments(cfid2, CommitLog.instance.getCurrentSegmentPosition());
+        CommitLog.instance.discardCompletedSegments(cfid2, CommitLog.instance.getCurrentPosition());
 
         // Assert we still have both our segment
         assertEquals(1, CommitLog.instance.segmentManager.getActiveSegments().size());
@@ -545,7 +545,7 @@ public class CommitLogTest
                 CommitLog.instance.add(m2);
 
             assertEquals(2, CommitLog.instance.segmentManager.getActiveSegments().size());
-            CommitLogSegmentPosition position = CommitLog.instance.getCurrentSegmentPosition();
+            CommitLogPosition position = CommitLog.instance.getCurrentPosition();
             for (Keyspace keyspace : Keyspace.system())
                 for (ColumnFamilyStore syscfs : keyspace.getColumnFamilyStores())
                     CommitLog.instance.discardCompletedSegments(syscfs.metadata.cfId, position);
@@ -608,7 +608,7 @@ public class CommitLogTest
 
         CommitLog.instance.sync(true);
 
-        SimpleCountingReplayer replayer = new SimpleCountingReplayer(CommitLog.instance, CommitLogSegmentPosition.NONE);
+        SimpleCountingReplayer replayer = new SimpleCountingReplayer(CommitLog.instance, CommitLogPosition.NONE);
         List<String> activeSegments = CommitLog.instance.getActiveSegmentNames();
         Assert.assertFalse(activeSegments.isEmpty());
 
@@ -624,7 +624,7 @@ public class CommitLogTest
         int cellCount = 0;
         int max = 1024;
         int discardPosition = (int)(max * .8); // an arbitrary number of entries that we'll skip on the replay
-        CommitLogSegmentPosition commitLogSegmentPosition = null;
+        CommitLogPosition commitLogPosition = null;
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(STANDARD1);
 
         for (int i = 0; i < max; i++)
@@ -633,10 +633,10 @@ public class CommitLogTest
                                  .clustering("bytes")
                                  .add("val", bytes("this is a string"))
                                  .build();
-            CommitLogSegmentPosition position = CommitLog.instance.add(rm1);
+            CommitLogPosition position = CommitLog.instance.add(rm1);
 
             if (i == discardPosition)
-                commitLogSegmentPosition = position;
+                commitLogPosition = position;
             if (i > discardPosition)
             {
                 cellCount += 1;
@@ -645,7 +645,7 @@ public class CommitLogTest
 
         CommitLog.instance.sync(true);
 
-        SimpleCountingReplayer replayer = new SimpleCountingReplayer(CommitLog.instance, commitLogSegmentPosition);
+        SimpleCountingReplayer replayer = new SimpleCountingReplayer(CommitLog.instance, commitLogPosition);
         List<String> activeSegments = CommitLog.instance.getActiveSegmentNames();
         Assert.assertFalse(activeSegments.isEmpty());
 
@@ -657,12 +657,12 @@ public class CommitLogTest
 
     class SimpleCountingReplayer extends CommitLogReplayer
     {
-        private final CommitLogSegmentPosition filterPosition;
+        private final CommitLogPosition filterPosition;
         private CommitLogReader reader;
         int cells;
         int skipped;
 
-        SimpleCountingReplayer(CommitLog commitLog, CommitLogSegmentPosition filterPosition)
+        SimpleCountingReplayer(CommitLog commitLog, CommitLogPosition filterPosition)
         {
             super(commitLog, filterPosition, Collections.emptyMap(), ReplayFilter.create());
             this.filterPosition = filterPosition;
