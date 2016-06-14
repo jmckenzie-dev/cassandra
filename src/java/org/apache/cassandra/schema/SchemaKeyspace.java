@@ -989,7 +989,7 @@ public final class SchemaKeyspace
                           .readRepairChance(row.getDouble("read_repair_chance"))
                           .crcCheckChance(row.getDouble("crc_check_chance"))
                           .speculativeRetry(SpeculativeRetryParam.fromString(row.getString("speculative_retry")))
-                          .cdc(row.getBoolean("cdc"))
+                          .cdc(row.has("cdc") ? row.getBoolean("cdc") : false)
                           .build();
     }
 

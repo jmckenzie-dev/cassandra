@@ -133,6 +133,7 @@ options {
         return res;
     }
 
+    public void addRawUpdate(List<Pair<ColumnDefinition.Raw, Operation.RawUpdate>> operations, ColumnDefinition.Raw key, Operation.RawUpdate update)
     {
         for (Pair<ColumnDefinition.Raw, Operation.RawUpdate> p : operations)
         {
