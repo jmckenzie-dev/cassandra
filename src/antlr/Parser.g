@@ -95,7 +95,7 @@ options {
             listeners.get(i).syntaxError(this, msg);
     }
 
-    public Map<String, String> cleanMap(Maps.Literal map)
+    public Map<String, String> convertPropertyMap(Maps.Literal map)
     {
         if (map == null || map.entries == null || map.entries.isEmpty())
             return Collections.<String, String>emptyMap();
@@ -1128,7 +1128,7 @@ roleOptions[RoleOptions opts]
 
 roleOption[RoleOptions opts]
     :  K_PASSWORD '=' v=STRING_LITERAL { opts.setOption(IRoleManager.Option.PASSWORD, $v.text); }
-    |  K_OPTIONS '=' m=mapLiteral { opts.setOption(IRoleManager.Option.OPTIONS, cleanMap(m)); }
+    |  K_OPTIONS '=' m=mapLiteral { opts.setOption(IRoleManager.Option.OPTIONS, convertPropertyMap(m)); }
     |  K_SUPERUSER '=' b=BOOLEAN { opts.setOption(IRoleManager.Option.SUPERUSER, Boolean.valueOf($b.text)); }
     |  K_LOGIN '=' b=BOOLEAN { opts.setOption(IRoleManager.Option.LOGIN, Boolean.valueOf($b.text)); }
     ;
@@ -1401,7 +1401,7 @@ properties[PropertyDefinitions props]
 
 property[PropertyDefinitions props]
     : k=noncol_ident '=' simple=propertyValue { try { $props.addProperty(k.toString(), simple); } catch (SyntaxException e) { addRecognitionError(e.getMessage()); } }
-    | k=noncol_ident '=' map=mapLiteral { try { $props.addProperty(k.toString(), cleanMap(map)); } catch (SyntaxException e) { addRecognitionError(e.getMessage()); } }
+    | k=noncol_ident '=' map=mapLiteral { try { $props.addProperty(k.toString(), convertPropertyMap(map)); } catch (SyntaxException e) { addRecognitionError(e.getMessage()); } }
     ;
 
 propertyValue returns [String str]

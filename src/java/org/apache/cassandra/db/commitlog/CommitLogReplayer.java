@@ -392,7 +392,6 @@ public class CommitLogReplayer implements CommitLogReadHandler
         return filter == null || filter.shouldReplay(position);
     }
 
-    @SuppressWarnings("resource")
     protected boolean pointInTimeExceeded(Mutation fm)
     {
         long restoreTarget = archiver.restorePointInTime;

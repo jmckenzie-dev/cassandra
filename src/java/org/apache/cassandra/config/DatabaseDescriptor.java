@@ -987,9 +987,12 @@ public class DatabaseDescriptor
                 throw new ConfigurationException("saved_caches_directory must be specified", false);
             FileUtils.createDirectory(conf.saved_caches_directory);
 
-            if (conf.cdc_raw_directory == null)
-                throw new ConfigurationException("cdc_raw_directory must be specified", false);
-            FileUtils.createDirectory(conf.cdc_raw_directory);
+            if (conf.cdc_enabled)
+            {
+                if (conf.cdc_raw_directory == null)
+                    throw new ConfigurationException("cdc_raw_directory must be specified", false);
+                FileUtils.createDirectory(conf.cdc_raw_directory);
+            }
         }
         catch (ConfigurationException e)
         {

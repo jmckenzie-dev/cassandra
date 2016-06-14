@@ -64,8 +64,10 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         if (segment.getCDCState() == CDCState.CONTAINS)
             FileUtils.renameWithConfirm(segment.logFile.getAbsolutePath(), DatabaseDescriptor.getCDCLogLocation() + File.separator + segment.logFile.getName());
         else
+        {
             if (delete)
                 FileUtils.deleteWithConfirm(segment.logFile);
+        }
     }
 
     /**

@@ -371,7 +371,7 @@ public abstract class CommitLogSegment
     /**
      * @return the current CommitLogPosition for this log segment
      */
-    public CommitLogPosition GetCurrentCommitLogPosition()
+    public CommitLogPosition getCurrentCommitLogPosition()
     {
         return new CommitLogPosition(id, allocatePosition.get());
     }

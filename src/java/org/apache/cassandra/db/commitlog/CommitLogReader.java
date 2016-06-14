@@ -88,7 +88,7 @@ public class CommitLogReader
     /**
      * Reads passed in file fully
      */
-    public void readcommitLogSegment(CommitLogReadHandler handler, File file, boolean tolerateTruncation) throws IOException
+    public void readCommitLogSegment(CommitLogReadHandler handler, File file, boolean tolerateTruncation) throws IOException
     {
         readCommitLogSegment(handler, file, CommitLogPosition.NONE, ALL_MUTATIONS, tolerateTruncation);
     }

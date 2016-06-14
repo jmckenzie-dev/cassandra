@@ -73,6 +73,7 @@ public class Memtable implements Comparable<Memtable>
     // the precise lower bound of CommitLogPosition owned by this memtable; equal to its predecessor's commitLogUpperBound
     private AtomicReference<CommitLogPosition> commitLogLowerBound;
 
+    // The approximate lower bound by this memtable; must be <= commitLogLowerBound once our predecessor
     // has been finalised, and this is enforced in the ColumnFamilyStore.setCommitLogUpperBound
     private final CommitLogPosition approximateCommitLogLowerBound = CommitLog.instance.getCurrentPosition();
 

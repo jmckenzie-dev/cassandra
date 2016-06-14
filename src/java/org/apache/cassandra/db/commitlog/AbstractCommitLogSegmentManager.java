@@ -324,7 +324,7 @@ public abstract class AbstractCommitLogSegmentManager
 
             for (CommitLogSegment segment : activeSegments)
                 for (UUID cfId : droppedCfs)
-                    segment.markClean(cfId, segment.GetCurrentCommitLogPosition());
+                    segment.markClean(cfId, segment.getCurrentCommitLogPosition());
 
             // now recycle segments that are unused, as we may not have triggered a discardCompletedSegments()
             // if the previous active segment was the only one to recycle (since an active segment isn't
@@ -432,7 +432,7 @@ public abstract class AbstractCommitLogSegmentManager
     {
         if (segments.isEmpty())
             return Futures.immediateFuture(null);
-        final CommitLogPosition maxCommitLogPosition = segments.get(segments.size() - 1).GetCurrentCommitLogPosition();
+        final CommitLogPosition maxCommitLogPosition = segments.get(segments.size() - 1).getCurrentCommitLogPosition();
 
         // a map of CfId -> forceFlush() to ensure we only queue one flush per cf
         final Map<UUID, ListenableFuture<?>> flushes = new LinkedHashMap<>();
@@ -447,7 +447,7 @@ public abstract class AbstractCommitLogSegmentManager
                     // even though we remove the schema entry before a final flush when dropping a CF,
                     // it's still possible for a writer to race and finish his append after the flush.
                     logger.trace("Marking clean CF {} that doesn't exist anymore", dirtyCFId);
-                    segment.markClean(dirtyCFId, segment.GetCurrentCommitLogPosition());
+                    segment.markClean(dirtyCFId, segment.getCurrentCommitLogPosition());
                 }
                 else if (!flushes.containsKey(dirtyCFId))
                 {
@@ -556,7 +556,7 @@ public abstract class AbstractCommitLogSegmentManager
      */
     CommitLogPosition getCurrentPosition()
     {
-        return allocatingFrom().GetCurrentCommitLogPosition();
+        return allocatingFrom().getCurrentCommitLogPosition();
     }
 
     /**
