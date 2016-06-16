@@ -666,7 +666,7 @@ public abstract class CommitLogSegment
             segment.waitForSync(position, waitingOnCommit);
         }
 
-        public CommitLogPosition GetCommitLogPosition()
+        public CommitLogPosition getCommitLogPosition()
         {
             return new CommitLogPosition(segment.id, buffer.limit());
         }
