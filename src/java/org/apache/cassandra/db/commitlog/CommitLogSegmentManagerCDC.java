@@ -24,7 +24,6 @@ import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Arrays;
 import java.util.concurrent.*;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -38,7 +37,6 @@ import org.apache.cassandra.db.commitlog.CommitLogSegment.CDCState;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.DirectorySizeCalculator;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NoSpamLogger;
 
 public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
@@ -159,20 +157,16 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
      *
      * Allows atomic increment/decrement of unflushed size, however only allows increment on flushed and requires a full
      * directory walk to determine any potential deletions by CDC consumer.
-     *
-     * TODO: linux performs approximately 25% better with the following one-liner instead of this walker:
-     *      Arrays.stream(path.listFiles()).mapToLong(File::length).sum();
-     * However this solution is 375% slower on Windows. Revisit this and split logic to per-OS
      */
     private static class CDCSizeTracker extends DirectorySizeCalculator
     {
         private final RateLimiter rateLimiter = RateLimiter.create(1000.0 / DatabaseDescriptor.getCDCDiskCheckInterval());
         private ExecutorService cdcSizeCalculationExecutor;
         private CommitLogSegmentManagerCDC segmentManager;
-        private long unflushedCDCSize;
+        private volatile long unflushedCDCSize;
 
         // Used instead of size during walk to remove chance of over-allocation
-        private long tempSize = 0;
+        private volatile long sizeInProgress = 0;
 
         CDCSizeTracker(CommitLogSegmentManagerCDC segmentManager, File path)
         {
@@ -266,16 +260,9 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
             try
             {
                 // The Arrays.stream approach is considerably slower on Windows than linux
-                if (FBUtilities.isWindows())
-                {
-                    tempSize = 0;
-                    Files.walkFileTree(path.toPath(), this);
-                    size = tempSize;
-                }
-                else
-                {
-                    size = Arrays.stream(path.listFiles()).mapToLong(File::length).sum();
-                }
+                sizeInProgress = 0;
+                Files.walkFileTree(path.toPath(), this);
+                size = sizeInProgress;
             }
             catch (IOException ie)
             {
@@ -286,7 +273,7 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         @Override
         public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException
         {
-            tempSize += attrs.size();
+            sizeInProgress += attrs.size();
             return FileVisitResult.CONTINUE;
         }
 
