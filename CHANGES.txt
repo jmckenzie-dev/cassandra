@@ -1,4 +1,5 @@
 3.8
+ * Partial revert of CASSANDRA-11971, cannot recycle buffer in SP.sendMessagesToNonlocalDC (CASSANDRA-11950)
  * Upgrade netty to 4.0.37 (CASSANDRA-12032, CASSANDRA-12034)
  * Improve details in compaction log message (CASSANDRA-12080)
  * Allow unset values in CQLSSTableWriter (CASSANDRA-11911)
