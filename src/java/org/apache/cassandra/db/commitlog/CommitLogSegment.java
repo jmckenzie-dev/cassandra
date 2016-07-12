@@ -18,6 +18,7 @@
 package org.apache.cassandra.db.commitlog;
 
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -28,6 +29,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.CRC32;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 
 import com.codahale.metrics.Timer;
@@ -89,7 +91,9 @@ public abstract class CommitLogSegment
     // Everything before this offset has been synced and written.  The SYNC_MARKER_SIZE bytes after
     // each sync are reserved, and point forwards to the next such offset.  The final
     // sync marker in a segment will be zeroed out, or point to a position too close to the EOF to fit a marker.
-    private volatile int lastSyncedOffset;
+    // Package private to allow unit tests to inspect
+    @VisibleForTesting
+    volatile int lastSyncedOffset;
 
     // The end position of the buffer. Initially set to its capacity and updated to point to the last written position
     // as the segment is being closed.
@@ -209,7 +213,10 @@ public abstract class CommitLogSegment
                 opGroup.close();
                 return null;
             }
-            markDirty(mutation, position);
+
+            for (PartitionUpdate update : mutation.getPartitionUpdates())
+                ensureAtleast(cfDirty, update.metadata().cfId, position);
+
             return new Allocation(this, opGroup, position, (ByteBuffer) buffer.duplicate().position(position).limit(position + size));
         }
         catch (Throwable t)
@@ -330,11 +337,30 @@ public abstract class CommitLogSegment
         // Possibly perform compression or encryption, writing to file and flush.
         write(startMarker, sectionEnd);
 
+        if (cdcState == CDCState.CONTAINS)
+            writeCDCIndexFile(descriptor, sectionEnd, close);
+
         // Signal the sync as complete.
         lastSyncedOffset = nextMarker;
         if (close)
             internalClose();
         syncComplete.signalAll();
+    }
+
+    public static void writeCDCIndexFile(CommitLogDescriptor desc, int offset, boolean complete)
+    {
+        try(FileWriter writer = new FileWriter(new File(DatabaseDescriptor.getCDCLogLocation(), desc.cdcIndexFileName())))
+        {
+            writer.write(String.valueOf(offset));
+            if (complete)
+                writer.write("\nCOMPLETED");
+            writer.flush();
+        }
+        catch (IOException e)
+        {
+            if (!CommitLog.instance.handleCommitError("Failed to sync CDC Index: " + desc.cdcIndexFileName(), e))
+                throw new RuntimeException(e);
+        }
     }
 
     /**
@@ -400,6 +426,22 @@ public abstract class CommitLogSegment
     public String getName()
     {
         return logFile.getName();
+    }
+
+    /**
+     * @return a File object representing the CDC directory and this file name for hard-linking
+     */
+    public File getCDCFile()
+    {
+        return new File(DatabaseDescriptor.getCDCLogLocation(), logFile.getName());
+    }
+
+    /**
+     * @return a File object representing the CDC Index file holding the offset and completion status of this segment
+     */
+    public File getCDCIndexFile()
+    {
+        return new File(DatabaseDescriptor.getCDCLogLocation(), descriptor.cdcIndexFileName());
     }
 
     void waitForFinalSync()
@@ -470,12 +512,6 @@ public abstract class CommitLogSegment
                 return;
         }
         i.expandToCover(value);
-    }
-
-    void markDirty(Mutation mutation, int allocatedPosition)
-    {
-        for (PartitionUpdate update : mutation.getPartitionUpdates())
-            coverInMap(cfDirty, update.metadata().cfId, allocatedPosition);
     }
 
     /**
@@ -620,7 +656,7 @@ public abstract class CommitLogSegment
         // Also synchronized in CDCSizeTracker.processNewSegment and .processDiscardedSegment
         synchronized(cdcStateLock)
         {
-            if (cdcState == CDCState.CONTAINS && newState != CDCState.CONTAINS)
+            if (cdcState == CDCState.CONTAINS)
                 throw new IllegalArgumentException("Cannot transition from CONTAINS to any other state.");
 
             if (cdcState == CDCState.FORBIDDEN && newState != CDCState.PERMITTED)

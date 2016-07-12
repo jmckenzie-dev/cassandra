@@ -64,6 +64,10 @@ New features
    - Add support to "unset" JSON fields in prepared statements by specifying DEFAULT UNSET.
      See CASSANDRA-11424 for details
    - Allow TTL with null value on insert and update. It will be treated as equivalent to inserting a 0.
+   - Change-Data-Capture has been modified to make CommitLogSegments available
+     immediately upon creation via hard-linking the files. This means that incomplete
+     segments will be available in cdc_raw rather than fully flushed. See documentation
+     and CASSANDRA-12148 for more detail.
 
 Upgrading
 ---------

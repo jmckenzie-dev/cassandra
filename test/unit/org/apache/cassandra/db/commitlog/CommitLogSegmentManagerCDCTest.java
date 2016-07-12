@@ -18,14 +18,17 @@
 
 package org.apache.cassandra.db.commitlog;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Random;
 
 import org.junit.Assert;
 import org.junit.Assume;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -46,14 +49,6 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
     public static void checkConfig()
     {
         Assume.assumeTrue(DatabaseDescriptor.isCDCEnabled());
-    }
-
-    @Before
-    public void before() throws IOException
-    {
-        CommitLog.instance.resetUnsafe(true);
-        for (File f : new File(DatabaseDescriptor.getCDCLogLocation()).listFiles())
-            FileUtils.deleteWithConfirm(f);
     }
 
     @Test
@@ -111,45 +106,6 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
     }
 
     @Test
-    public void testCLSMCDCDiscardLogic() throws Throwable
-    {
-        CommitLogSegmentManagerCDC cdcMgr = (CommitLogSegmentManagerCDC)CommitLog.instance.segmentManager;
-
-        createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=false;");
-        for (int i = 0; i < 8; i++)
-        {
-            new RowUpdateBuilder(currentTableMetadata(), 0, i)
-                .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 4)) // fit 3 in a segment
-                .build().apply();
-        }
-
-        // Should have 4 segments CDC since we haven't flushed yet, 3 PERMITTED, one of which is active, and 1 PERMITTED, in waiting
-        Assert.assertEquals(4 * DatabaseDescriptor.getCommitLogSegmentSize(), cdcMgr.updateCDCTotalSize());
-        expectCurrentCDCState(CDCState.PERMITTED);
-        CommitLog.instance.forceRecycleAllSegments();
-
-        // on flush, these PERMITTED should be deleted
-        Assert.assertEquals(0, new File(DatabaseDescriptor.getCDCLogLocation()).listFiles().length);
-
-        createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=true;");
-        for (int i = 0; i < 8; i++)
-        {
-            new RowUpdateBuilder(currentTableMetadata(), 0, i)
-                .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 4))
-                .build().apply();
-        }
-        // 4 total again, 3 CONTAINS, 1 in waiting PERMITTED
-        Assert.assertEquals(4 * DatabaseDescriptor.getCommitLogSegmentSize(), cdcMgr.updateCDCTotalSize());
-        CommitLog.instance.forceRecycleAllSegments();
-        expectCurrentCDCState(CDCState.PERMITTED);
-
-        // On flush, PERMITTED is deleted, CONTAINS is preserved.
-        cdcMgr.awaitManagementTasksCompletion();
-        int seen = getCDCRawCount();
-        Assert.assertTrue("Expected >3 files in cdc_raw, saw: " + seen, seen >= 3);
-    }
-
-    @Test
     public void testSegmentFlaggingOnCreation() throws Throwable
     {
         CommitLogSegmentManagerCDC cdcMgr = (CommitLogSegmentManagerCDC)CommitLog.instance.segmentManager;
@@ -177,7 +133,9 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
             CommitLog.instance.forceRecycleAllSegments();
 
             cdcMgr.awaitManagementTasksCompletion();
-            new File(DatabaseDescriptor.getCDCLogLocation()).listFiles()[0].delete();
+            // Delete all files in cdc_raw
+            for (File f : new File(DatabaseDescriptor.getCDCLogLocation()).listFiles())
+                f.delete();
             cdcMgr.updateCDCTotalSize();
             // Confirm cdc update process changes flag on active segment
             expectCurrentCDCState(CDCState.PERMITTED);
@@ -197,6 +155,109 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
         {
             DatabaseDescriptor.setCDCSpaceInMB(origSize);
         }
+    }
+
+    @Test
+    public void testCDCIndexFileWriteOnSync() throws IOException
+    {
+        createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=true;");
+        new RowUpdateBuilder(currentTableMetadata(), 0, 1)
+            .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
+            .build().apply();
+
+        CommitLog.instance.sync(true);
+        CommitLogSegment currentSegment = CommitLog.instance.segmentManager.allocatingFrom;
+        int syncOffset = currentSegment.lastSyncedOffset;
+
+        // Confirm index file is written
+        File cdcIndexFile = currentSegment.getCDCIndexFile();
+        Assert.assertTrue("Index file not written: " + cdcIndexFile, cdcIndexFile.exists());
+
+        // Read index value and confirm it's == end from last sync
+        BufferedReader in = new BufferedReader(new FileReader(cdcIndexFile));
+        String input = in.readLine();
+        Integer offset = Integer.parseInt(input);
+        Assert.assertEquals(syncOffset, (long)offset);
+        in.close();
+    }
+
+    @Test
+    public void testCompletedFlag() throws IOException
+    {
+        createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=true;");
+        CommitLogSegment initialSegment = CommitLog.instance.segmentManager.allocatingFrom;
+        for (int i = 0; i < 8; i++)
+        {
+            new RowUpdateBuilder(currentTableMetadata(), 0, 1)
+            .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
+            .build().apply();
+        }
+
+        CommitLog.instance.forceRecycleAllSegments();
+
+        // Confirm index file is written
+        File cdcIndexFile = initialSegment.getCDCIndexFile();
+        Assert.assertTrue("Index file not written: " + cdcIndexFile, cdcIndexFile.exists());
+
+        // Read index file and confirm second line is COMPLETED
+        BufferedReader in = new BufferedReader(new FileReader(cdcIndexFile));
+        String input = in.readLine();
+        input = in.readLine();
+        Assert.assertTrue("Expected COMPLETED in index file, got: " + input, input.equals("COMPLETED"));
+        in.close();
+    }
+
+    @Test
+    public void testDeleteLinkOnDiscardNoCDC() throws Throwable
+    {
+        createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=false;");
+        new RowUpdateBuilder(currentTableMetadata(), 0, 1)
+            .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
+            .build().apply();
+        CommitLogSegment currentSegment = CommitLog.instance.segmentManager.allocatingFrom;
+
+        // Confirm that, with no CDC data present, we've hard-linked but have no index file
+        Path linked = new File(DatabaseDescriptor.getCDCLogLocation(), currentSegment.logFile.getName()).toPath();
+        File cdcIndexFile = currentSegment.getCDCIndexFile();
+        Assert.assertTrue("File does not exist: " + linked, Files.exists(linked));
+        Assert.assertFalse("Expected index file to not be created but found: " + cdcIndexFile, cdcIndexFile.exists());
+
+        // Sync and confirm no index written as index is written on flush
+        CommitLog.instance.sync(true);
+        Assert.assertTrue("File does not exist: " + linked, Files.exists(linked));
+        Assert.assertFalse("Expected index file to not be created but found: " + cdcIndexFile, cdcIndexFile.exists());
+
+        // Force a full recycle and confirm hard-link is deleted
+        CommitLog.instance.forceRecycleAllSegments();
+        CommitLog.instance.segmentManager.awaitManagementTasksCompletion();
+        Assert.assertFalse("Expected hard link to CLS to be deleted on non-cdc segment: " + linked, Files.exists(linked));
+    }
+
+    @Test
+    public void testRetainLinkOnDiscardCDC() throws Throwable
+    {
+        createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=true;");
+        CommitLogSegment currentSegment = CommitLog.instance.segmentManager.allocatingFrom;
+        File cdcIndexFile = currentSegment.getCDCIndexFile();
+        Assert.assertFalse("Expected no index file before flush but found: " + cdcIndexFile, cdcIndexFile.exists());
+
+        new RowUpdateBuilder(currentTableMetadata(), 0, 1)
+            .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
+            .build().apply();
+
+        Path linked = new File(DatabaseDescriptor.getCDCLogLocation(), currentSegment.logFile.getName()).toPath();
+        // Confirm that, with CDC data present but not yet flushed, we've hard-linked but have no index file
+        Assert.assertTrue("File does not exist: " + linked, Files.exists(linked));
+
+        // Sync and confirm index written as index is written on flush
+        CommitLog.instance.sync(true);
+        Assert.assertTrue("File does not exist: " + linked, Files.exists(linked));
+        Assert.assertTrue("Expected cdc index file after flush but found none: " + cdcIndexFile, cdcIndexFile.exists());
+
+        // Force a full recycle and confirm all files remain
+        CommitLog.instance.forceRecycleAllSegments();
+        Assert.assertTrue("File does not exist: " + linked, Files.exists(linked));
+        Assert.assertTrue("Expected cdc index file after recycle but found none: " + cdcIndexFile, cdcIndexFile.exists());
     }
 
     private ByteBuffer randomizeBuffer(int size)

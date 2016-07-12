@@ -33,6 +33,7 @@ import net.nicoulaj.compilecommand.annotations.DontInline;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
@@ -185,12 +186,6 @@ public abstract class AbstractCommitLogSegmentManager
     public abstract Allocation allocate(Mutation mutation, int size);
 
     /**
-     * The recovery and replay process replays mutations into memtables and flushes them to disk. Individual CLSM
-     * decide what to do with those segments on disk after they've been replayed.
-     */
-    abstract void handleReplayedSegment(final File file);
-
-    /**
      * Hook to allow segment managers to track state surrounding creation of new segments. Onl perform as task submit
      * to segment manager so it's performed on segment management thread.
      */
@@ -327,6 +322,18 @@ public abstract class AbstractCommitLogSegmentManager
         // if archiving (command) was not successful then leave the file alone. don't delete or recycle.
         logger.debug("Segment {} is no longer active and will be deleted {}", segment, archiveSuccess ? "now" : "by the archive script");
         discard(segment, archiveSuccess);
+    }
+
+    /**
+     * Delete untracked segment files after replay
+     *
+     * @param file segment file that is no longer in use.
+     */
+    void handleReplayedSegment(final File file)
+    {
+        // (don't decrease managed size, since this was never a "live" segment)
+        logger.trace("(Unopened) segment {} is no longer needed and will be deleted now", file);
+        FileUtils.deleteWithConfirm(file);
     }
 
     /**
