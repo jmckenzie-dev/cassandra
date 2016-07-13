@@ -55,7 +55,7 @@ public abstract class CommitLogSegment
 
     private final static long idBase;
 
-    private CDCState cdcState = CDCState.PERMITTED;
+    CDCState cdcState = CDCState.PERMITTED;
     public enum CDCState {
         PERMITTED,
         FORBIDDEN,
@@ -614,7 +614,7 @@ public abstract class CommitLogSegment
             return;
 
         // Also synchronized in CDCSizeTracker.processNewSegment and .processDiscardedSegment
-        synchronized(this)
+        synchronized(cdcState)
         {
             if (cdcState == CDCState.CONTAINS && newState != CDCState.CONTAINS)
                 throw new IllegalArgumentException("Cannot transition from CONTAINS to any other state.");
