@@ -31,6 +31,10 @@ directory specified in ``cassandra.yaml``. On segment fsync to disk, if CDC data
 to disk. Upon final segment flush, a second line with the human-readable word "COMPLETED" will be added to the _cdc.idx
 file indicating that Cassandra has completed all processing on the file.
 
+We we use an index file rather than just encouraging clients to parse the log realtime off a memory mapped handle as data
+can be reflected in a kernel buffer that is not yet persisted to disk. Parsing only up to the listed offset in the _cdc.idx
+file will ensure that you only parse CDC data for data that is durable.
+
 A threshold of total disk space allowed is specified in the yaml at which time newly allocated CommitLogSegments will
 not allow CDC data until a consumer parses and removes files from the specified cdc_raw directory.
 

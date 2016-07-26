@@ -347,6 +347,11 @@ public abstract class CommitLogSegment
         syncComplete.signalAll();
     }
 
+    /**
+     * We persist the offset of the last data synced to disk so clients can parse only durable data if they choose. Data
+     * in shared / memory-mapped buffers reflects un-synced data so we need an external sentinel for clients to read to
+     * determine actual durable data persisted.
+     */
     public static void writeCDCIndexFile(CommitLogDescriptor desc, int offset, boolean complete)
     {
         try(FileWriter writer = new FileWriter(new File(DatabaseDescriptor.getCDCLogLocation(), desc.cdcIndexFileName())))
