@@ -661,7 +661,8 @@ public abstract class CommitLogSegment
         // Also synchronized in CDCSizeTracker.processNewSegment and .processDiscardedSegment
         synchronized(cdcStateLock)
         {
-            if (cdcState == CDCState.CONTAINS)
+            // Need duplicate CONTAINS to be idempotent since 2 threads can race on this lock
+            if (cdcState == CDCState.CONTAINS && newState != CDCState.CONTAINS)
                 throw new IllegalArgumentException("Cannot transition from CONTAINS to any other state.");
 
             if (cdcState == CDCState.FORBIDDEN && newState != CDCState.PERMITTED)
