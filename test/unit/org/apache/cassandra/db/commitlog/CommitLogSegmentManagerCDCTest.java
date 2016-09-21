@@ -165,8 +165,8 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
             .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
             .build().apply();
 
-        CommitLog.instance.sync(true);
-        CommitLogSegment currentSegment = CommitLog.instance.segmentManager.allocatingFrom;
+        CommitLog.instance.sync();
+        CommitLogSegment currentSegment = CommitLog.instance.segmentManager.allocatingFrom();
         int syncOffset = currentSegment.lastSyncedOffset;
 
         // Confirm index file is written
@@ -185,7 +185,7 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
     public void testCompletedFlag() throws IOException
     {
         createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=true;");
-        CommitLogSegment initialSegment = CommitLog.instance.segmentManager.allocatingFrom;
+        CommitLogSegment initialSegment = CommitLog.instance.segmentManager.allocatingFrom();
         for (int i = 0; i < 8; i++)
         {
             new RowUpdateBuilder(currentTableMetadata(), 0, 1)
@@ -214,7 +214,7 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
         new RowUpdateBuilder(currentTableMetadata(), 0, 1)
             .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
             .build().apply();
-        CommitLogSegment currentSegment = CommitLog.instance.segmentManager.allocatingFrom;
+        CommitLogSegment currentSegment = CommitLog.instance.segmentManager.allocatingFrom();
 
         // Confirm that, with no CDC data present, we've hard-linked but have no index file
         Path linked = new File(DatabaseDescriptor.getCDCLogLocation(), currentSegment.logFile.getName()).toPath();
@@ -223,7 +223,7 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
         Assert.assertFalse("Expected index file to not be created but found: " + cdcIndexFile, cdcIndexFile.exists());
 
         // Sync and confirm no index written as index is written on flush
-        CommitLog.instance.sync(true);
+        CommitLog.instance.sync();
         Assert.assertTrue("File does not exist: " + linked, Files.exists(linked));
         Assert.assertFalse("Expected index file to not be created but found: " + cdcIndexFile, cdcIndexFile.exists());
 
@@ -237,7 +237,7 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
     public void testRetainLinkOnDiscardCDC() throws Throwable
     {
         createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=true;");
-        CommitLogSegment currentSegment = CommitLog.instance.segmentManager.allocatingFrom;
+        CommitLogSegment currentSegment = CommitLog.instance.segmentManager.allocatingFrom();
         File cdcIndexFile = currentSegment.getCDCIndexFile();
         Assert.assertFalse("Expected no index file before flush but found: " + cdcIndexFile, cdcIndexFile.exists());
 
@@ -250,7 +250,7 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
         Assert.assertTrue("File does not exist: " + linked, Files.exists(linked));
 
         // Sync and confirm index written as index is written on flush
-        CommitLog.instance.sync(true);
+        CommitLog.instance.sync();
         Assert.assertTrue("File does not exist: " + linked, Files.exists(linked));
         Assert.assertTrue("Expected cdc index file after flush but found none: " + cdcIndexFile, cdcIndexFile.exists());
 

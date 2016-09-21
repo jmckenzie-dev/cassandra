@@ -187,7 +187,6 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         public void start()
         {
             size = 0;
-            unflushedCDCSize = 0;
             cdcSizeCalculationExecutor = new ThreadPoolExecutor(1, 1, 1000, TimeUnit.SECONDS, new SynchronousQueue<>(), new ThreadPoolExecutor.DiscardPolicy());
         }
 

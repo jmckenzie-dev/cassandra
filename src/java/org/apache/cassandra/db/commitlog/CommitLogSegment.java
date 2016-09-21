@@ -215,7 +215,7 @@ public abstract class CommitLogSegment
             }
 
             for (PartitionUpdate update : mutation.getPartitionUpdates())
-                ensureAtleast(cfDirty, update.metadata().cfId, position);
+                coverInMap(cfDirty, update.metadata().cfId, position);
 
             return new Allocation(this, opGroup, position, (ByteBuffer) buffer.duplicate().position(position).limit(position + size));
         }
