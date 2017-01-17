@@ -22,30 +22,32 @@ package org.apache.cassandra.index.sasi.disk;
  */
 public class Descriptor
 {
-    public static final String VERSION_AA = "aa";
-    public static final String VERSION_AB = "ab";
-    public static final String CURRENT_VERSION = VERSION_AB;
-    public static final Descriptor CURRENT = new Descriptor(CURRENT_VERSION);
-
-    public static class Version
+    public static enum Version
     {
-        public final String version;
-
-        public Version(String version)
-        {
-            this.version = version;
-        }
-
-        public String toString()
-        {
-            return version;
-        }
+        aa,
+        ab,
+        ac
     }
 
-    public final Version version;
+    public static final Version VERSION_AA = Version.aa;
+    public static final Version VERSION_AB = Version.ab;
+    public static final Version VERSION_AC = Version.ac;
 
-    public Descriptor(String v)
+    public static final Version CURRENT_VERSION = Version.ac;
+//    public static final Descriptor CURRENT = new Descriptor(CURRENT_VERSION);
+
+    public final Version version;
+    public final String columnName;
+
+    public Descriptor(String v, String columnName)
     {
-        this.version = new Version(v);
+        this.version = Version.valueOf(v);
+        this.columnName = columnName;
+    }
+
+    public Descriptor(Version v, String columnName)
+    {
+        this.version = v;
+        this.columnName = columnName;
     }
 }

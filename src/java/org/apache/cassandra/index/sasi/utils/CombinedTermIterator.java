@@ -30,19 +30,18 @@ import org.apache.cassandra.utils.Pair;
 @SuppressWarnings("resource")
 public class CombinedTermIterator extends TermIterator
 {
-    final Descriptor descriptor;
     final RangeIterator<OnDiskIndex.DataTerm, CombinedTerm> union;
     final ByteBuffer min;
     final ByteBuffer max;
 
-    public CombinedTermIterator(OnDiskIndex... sas)
-    {
-        this(Descriptor.CURRENT, sas);
-    }
+//    public CombinedTermIterator(OnDiskIndex... sas)
+//    {
+//        sas[0].descriptor.columnName
+//        this(Descriptor.CURRENT, sas);
+//    }
 
-    public CombinedTermIterator(Descriptor d, OnDiskIndex... parts)
+    public CombinedTermIterator(OnDiskIndex... parts)
     {
-        descriptor = d;
         union = OnDiskIndexIterator.union(parts);
 
         AbstractType<?> comparator = parts[0].getComparator(); // assumes all SAs have same comparator

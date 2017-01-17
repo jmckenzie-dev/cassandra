@@ -18,16 +18,22 @@
 package org.apache.cassandra.cql3.validation.operations;
 
 import java.nio.ByteBuffer;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 
+import org.apache.commons.lang.RandomStringUtils;
 import org.junit.Test;
 import org.junit.Assert;
 
+import com.carrotsearch.hppc.hash.MurmurHash3;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.Duration;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.restrictions.StatementRestrictions;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.MurmurHash;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;

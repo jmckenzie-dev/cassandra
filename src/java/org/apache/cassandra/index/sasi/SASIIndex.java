@@ -35,6 +35,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
@@ -46,6 +47,7 @@ import org.apache.cassandra.index.sasi.conf.ColumnIndex;
 import org.apache.cassandra.index.sasi.conf.IndexMode;
 import org.apache.cassandra.index.sasi.disk.OnDiskIndexBuilder.Mode;
 import org.apache.cassandra.index.sasi.disk.PerSSTableIndexWriter;
+import org.apache.cassandra.index.sasi.disk.RowKey;
 import org.apache.cassandra.index.sasi.plan.QueryPlan;
 import org.apache.cassandra.index.transactions.IndexTransaction;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -121,6 +123,7 @@ public class SASIIndex implements Index, INotificationConsumer
             perSSTable.put(index.getDefinition(), index);
         }
 
+        // TODO: WHY?
         CompactionManager.instance.submitIndexBuild(new SASIIndexBuilder(baseCfs, toRebuild));
     }
 
@@ -188,6 +191,14 @@ public class SASIIndex implements Index, INotificationConsumer
         return getTruncateTask(FBUtilities.timestampMicros());
     }
 
+    public Callable<?> getTruncateTask(Collection<SSTableReader> sstablesToRebuild)
+    {
+        return () -> {
+            index.dropData(sstablesToRebuild);
+            return null;
+        };
+    }
+
     public Callable<?> getTruncateTask(long truncatedAt)
     {
         return () -> {
@@ -247,7 +258,9 @@ public class SASIIndex implements Index, INotificationConsumer
         return new Indexer()
         {
             public void begin()
-            {}
+            {
+
+            }
 
             public void partitionDelete(DeletionTime deletionTime)
             {}
@@ -258,7 +271,8 @@ public class SASIIndex implements Index, INotificationConsumer
             public void insertRow(Row row)
             {
                 if (isNewData())
-                    adjustMemtableSize(index.index(key, row), opGroup);
+                    // TODO: what do we do with statics here?!
+                    adjustMemtableSize(index.index(new RowKey(key, row.clustering(), Rows.EMPTY_STATIC_ROW, (c) -> row, baseCfs.getComparator()), row), opGroup);
             }
 
             public void updateRow(Row oldRow, Row newRow)

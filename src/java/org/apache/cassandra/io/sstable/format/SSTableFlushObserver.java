@@ -39,6 +39,11 @@ public interface SSTableFlushObserver
      */
     void startPartition(DecoratedKey key, long indexPosition);
 
+    default void startPartition(DecoratedKey key, long indexPosition, long position)
+    {
+        startPartition(key, indexPosition);
+    }
+
     /**
      * Called after the unfiltered cluster is written to the sstable.
      * Will be preceded by a call to {@code startPartition(DecoratedKey, long)},
@@ -46,6 +51,11 @@ public interface SSTableFlushObserver
      *
      * @param unfilteredCluster The unfiltered cluster being added to SSTable.
      */
+    default void nextUnfilteredCluster(Unfiltered unfilteredCluster, long position)
+    {
+        nextUnfilteredCluster(unfilteredCluster);
+    }
+
     void nextUnfilteredCluster(Unfiltered unfilteredCluster);
 
     /**

@@ -29,6 +29,7 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.io.util.FileDataInput;
+import org.apache.cassandra.io.util.SequentialWriter;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.WrappedException;
 
@@ -473,6 +474,41 @@ public class UnfilteredSerializer
 
             builder.newRow(Clustering.serializer.deserialize(in, helper.version, header.clusteringTypes()));
             return deserializeRowBody(in, header, helper, flags, extendedFlags, builder);
+        }
+    }
+
+    public Unfiltered deserialize(Clustering clustering, DataInputPlus in, SerializationHeader header, SerializationHelper helper, Row.Builder builder)
+    throws IOException
+    {
+        // It wouldn't be wrong per-se to use an unsorted builder, but it would be inefficient so make sure we don't do it by mistake
+        assert builder.isSorted();
+
+        int flags = in.readUnsignedByte();
+        if (isEndOfPartition(flags))
+            return null;
+
+        int extendedFlags = readExtendedFlags(in, flags);
+
+        if (kind(flags) == Unfiltered.Kind.RANGE_TOMBSTONE_MARKER)
+        {
+            ClusteringBoundOrBoundary bound = ClusteringBoundOrBoundary.serializer.deserialize(in, helper.version, header.clusteringTypes());
+            return deserializeMarkerBody(in, header, bound);
+        }
+        else
+        {
+            // deserializeStaticRow should be used for that.
+            if (isStatic(extendedFlags))
+                throw new IOException("Corrupt flags value for unfiltered partition (isStatic flag set): " + flags);
+
+            Clustering.serializer.skip(in, helper.version, header.clusteringTypes());
+            builder.newRow(clustering);
+            Row row = deserializeRowBody(in, header, helper, flags, extendedFlags, builder);
+            // we do not write empty rows because Rows.collectStats(), called by BTW.applyToRow(), asserts that rows are not empty
+            // if we don't throw here, then later the very same assertion in Rows.collectStats() will fail compactions
+            // see BlackListingCompactionsTest and CASSANDRA-9530 for details
+            if (row.isEmpty())
+                throw new IOException("Corrupt empty row found in unfiltered partition");
+            return row;
         }
     }
 

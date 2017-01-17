@@ -37,7 +37,6 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
 import com.carrotsearch.hppc.LongArrayList;
-import com.carrotsearch.hppc.LongSet;
 import com.carrotsearch.hppc.ShortArrayList;
 import com.google.common.annotations.VisibleForTesting;
 
@@ -157,13 +156,19 @@ public class OnDiskIndexBuilder
     {
         this.keyComparator = keyComparator;
         this.termComparator = comparator;
-        this.terms = new HashMap<>();
+        this.terms = new TreeMap<ByteBuffer, TokenTreeBuilder>(new Comparator<ByteBuffer>()
+        {
+            public int compare(ByteBuffer o1, ByteBuffer o2)
+            {
+                return comparator.compare(o1, o2);
+            }
+        }); //new HashMap<>();
         this.termSize = TermSize.sizeOf(comparator);
         this.mode = mode;
         this.marksPartials = marksPartials;
     }
 
-    public OnDiskIndexBuilder add(ByteBuffer term, DecoratedKey key, long keyPosition)
+    public OnDiskIndexBuilder add(ByteBuffer term, DecoratedKey key, long partitionOffset, long rowOffset)
     {
         if (term.remaining() >= MAX_TERM_SIZE)
         {
@@ -180,19 +185,20 @@ public class OnDiskIndexBuilder
 
             // on-heap size estimates from jol
             // 64 bytes for TTB + 48 bytes for TreeMap in TTB + size bytes for the term (map key)
+            // TODO: this is now completely wrong
             estimatedBytes += 64 + 48 + term.remaining();
         }
 
-        tokens.add((Long) key.getToken().getTokenValue(), keyPosition);
+        tokens.add((Long) key.getToken().getTokenValue(), partitionOffset, rowOffset);
 
         // calculate key range (based on actual key values) for current index
         minKey = (minKey == null || keyComparator.compare(minKey, key.getKey()) > 0) ? key.getKey() : minKey;
         maxKey = (maxKey == null || keyComparator.compare(maxKey, key.getKey()) < 0) ? key.getKey() : maxKey;
 
-        // 60 ((boolean(1)*4) + (long(8)*4) + 24) bytes for the LongOpenHashSet created when the keyPosition was added
-        // + 40 bytes for the TreeMap.Entry + 8 bytes for the token (key).
+        // 84 ((boolean(1)*4) + (long(8)*4) + 24 + 24) bytes for the LongObjectOpenHashMap<long[]> created
+        // when the keyPosition was added + 40 bytes for the TreeMap.Entry + 8 bytes for the token (key).
         // in the case of hash collision for the token we may overestimate but this is extremely rare
-        estimatedBytes += 60 + 40 + 8;
+        estimatedBytes += 84 + 40 + 8;
 
         return this;
     }
@@ -224,7 +230,7 @@ public class OnDiskIndexBuilder
 
     public void finish(Pair<ByteBuffer, ByteBuffer> range, File file, TermIterator terms)
     {
-        finish(Descriptor.CURRENT, range, file, terms);
+        finish(Descriptor.CURRENT_VERSION, range, file, terms);
     }
 
     /**
@@ -238,11 +244,11 @@ public class OnDiskIndexBuilder
      */
     public boolean finish(File indexFile) throws FSWriteError
     {
-        return finish(Descriptor.CURRENT, indexFile);
+        return finish(Descriptor.CURRENT_VERSION, indexFile);
     }
 
     @VisibleForTesting
-    protected boolean finish(Descriptor descriptor, File file) throws FSWriteError
+    protected boolean finish(Descriptor.Version version, File file) throws FSWriteError
     {
         // no terms means there is nothing to build
         if (terms.isEmpty())
@@ -266,12 +272,12 @@ public class OnDiskIndexBuilder
         for (Map.Entry<ByteBuffer, TokenTreeBuilder> term : terms.entrySet())
             sa.add(term.getKey(), term.getValue());
 
-        finish(descriptor, Pair.create(minKey, maxKey), file, sa.finish());
+        finish(version, Pair.create(minKey, maxKey), file, sa.finish());
         return true;
     }
 
     @SuppressWarnings("resource")
-    protected void finish(Descriptor descriptor, Pair<ByteBuffer, ByteBuffer> range, File file, TermIterator terms)
+    protected void finish(Descriptor.Version version, Pair<ByteBuffer, ByteBuffer> range, File file, TermIterator terms)
     {
         SequentialWriter out = null;
 
@@ -279,7 +285,7 @@ public class OnDiskIndexBuilder
         {
             out = new SequentialWriter(file, WRITER_OPTION);
 
-            out.writeUTF(descriptor.version.toString());
+            out.writeUTF(version.toString());
 
             out.writeShort(termSize.size);
 
@@ -353,6 +359,14 @@ public class OnDiskIndexBuilder
         long endOfBlock = out.position();
         if ((endOfBlock & (BLOCK_SIZE - 1)) != 0) // align on the block boundary if needed
             out.skipBytes((int) (FBUtilities.align(endOfBlock, BLOCK_SIZE) - endOfBlock));
+    }
+
+    protected static int alignToBlock(int endOfBlock)
+    {
+        if ((endOfBlock & (BLOCK_SIZE - 1)) != 0) // align on the block boundary if needed
+            return (int) FBUtilities.align(endOfBlock, BLOCK_SIZE);
+        else
+            return endOfBlock;
     }
 
     private class InMemoryTerm
@@ -507,7 +521,9 @@ public class OnDiskIndexBuilder
             if (dataBlocksCnt == SUPER_BLOCK_SIZE || (force && !superBlockTree.isEmpty()))
             {
                 superBlockOffsets.add(out.position());
-                superBlockTree.finish().write(out);
+                superBlockTree.finish();
+                superBlockTree.writeTokens(out); // TODO: test Edge case?
+                superBlockTree.writePartitionDescription(out);
                 alignToBlock(out);
 
                 dataBlocksCnt = 0;
@@ -560,6 +576,7 @@ public class OnDiskIndexBuilder
             return getWatermark() + 4 + element.serializedSize();
         }
 
+        // TODO: make it a bit more descfriptive
         protected int getWatermark()
         {
             return 4 + offsets.size() * 2 + (int) buffer.position();
@@ -580,7 +597,8 @@ public class OnDiskIndexBuilder
         }
     }
 
-    private static class MutableDataBlock extends MutableBlock<InMemoryDataTerm>
+    // TODO: Split to sparse and regular
+    private class MutableDataBlock extends MutableBlock<InMemoryDataTerm>
     {
         private static final int MAX_KEYS_SPARSE = 5;
 
@@ -610,21 +628,22 @@ public class OnDiskIndexBuilder
                                                         comparator.getString(term.term.getBytes()), MAX_KEYS_SPARSE, mode.name()));
 
                 writeTerm(term, keys);
+                combinedIndex.add(keys);
             }
             else
             {
                 writeTerm(term, offset);
+                offset += keys.serializedTokensSize();
+                offset += keys.serializedPartitionDescriptionSize();
 
-                offset += keys.serializedSize();
+//                offset = alignToBlock(offset); // TODO: partition description should obey same rules
                 containers.add(keys);
             }
-
-            if (mode == Mode.SPARSE)
-                combinedIndex.add(keys);
         }
 
         protected int sizeAfter(InMemoryDataTerm element)
         {
+            // TODO: looks like this one is incorrect
             return super.sizeAfter(element) + ptrLength(element);
         }
 
@@ -636,15 +655,26 @@ public class OnDiskIndexBuilder
 
             if (containers.size() > 0)
             {
+//                System.out.println("containers.size() = " + containers.size());
                 for (TokenTreeBuilder tokens : containers)
-                    tokens.write(out);
+                {
+                    tokens.writeTokens(out);
+                    tokens.writePartitionDescription(out);
+                }
+
+            }
+            else
+            {
+                assert mode == Mode.SPARSE;
+                if (combinedIndex != null)
+                {
+                    combinedIndex.finish();
+                    combinedIndex.writeTokens(out); // offset is always 0 though
+                    combinedIndex.writePartitionDescription(out);
+                }
             }
 
-            if (mode == Mode.SPARSE && combinedIndex != null)
-                combinedIndex.finish().write(out);
-
             alignToBlock(out);
-
             containers.clear();
             combinedIndex = initCombinedIndex();
 
@@ -662,14 +692,16 @@ public class OnDiskIndexBuilder
         {
             term.serialize(buffer);
             buffer.writeByte((byte) keys.getTokenCount());
-            for (Pair<Long, LongSet> key : keys)
+            for (Pair<Long, KeyOffsets> key : keys)
+            {
                 buffer.writeLong(key.left);
+            }
         }
 
         private void writeTerm(InMemoryTerm term, int offset) throws IOException
         {
             term.serialize(buffer);
-            buffer.writeByte(0x0);
+            buffer.writeByte(0x0); // Fuck is that byte?
             buffer.writeInt(offset);
         }
 

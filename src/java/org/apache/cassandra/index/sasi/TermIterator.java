@@ -76,7 +76,6 @@ public class TermIterator extends RangeIterator<Long, Token>
                          Set<SSTableIndex> referencedIndexes)
     {
         super(union.getMinimum(), union.getMaximum(), union.getCount());
-
         this.expression = e;
         this.union = union;
         this.referencedIndexes = referencedIndexes;
@@ -122,7 +121,7 @@ public class TermIterator extends RangeIterator<Long, Token>
                 // that helps to release index if something goes bad inside of the search
                 referencedIndexes.add(index);
 
-                searchExecutor.submit((Runnable) () -> {
+                searchExecutor.submit(() -> {
                     try
                     {
                         e.checkpoint();
@@ -140,9 +139,7 @@ public class TermIterator extends RangeIterator<Long, Token>
                     catch (Throwable e1)
                     {
                         releaseIndex(referencedIndexes, index);
-
-                        if (logger.isDebugEnabled())
-                            logger.debug(String.format("Failed search an index %s, skipping.", index.getPath()), e1);
+                        logger.error(String.format("Failed search an index %s, skipping.", index.getPath()), e1);
                     }
                     finally
                     {
@@ -152,7 +149,6 @@ public class TermIterator extends RangeIterator<Long, Token>
             }
 
             Uninterruptibles.awaitUninterruptibly(latch);
-
             // checkpoint right away after all indexes complete search because we might have crossed the quota
             e.checkpoint();
 

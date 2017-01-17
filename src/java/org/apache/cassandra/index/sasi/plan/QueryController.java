@@ -17,17 +17,33 @@
  */
 package org.apache.cassandra.index.sasi.plan;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.NavigableSet;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.Sets;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
+import org.apache.cassandra.db.Slices;
+import org.apache.cassandra.db.filter.ClusteringIndexFilter;
+import org.apache.cassandra.db.filter.ClusteringIndexNamesFilter;
+import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -51,6 +67,8 @@ import org.apache.cassandra.utils.Pair;
 
 public class QueryController
 {
+    private static final Logger logger = LoggerFactory.getLogger(QueryController.class);
+
     private final long executionQuota;
     private final long executionStart;
 
@@ -94,21 +112,26 @@ public class QueryController
         return index.isPresent() ? ((SASIIndex) index.get()).getIndex() : null;
     }
 
-
-    public UnfilteredRowIterator getPartition(DecoratedKey key, ReadExecutionController executionController)
+    public UnfilteredRowIterator getPartition(DecoratedKey key, NavigableSet<Clustering> clusterings, ReadExecutionController executionController)
     {
         if (key == null)
             throw new NullPointerException();
+
         try
         {
+            ClusteringIndexFilter filter;
+            if (clusterings == null)
+                filter = new ClusteringIndexSliceFilter(Slices.ALL, false);
+            else
+                filter = new ClusteringIndexNamesFilter(clusterings, false);
+
             SinglePartitionReadCommand partition = SinglePartitionReadCommand.create(cfs.metadata(),
                                                                                      command.nowInSec(),
                                                                                      command.columnFilter(),
-                                                                                     command.rowFilter().withoutExpressions(),
+                                                                                     command.rowFilter(),
                                                                                      DataLimits.NONE,
                                                                                      key,
-                                                                                     command.clusteringIndexFilter(key));
-
+                                                                                     filter);
             return partition.queryMemtableAndDisk(cfs, executionController);
         }
         finally
@@ -140,7 +163,7 @@ public class QueryController
 
         for (Map.Entry<Expression, Set<SSTableIndex>> e : getView(op, expressions).entrySet())
         {
-            @SuppressWarnings("resource") // RangeIterators are closed by releaseIndexes
+            @SuppressWarnings("resource")
             RangeIterator<Long, Token> index = TermIterator.build(e.getKey(), e.getValue());
 
             builder.add(index);

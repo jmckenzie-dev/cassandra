@@ -49,9 +49,15 @@ import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.EncodingStats;
+import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.db.rows.Rows;
+import org.apache.cassandra.db.rows.SerializationHelper;
+import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.db.rows.UnfilteredSerializer;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;
@@ -63,6 +69,7 @@ import org.apache.cassandra.io.sstable.metadata.*;
 import org.apache.cassandra.io.util.*;
 import org.apache.cassandra.metrics.RestorableMeter;
 import org.apache.cassandra.metrics.StorageMetrics;
+import org.apache.cassandra.net.*;
 import org.apache.cassandra.schema.CachingParams;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
@@ -1781,6 +1788,71 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         }
 
         return key;
+    }
+
+    public Pair<DecoratedKey, Row> partitionHeaderAt(long position) throws IOException
+    {
+        try (FileDataInput in = dfile.createReader(position))
+        {
+            if (in.isEOF())
+                return null;
+
+            DecoratedKey key = decorateKey(ByteBufferUtil.readWithShortLength(in));
+            // TODO: use liveness info!!!
+            DeletionTime.serializer.deserialize(in);
+            if (header.hasStatic())
+            {
+                SerializationHelper helper = new SerializationHelper(metadata.get(), MessagingService.VERSION_30, SerializationHelper.Flag.LOCAL);
+                Row staticRow = UnfilteredSerializer.serializer.deserializeStaticRow(in, header, helper);
+                return Pair.create(key, staticRow);
+            }
+            else
+            {
+                return Pair.create(key, Rows.EMPTY_STATIC_ROW);
+            }
+        }
+    }
+
+    /**
+     * Reads Clustering Key from the data file of current sstable.
+     *
+     * @param rowPosition start position of given row in the data file
+     * @return Clustering of the row
+     * @throws IOException
+     */
+    public Clustering clusteringAt(long rowPosition) throws IOException
+    {
+        Clustering clustering;
+        try (FileDataInput in = dfile.createReader(rowPosition))
+        {
+            if (in.isEOF())
+                return null;
+
+            int flags = in.readUnsignedByte();
+            int extendedFlags = UnfilteredSerializer.readExtendedFlags(in, flags);
+            boolean isStatic = UnfilteredSerializer.isStatic(extendedFlags);
+
+            if (isStatic)
+                clustering = Clustering.STATIC_CLUSTERING;
+            else
+                // Since this is an internal call, we don't have to take care of protocol versions that use legacy layout
+                clustering = Clustering.serializer.deserialize(in, MessagingService.VERSION_30, header.clusteringTypes());
+        }
+
+        return clustering;
+    }
+
+    public Unfiltered unfilteredAt(Clustering clustering, long rowPosition) throws IOException
+    {
+        try (FileDataInput in = dfile.createReader(rowPosition))
+        {
+            if (in.isEOF())
+                return null;
+
+            // TODO: which columns to fetch
+            SerializationHelper helper = new SerializationHelper(metadata.get(), MessagingService.VERSION_30, SerializationHelper.Flag.LOCAL);
+            return UnfilteredSerializer.serializer.deserialize(clustering, in, header, helper, BTreeRow.sortedBuilder());
+        }
     }
 
     public boolean isPendingRepair()

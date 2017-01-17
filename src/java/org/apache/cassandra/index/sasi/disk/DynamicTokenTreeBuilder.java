@@ -17,20 +17,18 @@
  */
 package org.apache.cassandra.index.sasi.disk;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-import org.apache.cassandra.utils.AbstractIterator;
-import org.apache.cassandra.utils.Pair;
-
-import com.carrotsearch.hppc.LongOpenHashSet;
-import com.carrotsearch.hppc.LongSet;
-import com.carrotsearch.hppc.cursors.LongCursor;
+import com.carrotsearch.hppc.cursors.LongObjectCursor;
+import org.apache.cassandra.dht.*;
+import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.utils.*;
 
 public class DynamicTokenTreeBuilder extends AbstractTokenTreeBuilder
 {
-    private final SortedMap<Long, LongSet> tokens = new TreeMap<>();
-
+    private final SortedMap<Long, KeyOffsets> tokens = new TreeMap<>();
 
     public DynamicTokenTreeBuilder()
     {}
@@ -40,58 +38,94 @@ public class DynamicTokenTreeBuilder extends AbstractTokenTreeBuilder
         add(data);
     }
 
-    public DynamicTokenTreeBuilder(SortedMap<Long, LongSet> data)
+    public DynamicTokenTreeBuilder(SortedMap<Long, KeyOffsets> data)
     {
         add(data);
     }
 
-    public void add(Long token, long keyPosition)
+    public void add(Long token, long partitionOffset, long rowOffset)
     {
-        LongSet found = tokens.get(token);
+        KeyOffsets found = tokens.get(token);
         if (found == null)
-            tokens.put(token, (found = new LongOpenHashSet(2)));
+            tokens.put(token, (found = new KeyOffsets(2)));
 
-        found.add(keyPosition);
+        found.put(partitionOffset, rowOffset);
     }
 
-    public void add(Iterator<Pair<Long, LongSet>> data)
+    public void add(Iterator<Pair<Long, KeyOffsets>> data)
     {
         while (data.hasNext())
         {
-            Pair<Long, LongSet> entry = data.next();
-            for (LongCursor l : entry.right)
-                add(entry.left, l.value);
+            Pair<Long, KeyOffsets> entry = data.next();
+            for (LongObjectCursor<long[]> cursor : entry.right)
+                for (long l : cursor.value)
+                    add(entry.left, cursor.key, l);
         }
     }
 
-    public void add(SortedMap<Long, LongSet> data)
+    public void add(SortedMap<Long, KeyOffsets> data)
     {
-        for (Map.Entry<Long, LongSet> newEntry : data.entrySet())
+        for (Map.Entry<Long, KeyOffsets> newEntry : data.entrySet())
         {
-            LongSet found = tokens.get(newEntry.getKey());
-            if (found == null)
-                tokens.put(newEntry.getKey(), (found = new LongOpenHashSet(4)));
-
-            for (LongCursor offset : newEntry.getValue())
-                found.add(offset.value);
+            for (LongObjectCursor<long[]> cursor : newEntry.getValue())
+                for (long l : cursor.value)
+                    add(newEntry.getKey(), cursor.key, l);
         }
     }
 
-    public Iterator<Pair<Long, LongSet>> iterator()
+    public Iterator<Pair<Long, KeyOffsets>> iterator()
     {
-        final Iterator<Map.Entry<Long, LongSet>> iterator = tokens.entrySet().iterator();
-        return new AbstractIterator<Pair<Long, LongSet>>()
+        final Iterator<Map.Entry<Long, KeyOffsets>> iterator = tokens.entrySet().iterator();
+        return new AbstractIterator<Pair<Long, KeyOffsets>>()
         {
-            protected Pair<Long, LongSet> computeNext()
+            protected Pair<Long, KeyOffsets> computeNext()
             {
                 if (!iterator.hasNext())
                     return endOfData();
 
-                Map.Entry<Long, LongSet> entry = iterator.next();
+                Map.Entry<Long, KeyOffsets> entry = iterator.next();
                 return Pair.create(entry.getKey(), entry.getValue());
             }
         };
     }
+
+    // TODO: solve it in a less compute-heavy way, through adding it to `add`
+    public long serializedPartitionDescriptionSize()
+    {
+        long size = 0;
+
+        for (Map.Entry<Long, KeyOffsets> entry : tokens.entrySet())
+        {
+            size += PARTITION_COUNT_BYTES;
+            for (LongObjectCursor<long[]> cursor : entry.getValue())
+            {
+                size += PARTITION_OFFSET_BYTES + ROW_COUNT_BYTES;
+                size += ROW_OFFSET_BYTES * cursor.value.length;
+            }
+        }
+
+        return size;
+    }
+
+    public void writePartitionDescription(DataOutputPlus out) throws IOException
+    {
+        for (Map.Entry<Long, KeyOffsets> entry : tokens.entrySet())
+        {
+            out.writeLong(entry.getValue().size());
+
+            for (LongObjectCursor<long[]> cursor : entry.getValue())
+            {
+                out.writeLong(cursor.key); // partition position (in index file)
+                out.writeInt(cursor.value.length); // row count
+
+                for (long rowPosition : cursor.value)
+                {
+                    out.writeLong(rowPosition); // row position
+                }
+            }
+        }
+    }
+
 
     public boolean isEmpty()
     {
@@ -155,15 +189,14 @@ public class DynamicTokenTreeBuilder extends AbstractTokenTreeBuilder
                     numBlocks++;
                 }
             }
-
         }
     }
 
     private class DynamicLeaf extends Leaf
     {
-        private final SortedMap<Long, LongSet> tokens;
+        private final SortedMap<Long, KeyOffsets> tokens;
 
-        DynamicLeaf(SortedMap<Long, LongSet> data)
+        DynamicLeaf(SortedMap<Long, KeyOffsets> data)
         {
             super(data.firstKey(), data.lastKey());
             tokens = data;
@@ -179,10 +212,26 @@ public class DynamicTokenTreeBuilder extends AbstractTokenTreeBuilder
             return true;
         }
 
-        protected void serializeData(ByteBuffer buf)
+        protected long serializeData(ByteBuffer buf, long offset)
         {
-            for (Map.Entry<Long, LongSet> entry : tokens.entrySet())
-                createEntry(entry.getKey(), entry.getValue()).serialize(buf);
+            long localOffset = 0;
+            for (Map.Entry<Long, KeyOffsets> entry : tokens.entrySet())
+            {
+                // LOCAL OFFSET HERE IS COMLETELY WRONG! WE SHLOULD USE GLOBLA ONE!!!
+                localOffset += serializeToken(buf, entry.getKey(), entry.getValue(), offset + localOffset);
+//                long tokenOffset = Long.BYTES;  // partition count
+//                for (LongObjectCursor<long[]> cursor : entry.getValue())
+//                {
+//                    tokenOffset += Long.BYTES + Long.BYTES; // partition offset, row count
+ //                    tokenOffset += cursor.value.length * Long.BYTES; // row positions
+//                }
+//
+//                buf.putLong(entry.getKey());
+//                buf.putLong(offset + localOffset);
+//
+//                localOffset += tokenOffset;
+            }
+            return localOffset;
         }
 
     }

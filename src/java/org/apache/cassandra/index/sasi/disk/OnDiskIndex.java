@@ -22,8 +22,7 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.index.sasi.Term;
+import org.apache.cassandra.index.sasi.*;
 import org.apache.cassandra.index.sasi.plan.Expression;
 import org.apache.cassandra.index.sasi.plan.Expression.Op;
 import org.apache.cassandra.index.sasi.utils.MappedBuffer;
@@ -37,12 +36,12 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
-import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
 
 import static org.apache.cassandra.index.sasi.disk.OnDiskBlock.SearchResult;
+import static org.apache.cassandra.index.sasi.disk.TokenTreeBuilder.TOKEN_BYTES;
 
 public class OnDiskIndex implements Iterable<OnDiskIndex.DataTerm>, Closeable
 {
@@ -106,7 +105,7 @@ public class OnDiskIndex implements Iterable<OnDiskIndex.DataTerm>, Closeable
     protected final long indexSize;
     protected final boolean hasMarkedPartials;
 
-    protected final Function<Long, DecoratedKey> keyFetcher;
+    protected final KeyFetcher keyFetcher;
 
     protected final String indexPath;
 
@@ -116,7 +115,7 @@ public class OnDiskIndex implements Iterable<OnDiskIndex.DataTerm>, Closeable
     protected final ByteBuffer minTerm, maxTerm, minKey, maxKey;
 
     @SuppressWarnings("resource")
-    public OnDiskIndex(File index, AbstractType<?> cmp, Function<Long, DecoratedKey> keyReader)
+    public OnDiskIndex(String columnName, File index, AbstractType<?> cmp, KeyFetcher keyReader)
     {
         keyFetcher = keyReader;
 
@@ -128,7 +127,7 @@ public class OnDiskIndex implements Iterable<OnDiskIndex.DataTerm>, Closeable
         {
             backingFile = new RandomAccessFile(index, "r");
 
-            descriptor = new Descriptor(backingFile.readUTF());
+            descriptor = new Descriptor(backingFile.readUTF(), columnName);
 
             termSize = OnDiskIndexBuilder.TermSize.of(backingFile.readShort());
 
@@ -638,8 +637,9 @@ public class OnDiskIndex implements Iterable<OnDiskIndex.DataTerm>, Closeable
             if (isSparse())
                 return new PrefetchedTokensIterator(getSparseTokens());
 
-            long offset = blockEnd + 4 + content.getInt(getDataOffset() + 1);
-            return new TokenTree(descriptor, indexFile.duplicate().position(offset)).iterator(keyFetcher);
+            int termSize = content.getInt(getDataOffset() + 1);
+             long tokenTreePosition = blockEnd + termSize + 4; // WHERE IS THE 4 COMING FROM?? Looks like a term size or ?
+            return new TokenTree(descriptor, indexFile.duplicate().position(tokenTreePosition)).iterator(keyFetcher);
         }
 
         public boolean isSparse()
@@ -649,7 +649,7 @@ public class OnDiskIndex implements Iterable<OnDiskIndex.DataTerm>, Closeable
 
         public NavigableMap<Long, Token> getSparseTokens()
         {
-            long ptrOffset = getDataOffset();
+            final long ptrOffset = getDataOffset();
 
             byte size = content.get(ptrOffset);
 
@@ -658,8 +658,8 @@ public class OnDiskIndex implements Iterable<OnDiskIndex.DataTerm>, Closeable
             NavigableMap<Long, Token> individualTokens = new TreeMap<>();
             for (int i = 0; i < size; i++)
             {
-                Token token = perBlockIndex.get(content.getLong(ptrOffset + 1 + (8 * i)), keyFetcher);
-
+                long tkn = content.getLong(ptrOffset + 1 + TOKEN_BYTES * i);
+                Token token = perBlockIndex.get(tkn, keyFetcher);
                 assert token != null;
                 individualTokens.put(token.get(), token);
             }

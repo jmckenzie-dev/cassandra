@@ -23,33 +23,38 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.Uninterruptibles;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
-import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.compaction.OperationType;
+import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.index.sasi.analyzer.AbstractAnalyzer;
 import org.apache.cassandra.index.sasi.conf.ColumnIndex;
 import org.apache.cassandra.index.sasi.utils.CombinedTermIterator;
 import org.apache.cassandra.index.sasi.utils.TypeUtil;
-import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.FSError;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableFlushObserver;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.Uninterruptibles;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class PerSSTableIndexWriter implements SSTableFlushObserver
 {
@@ -106,11 +111,16 @@ public class PerSSTableIndexWriter implements SSTableFlushObserver
 
     public void startPartition(DecoratedKey key, long curPosition)
     {
-        currentKey = key;
-        currentKeyPosition = curPosition;
+        throw new UnsupportedOperationException("SASI Index does not support direct row access.");
     }
 
-    public void nextUnfilteredCluster(Unfiltered unfiltered)
+    public void startPartition(DecoratedKey key, long indexPosition, long position)
+    {
+        currentKey = key;
+        currentKeyPosition = position;
+    }
+
+    public void nextUnfilteredCluster(Unfiltered unfiltered, long currentRowOffset)
     {
         if (!unfiltered.isRow())
             return;
@@ -125,8 +135,13 @@ public class PerSSTableIndexWriter implements SSTableFlushObserver
             if (index == null)
                 throw new IllegalArgumentException("No index exists for column " + column.name.toString());
 
-            index.add(value.duplicate(), currentKey, currentKeyPosition);
+            index.add(value.duplicate(), currentKey, currentKeyPosition, currentRowOffset);
         });
+    }
+
+    public void nextUnfilteredCluster(Unfiltered unfilteredCluster)
+    {
+        throw new UnsupportedOperationException("SASI Index does not support direct row access.");
     }
 
     public void complete()
@@ -193,7 +208,7 @@ public class PerSSTableIndexWriter implements SSTableFlushObserver
             this.currentBuilder = newIndexBuilder();
         }
 
-        public void add(ByteBuffer term, DecoratedKey key, long keyPosition)
+        public void add(ByteBuffer term, DecoratedKey key, long partitoinOffset, long rowOffset)
         {
             if (term.remaining() == 0)
                 return;
@@ -231,7 +246,7 @@ public class PerSSTableIndexWriter implements SSTableFlushObserver
                     }
                 }
 
-                currentBuilder.add(token, key, keyPosition);
+                currentBuilder.add(token, key, partitoinOffset, rowOffset);
                 isAdded = true;
             }
 
@@ -255,7 +270,7 @@ public class PerSSTableIndexWriter implements SSTableFlushObserver
                 try
                 {
                     File index = new File(segmentFile);
-                    return builder.finish(index) ? new OnDiskIndex(index, columnIndex.getValidator(), null) : null;
+                    return builder.finish(index) ? new OnDiskIndex(columnIndex.getColumnName(), index, columnIndex.getValidator(), null) : null;
                 }
                 catch (Exception | FSError e)
                 {

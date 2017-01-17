@@ -86,7 +86,7 @@ public abstract class AbstractIterator<T> implements PeekingIterator<T>
      * @return {@code null}; a convenience so your {@code computeNext}
      *     implementation can use the simple statement {@code return endOfData();}
      */
-    protected final T endOfData()
+    protected T endOfData()
     {
         state = State.DONE;
         return null;
@@ -113,6 +113,7 @@ public abstract class AbstractIterator<T> implements PeekingIterator<T>
     protected boolean tryToComputeNext()
     {
         state = State.FAILED; // temporary pessimism
+
         next = computeNext();
 
         if (state != State.DONE)

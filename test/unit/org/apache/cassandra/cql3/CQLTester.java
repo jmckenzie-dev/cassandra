@@ -433,6 +433,7 @@ public abstract class CQLTester
 
     public void flush()
     {
+        System.out.println("FLUSHING");
         flush(KEYSPACE);
     }
 

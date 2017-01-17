@@ -88,22 +88,28 @@ class SASIIndexBuilder extends SecondaryIndexBuilder
                         final DecoratedKey key = keys.next();
                         final long keyPosition = keys.getKeyPosition();
 
-                        indexWriter.startPartition(key, keyPosition);
-
                         try
                         {
                             RowIndexEntry indexEntry = sstable.getPosition(key, SSTableReader.Operator.EQ);
+                            indexWriter.startPartition(key, keyPosition, indexEntry.position);
                             dataFile.seek(indexEntry.position);
-                            ByteBufferUtil.readWithShortLength(dataFile); // key
+                            int staticOffset = ByteBufferUtil.readWithShortLength(dataFile).remaining(); // key
 
                             try (SSTableIdentityIterator partition = SSTableIdentityIterator.create(sstable, dataFile, key))
                             {
                                 // if the row has statics attached, it has to be indexed separately
                                 if (cfs.metadata().hasStaticColumns())
-                                    indexWriter.nextUnfilteredCluster(partition.staticRow());
+                                {
+                                    long staticPosition = indexEntry.position + staticOffset;
+                                    indexWriter.nextUnfilteredCluster(partition.staticRow(), staticPosition);
+                                }
 
+                                long position = dataFile.getPosition();
                                 while (partition.hasNext())
-                                    indexWriter.nextUnfilteredCluster(partition.next());
+                                {
+                                    indexWriter.nextUnfilteredCluster(partition.next(), position);
+                                    position = dataFile.getPosition();
+                                }
                             }
                         }
                         catch (IOException ex)
