@@ -22,21 +22,18 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableSet;
-import java.util.Set;
 import java.util.TreeSet;
 
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ClusteringPrefix;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.AbstractUnfilteredRowIterator;
-import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.db.rows.Unfiltered;
@@ -97,9 +94,7 @@ public class QueryPlan
 
         private Iterator<RowKey> currentKeys = null;
         private UnfilteredRowIterator nextPartition = null;
-        // TODO: this is a mess!
         private DecoratedKey lastPartitionKey = null;
-        private Row lastStaticRow = null;
 
         public ResultIterator(Operation operationTree, QueryController controller, ReadExecutionController executionController)
         {
@@ -147,7 +142,7 @@ public class QueryPlan
                 }
 
                 TableMetadata metadata = controller.metadata();
-                Set<RowKey> rows = new TreeSet<>();
+                NavigableSet<Clustering> clusterings = new TreeSet<>(metadata.comparator);
                 // results have static clustering, the whole partition has to be read
                 boolean fetchWholePartition = false;
 
@@ -160,15 +155,14 @@ public class QueryPlan
                         // tree iterator can move on to the next token.
                         // If some clusterings were collected, build an iterator for those rows
                         // and return.
-                        if ((rows.isEmpty() && !fetchWholePartition) || lastPartitionKey == null)
+                        if ((clusterings.isEmpty() && !fetchWholePartition) || lastPartitionKey == null)
                             break;
 
-                        UnfilteredRowIterator partition = new FakePartitionIterator(metadata, operationTree, lastPartitionKey, lastStaticRow, rows);
+                        UnfilteredRowIterator partition = fetchPartition(lastPartitionKey, clusterings, fetchWholePartition);
 
                         // Prepare for next partition, reset partition key and clusterings
                         lastPartitionKey = null;
-                        lastStaticRow = null;
-                        rows = new TreeSet<RowKey>();
+                        clusterings = new TreeSet<Clustering>();
 
                         if (partition.isEmpty())
                         {
@@ -188,7 +182,7 @@ public class QueryPlan
 
                     if (lastPartitionKey != null && metadata.partitionKeyType.compare(lastPartitionKey.getKey(), key.getKey()) != 0)
                     {
-                        UnfilteredRowIterator partition = new FakePartitionIterator(metadata, operationTree, lastPartitionKey,lastStaticRow, rows);
+                        UnfilteredRowIterator partition = fetchPartition(lastPartitionKey, clusterings, fetchWholePartition);;
 
                         if (partition.isEmpty())
                             partition.close();
@@ -200,14 +194,13 @@ public class QueryPlan
                     }
 
                     lastPartitionKey = key;
-                    lastStaticRow = fullKey.staticRow;
 
                     // We fetch whole partition for versions before AC and in case static column index is queried in AC
                     if (fullKey.clustering == null || fullKey.clustering.clustering().kind() == ClusteringPrefix.Kind.STATIC_CLUSTERING)
                         fetchWholePartition = true;
                     else if (controller.dataRange().clusteringIndexFilter(fullKey.decoratedKey).selects(fullKey.clustering))
                     {
-                        rows.add(fullKey);
+                        clusterings.add(fullKey.clustering);
                     }
 
                 }
@@ -277,41 +270,6 @@ public class QueryPlan
             protected Unfiltered computeNext()
             {
                 return rows.hasNext() ? rows.next() : endOfData();
-            }
-        }
-
-        private static class FakePartitionIterator extends AbstractUnfilteredRowIterator
-        {
-            private final Iterator<RowKey> rows;
-            private final Operation operation;
-
-            public FakePartitionIterator(TableMetadata metaData, Operation operation, DecoratedKey pk, Row staticRow, Collection<RowKey> partition)
-            {
-                super(metaData,
-                      pk,
-                      DeletionTime.LIVE,
-                      metaData.regularAndStaticColumns(),
-                      // TODO: static columns
-                      staticRow,
-                      false,
-                      EncodingStats.NO_STATS);
-                rows = partition.iterator();
-                this.operation = operation;
-            }
-
-            @Override
-            protected Unfiltered computeNext()
-            {
-                while (rows.hasNext())
-                {
-                    Unfiltered unfiltered = rows.next().unfiltered();
-
-                    if (operation.satisfiedBy(unfiltered, staticRow, true))
-                        return unfiltered;
-
-                }
-
-                return endOfData();
             }
         }
     }

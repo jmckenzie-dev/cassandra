@@ -1790,26 +1790,14 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         return key;
     }
 
-    public Pair<DecoratedKey, Row> partitionHeaderAt(long position) throws IOException
+    public DecoratedKey getPartitionKeyAt(long position) throws IOException
     {
         try (FileDataInput in = dfile.createReader(position))
         {
             if (in.isEOF())
                 return null;
 
-            DecoratedKey key = decorateKey(ByteBufferUtil.readWithShortLength(in));
-            // TODO: use liveness info!!!
-            DeletionTime.serializer.deserialize(in);
-            if (header.hasStatic())
-            {
-                SerializationHelper helper = new SerializationHelper(metadata.get(), MessagingService.VERSION_30, SerializationHelper.Flag.LOCAL);
-                Row staticRow = UnfilteredSerializer.serializer.deserializeStaticRow(in, header, helper);
-                return Pair.create(key, staticRow);
-            }
-            else
-            {
-                return Pair.create(key, Rows.EMPTY_STATIC_ROW);
-            }
+            return decorateKey(ByteBufferUtil.readWithShortLength(in));
         }
     }
 
@@ -1840,19 +1828,6 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         }
 
         return clustering;
-    }
-
-    public Unfiltered unfilteredAt(Clustering clustering, long rowPosition) throws IOException
-    {
-        try (FileDataInput in = dfile.createReader(rowPosition))
-        {
-            if (in.isEOF())
-                return null;
-
-            // TODO: which columns to fetch
-            SerializationHelper helper = new SerializationHelper(metadata.get(), MessagingService.VERSION_30, SerializationHelper.Flag.LOCAL);
-            return UnfilteredSerializer.serializer.deserialize(clustering, in, header, helper, BTreeRow.sortedBuilder());
-        }
     }
 
     public boolean isPendingRepair()

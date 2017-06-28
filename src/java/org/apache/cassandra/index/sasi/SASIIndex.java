@@ -271,8 +271,7 @@ public class SASIIndex implements Index, INotificationConsumer
             public void insertRow(Row row)
             {
                 if (isNewData())
-                    // TODO: what do we do with statics here?!
-                    adjustMemtableSize(index.index(new RowKey(key, row.clustering(), Rows.EMPTY_STATIC_ROW, (c) -> row, baseCfs.getComparator()), row), opGroup);
+                    adjustMemtableSize(index.index(new RowKey(key, row.clustering(), baseCfs.getComparator()), row), opGroup);
             }
 
             public void updateRow(Row oldRow, Row newRow)

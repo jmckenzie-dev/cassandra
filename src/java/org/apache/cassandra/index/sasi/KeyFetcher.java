@@ -22,20 +22,16 @@ import java.io.IOException;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.Row;
-import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.index.sasi.disk.*;
 import org.apache.cassandra.io.*;
 import org.apache.cassandra.io.sstable.format.*;
-import org.apache.cassandra.utils.Pair;
 
 
 public interface KeyFetcher
 {
+    public DecoratedKey getPartitionKey(long offset);
     public Clustering getClustering(long offset);
-    public Unfiltered getUnfiltered(Clustering clustering, long offset);
-    public Pair<DecoratedKey, Row> getPartitionHeader(long offset);
-
-    public RowKey getRowKey(DecoratedKey key, Row staticRow, long rowOffset);
+    public RowKey getRowKey(DecoratedKey key, long rowOffset);
 
     /**
      * Fetches clustering and partition key from the sstable.
@@ -65,23 +61,11 @@ public interface KeyFetcher
             }
         }
 
-        public Unfiltered getUnfiltered(Clustering clustering, long offset)
+        public DecoratedKey getPartitionKey(long offset)
         {
             try
             {
-                return sstable.unfilteredAt(clustering, offset);
-            }
-            catch (IOException e)
-            {
-                throw new FSReadError(new IOException("Failed to read clustering from " + sstable.descriptor, e), sstable.getFilename());
-            }
-        }
-
-        public Pair<DecoratedKey, Row> getPartitionHeader(long offset)
-        {
-            try
-            {
-                return sstable.partitionHeaderAt(offset);
+                return sstable.getPartitionKeyAt(offset);
             }
             catch (IOException e)
             {
@@ -90,16 +74,16 @@ public interface KeyFetcher
         }
 
         @Override
-        public RowKey getRowKey(DecoratedKey key, Row staticRow, long rowOffset)
+        public RowKey getRowKey(DecoratedKey key, long rowOffset)
         {
             if (rowOffset == KeyOffsets.NO_OFFSET)
                 // TODO: in this case we'll have to fall back to reading a whole partition?
                 // This one is for compatibility reasons I assume?..
-                return new RowKey(key, null, null, null, sstable.metadata().comparator);
+                return new RowKey(key, null, sstable.metadata().comparator);
             else
             {
                 Clustering c = getClustering(rowOffset);
-                return new RowKey(key, c, staticRow, (clustering) -> getUnfiltered(c, rowOffset), sstable.metadata().comparator);
+                return new RowKey(key, c, sstable.metadata().comparator);
             }
         }
 

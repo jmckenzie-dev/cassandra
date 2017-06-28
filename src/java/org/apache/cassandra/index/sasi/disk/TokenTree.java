@@ -19,22 +19,13 @@ package org.apache.cassandra.index.sasi.disk;
 
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.*;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterators;
-import com.google.common.collect.Sets;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 import com.carrotsearch.hppc.cursors.LongObjectCursor;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.marshal.AsciiType;
-import org.apache.cassandra.db.marshal.IntegerType;
-import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
-import org.apache.cassandra.db.rows.Row;
-import org.apache.cassandra.db.rows.UnfilteredRowIteratorSerializer;
 import org.apache.cassandra.index.sasi.*;
 import org.apache.cassandra.index.sasi.disk.Descriptor.*;
 import org.apache.cassandra.index.sasi.utils.AbstractIterator;
@@ -394,8 +385,7 @@ public class TokenTree
 
             return MergeIterator.get(keys, RowKey.COMPARATOR, new MergeIterator.Reducer<RowKey, RowKey>()
             {
-                RowKey reduced = null;
-                int prevIdx = -1;
+                private RowKey reduced;
 
                 public boolean trivialReduceIsTrivial()
                 {
@@ -404,16 +394,7 @@ public class TokenTree
 
                 public void reduce(int idx, RowKey current)
                 {
-                    if (prevIdx != idx) // next iter
-                    {
-                        prevIdx = idx;
-                        reduced = current;
-                    }
-                    else
-                    {
-                        reduced = current;
-                        prevIdx = -1;
-                    }
+                    reduced = current;
                 }
 
                 protected RowKey getReduced()
@@ -610,7 +591,7 @@ public class TokenTree
         private final Iterator<LongObjectCursor<long[]>> offsets;
 
         // This has to be completely factored out. We have to have a hierarchical iterator starting here.
-        private Pair<DecoratedKey, Row> partitionHeader;
+        private DecoratedKey currentPartitionKey;
         private PrimitiveIterator.OfLong currentCursor = null;
 
         public KeyIterator(KeyFetcher keyFetcher, KeyOffsets offsets)
@@ -623,16 +604,16 @@ public class TokenTree
         {
             if (currentCursor != null && currentCursor.hasNext())
             {
-                return keyFetcher.getRowKey(partitionHeader.left, partitionHeader.right, currentCursor.nextLong());
+                return keyFetcher.getRowKey(currentPartitionKey, currentCursor.nextLong());
             }
             else if (offsets.hasNext())
             {
                 LongObjectCursor<long[]> cursor = offsets.next();
-                partitionHeader = keyFetcher.getPartitionHeader(cursor.key);
+                currentPartitionKey = keyFetcher.getPartitionKey(cursor.key);
                 currentCursor = LongStream.of(cursor.value).iterator();
 
                 if (currentCursor.hasNext())
-                    return keyFetcher.getRowKey(partitionHeader.left, partitionHeader.right, currentCursor.nextLong());
+                    return keyFetcher.getRowKey(currentPartitionKey, currentCursor.nextLong());
             }
 
             return endOfData();

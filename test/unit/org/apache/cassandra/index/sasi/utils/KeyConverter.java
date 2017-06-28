@@ -39,7 +39,7 @@ public class KeyConverter implements KeyFetcher
     KeyConverter()
     {}
 
-    public Pair<DecoratedKey, Row> getPartitionHeader(long offset)
+    public DecoratedKey getPartitionKey(long offset)
     {
         return null;
     }
@@ -50,14 +50,8 @@ public class KeyConverter implements KeyFetcher
         return ck(offset);
     }
 
-    public Unfiltered getUnfiltered(Clustering clustering, long offset)
+    public RowKey getRowKey(DecoratedKey key, long rowOffset)
     {
-        throw new NotImplementedException();
-    }
-
-    public RowKey getRowKey(DecoratedKey partition, Row staticRow, long rowOffset)
-    {
-        // TODO
         return null;
     }
 
