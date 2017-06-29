@@ -41,7 +41,7 @@ public class KeyConverter implements KeyFetcher
 
     public DecoratedKey getPartitionKey(long offset)
     {
-        return null;
+        return dk(offset);
     }
 
     @Override
@@ -52,7 +52,7 @@ public class KeyConverter implements KeyFetcher
 
     public RowKey getRowKey(DecoratedKey key, long rowOffset)
     {
-        return null;
+        return new RowKey(key, ck(rowOffset), new ClusteringComparator(AsciiType.instance));
     }
 
     public static DecoratedKey dk(long partitionOffset)

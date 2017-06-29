@@ -32,22 +32,18 @@ public class Descriptor
     public static final Version VERSION_AA = Version.aa;
     public static final Version VERSION_AB = Version.ab;
     public static final Version VERSION_AC = Version.ac;
-
     public static final Version CURRENT_VERSION = Version.ac;
-//    public static final Descriptor CURRENT = new Descriptor(CURRENT_VERSION);
+    public static final Descriptor CURRENT = new Descriptor(Version.ac);
 
     public final Version version;
-    public final String columnName;
 
-    public Descriptor(String v, String columnName)
+    public Descriptor(String v)
     {
         this.version = Version.valueOf(v);
-        this.columnName = columnName;
     }
 
-    public Descriptor(Version v, String columnName)
+    public Descriptor(Version v)
     {
         this.version = v;
-        this.columnName = columnName;
     }
 }

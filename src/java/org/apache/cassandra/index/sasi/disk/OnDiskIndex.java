@@ -115,7 +115,7 @@ public class OnDiskIndex implements Iterable<OnDiskIndex.DataTerm>, Closeable
     protected final ByteBuffer minTerm, maxTerm, minKey, maxKey;
 
     @SuppressWarnings("resource")
-    public OnDiskIndex(String columnName, File index, AbstractType<?> cmp, KeyFetcher keyReader)
+    public OnDiskIndex(String columnName, File index, AbstractType<?> cmp, KeyFetcher keyReader) //TODO: unused columnname
     {
         keyFetcher = keyReader;
 
@@ -127,7 +127,7 @@ public class OnDiskIndex implements Iterable<OnDiskIndex.DataTerm>, Closeable
         {
             backingFile = new RandomAccessFile(index, "r");
 
-            descriptor = new Descriptor(backingFile.readUTF(), columnName);
+            descriptor = new Descriptor(backingFile.readUTF());
 
             termSize = OnDiskIndexBuilder.TermSize.of(backingFile.readShort());
 

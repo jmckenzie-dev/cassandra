@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.util.*;
 import java.util.stream.*;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterators;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 
@@ -49,15 +50,15 @@ public class TokenTree
     private final long tokenCount;
     private final long blockCount;
 
-//    @VisibleForTesting
-//    protected TokenTree(MappedBuffer tokenTree)
-//    {
-//        this(Descriptor.CURRENT, tokenTree);
-//    }
-
-    public TokenTree(Descriptor d, MappedBuffer tokenTree)
+    @VisibleForTesting
+    protected TokenTree(MappedBuffer tokenTree)
     {
-        descriptor = d;
+        this(Descriptor.CURRENT, tokenTree);
+    }
+
+    public TokenTree(Descriptor descriptor, MappedBuffer tokenTree)
+    {
+        this.descriptor = descriptor;
         file = tokenTree;
         startPos = file.position();
         file.position(startPos + TokenTreeBuilder.SHARED_HEADER_BYTES);
