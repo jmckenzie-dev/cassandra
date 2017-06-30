@@ -129,7 +129,7 @@ public class QueryController
                                                                                      command.nowInSec(),
                                                                                      command.columnFilter(),
                                                                                      command.rowFilter(),
-                                                                                     DataLimits.NONE,
+                                                                                     command.limits(),
                                                                                      key,
                                                                                      filter);
             return partition.queryMemtableAndDisk(cfs, executionController);

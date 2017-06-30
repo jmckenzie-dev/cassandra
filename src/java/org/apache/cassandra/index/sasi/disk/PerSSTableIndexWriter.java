@@ -270,7 +270,7 @@ public class PerSSTableIndexWriter implements SSTableFlushObserver
                 try
                 {
                     File index = new File(segmentFile);
-                    return builder.finish(index) ? new OnDiskIndex(columnIndex.getColumnName(), index, columnIndex.getValidator(), null) : null;
+                    return builder.finish(index) ? new OnDiskIndex(index, columnIndex.getValidator(), null) : null;
                 }
                 catch (Exception | FSError e)
                 {

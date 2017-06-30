@@ -269,6 +269,8 @@ public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
                 }
 
             }
+
+            // TODO: to string
         }
 
         private class InteriorNodeHeader extends Header
@@ -413,7 +415,6 @@ public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
 
         protected void add(Leaf node)
         {
-
             if (position == (TOKENS_PER_BLOCK + 1))
             {
                 rightmostParent = split();

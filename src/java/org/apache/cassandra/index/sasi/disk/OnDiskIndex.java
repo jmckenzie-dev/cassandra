@@ -115,7 +115,7 @@ public class OnDiskIndex implements Iterable<OnDiskIndex.DataTerm>, Closeable
     protected final ByteBuffer minTerm, maxTerm, minKey, maxKey;
 
     @SuppressWarnings("resource")
-    public OnDiskIndex(String columnName, File index, AbstractType<?> cmp, KeyFetcher keyReader) //TODO: unused columnname
+    public OnDiskIndex(File index, AbstractType<?> cmp, KeyFetcher keyReader) //TODO: unused columnname
     {
         keyFetcher = keyReader;
 

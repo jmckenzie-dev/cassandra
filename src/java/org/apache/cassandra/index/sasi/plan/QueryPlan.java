@@ -180,6 +180,9 @@ public class QueryPlan
                     if (!keyRange.right.isMinimum() && keyRange.right.compareTo(key) < 0)
                         return false;
 
+                    if (!keyRange.inclusiveLeft() && key.compareTo(keyRange.left) == 0)
+                        continue;
+
                     if (lastPartitionKey != null && metadata.partitionKeyType.compare(lastPartitionKey.getKey(), key.getKey()) != 0)
                     {
                         UnfilteredRowIterator partition = fetchPartition(lastPartitionKey, clusterings, fetchWholePartition);;
