@@ -67,13 +67,13 @@ public class PerSSTableIndexWriter implements SSTableFlushObserver
     static
     {
         INDEX_FLUSHER_GENERAL = new JMXEnabledThreadPoolExecutor(POOL_SIZE, POOL_SIZE, 1, TimeUnit.MINUTES,
-                                                                 new LinkedBlockingQueue<>(),
+                                                                 new LinkedBlockingQueue<>(1),
                                                                  new NamedThreadFactory("SASI-General"),
                                                                  "internal");
         INDEX_FLUSHER_GENERAL.allowCoreThreadTimeOut(true);
 
         INDEX_FLUSHER_MEMTABLE = new JMXEnabledThreadPoolExecutor(POOL_SIZE, POOL_SIZE, 1, TimeUnit.MINUTES,
-                                                                  new LinkedBlockingQueue<>(),
+                                                                  new LinkedBlockingQueue<>(1),
                                                                   new NamedThreadFactory("SASI-Memtable"),
                                                                   "internal");
         INDEX_FLUSHER_MEMTABLE.allowCoreThreadTimeOut(true);
