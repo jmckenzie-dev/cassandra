@@ -556,7 +556,7 @@ public class TokenTree
             KeyOffsets keyOffsets = new KeyOffsets();
             long readOffset = partitionDescriptionOffset;
 
-            long partitionCount = buffer.getLong(readOffset); // position is relative
+            long partitionCount = buffer.get(readOffset); // position is relative
             readOffset += PARTITION_COUNT_BYTES;
 
             assert partitionCount > 0 : "Partition count: " + partitionCount + " " + ByteBufferUtil.bytesToHex(file.getPageRegion(readOffset, 30)) + " " + " " + tokenCount;

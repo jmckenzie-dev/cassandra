@@ -111,7 +111,7 @@ public class DynamicTokenTreeBuilder extends AbstractTokenTreeBuilder
     {
         for (Map.Entry<Long, KeyOffsets> entry : tokens.entrySet())
         {
-            out.writeLong(entry.getValue().size());
+            out.writeByte(entry.getValue().size());
 
             for (LongObjectCursor<long[]> cursor : entry.getValue())
             {

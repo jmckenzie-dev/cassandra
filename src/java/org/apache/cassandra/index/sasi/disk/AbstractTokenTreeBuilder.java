@@ -68,11 +68,12 @@ public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
 
     public abstract void writePartitionDescription(DataOutputPlus out) throws IOException;
 
-    protected void writeKeyOffsets(DataOutputPlus out, KeyOffsets offfsets) throws IOException
+    protected void writeKeyOffsets(DataOutputPlus out, KeyOffsets offsets) throws IOException
     {
-        out.writeLong(offfsets.size());
+        assert offsets.size() < Byte.MAX_VALUE;
+        out.writeByte(offsets.size());
 
-        for (LongObjectCursor<long[]> cursor : offfsets)
+        for (LongObjectCursor<long[]> cursor : offsets)
         {
             out.writeLong(cursor.key); // partition position (in index file)
             out.writeInt(cursor.value.length); // row count

@@ -53,7 +53,7 @@ public interface TokenTreeBuilder extends Iterable<Pair<Long, KeyOffsets>>
 
     //    [ partition count ] ( [ partition offset ] [  row count ] ( [    row offset  ] )* )*
     //    [    1b (byte)    ] ( [     8b (long)    ] [   4b (int) ] ( [  8b (long)     ] )* )*
-    final static int PARTITION_COUNT_BYTES = Long.BYTES; // byte, as we expect to have no more than 8 hash collisions per token
+    final static int PARTITION_COUNT_BYTES = Byte.BYTES; // byte, as we expect to have no more than 8 hash collisions per token
     final static int PARTITION_OFFSET_BYTES = Long.BYTES;
     final static int ROW_COUNT_BYTES = Integer.BYTES; // max row count is ~2B
     final static int ROW_OFFSET_BYTES = Long.BYTES;
