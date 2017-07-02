@@ -18,45 +18,69 @@
 
 package org.apache.cassandra.index.sasi.disk;
 
-import java.nio.ByteBuffer;
-import java.util.*;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.Iterator;
 
 import com.google.common.annotations.VisibleForTesting;
-import org.apache.commons.lang3.ArrayUtils;
 
+import com.carrotsearch.hppc.LongArrayList;
 import com.carrotsearch.hppc.LongObjectOpenHashMap;
+import com.carrotsearch.hppc.cursors.LongCursor;
 import com.carrotsearch.hppc.cursors.LongObjectCursor;
-
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.index.sasi.KeyFetcher;
+import org.apache.cassandra.index.sasi.utils.AbstractIterator;
 // TODO: ASSERT SORTED INVARIANT!!!!
 
 // TODO: We do not need a hashmap here, we can optimise it for the default case (no collisions)
 // and handle collisions with an array and hardcore copying since they will never happen
-public class KeyOffsets extends LongObjectOpenHashMap<long[]>
+public class KeyOffsets
 {
+    /// ??? DENORMALIZE SIZE CALCULATIONS
+    private final LongObjectOpenHashMap<LongArrayList> container;
+
     public static final long NO_OFFSET = Long.MIN_VALUE;
 
     public KeyOffsets() {
-        super(4);
+        this(new LongObjectOpenHashMap<>(2));
     }
 
-    public KeyOffsets(int initialCapacity) {
-        super(initialCapacity);
+    private KeyOffsets(LongObjectOpenHashMap container) {
+        this.container = container;
+    }
+
+    public void merge(KeyOffsets other)
+    {
+        for (LongObjectCursor<LongArrayList> cursor : other.container)
+            put(cursor.key, cursor.value);
+    }
+
+    public KeyOffsets copy()
+    {
+        KeyOffsets copy = new KeyOffsets();
+        for (LongObjectCursor<LongArrayList> outer : container)
+            copy.container.put(outer.key, outer.value.clone());
+        return copy;
     }
 
     public void put(long currentPartitionOffset, long currentRowOffset)
     {
-        if (containsKey(currentPartitionOffset))
-            super.put(currentPartitionOffset, append(get(currentPartitionOffset), currentRowOffset));
+        LongArrayList arr = container.get(currentPartitionOffset);
+        if (arr == null)
+            container.put(currentPartitionOffset, asArray(currentRowOffset));
         else
-            super.put(currentPartitionOffset, asArray(currentRowOffset));
+            arr.add(currentRowOffset);
     }
 
-    public long[] put(long currentPartitionOffset, long[] currentRowOffset)
+    public void put(long currentPartitionOffset, LongArrayList currentRowOffset)
     {
-        if (containsKey(currentPartitionOffset))
-            return super.put(currentPartitionOffset, merge(get(currentPartitionOffset), currentRowOffset));
+        LongArrayList arr = container.get(currentPartitionOffset);
+
+        if (arr == null)
+            arr = container.put(currentPartitionOffset, currentRowOffset);
         else
-            return super.put(currentPartitionOffset, currentRowOffset);
+            arr.addAll(currentRowOffset);
     }
 
     public boolean equals(Object obj)
@@ -65,57 +89,134 @@ public class KeyOffsets extends LongObjectOpenHashMap<long[]>
             return false;
 
         KeyOffsets other = (KeyOffsets) obj;
-        if (other.size() != this.size())
+        if (other.container.size() != this.container.size())
             return false;
 
-        for (LongObjectCursor<long[]> cursor : this)
-            if (!Arrays.equals(cursor.value, other.get(cursor.key)))
-                return false;
+        if (!other.container.equals(this.container))
+            return false;
 
         return true;
+    }
+
+    public byte partitionCount()
+    {
+        return (byte) container.size();
     }
 
     @Override
     public String toString()
     {
         StringBuilder sb = new StringBuilder("KeyOffsets { ");
-        forEach((a, b) -> {
-            sb.append(a).append(": ").append(Arrays.toString(b));
+        container.forEach((a, b) -> {
+            LongArrayList list = new LongArrayList();
+            sb.append(a).append(": ").append(Arrays.toString(list.toArray()));
         });
         sb.append(" }");
         return sb.toString();
     }
 
     // primitive array creation
-    public static long[] asArray(long... vals)
+    public static LongArrayList asArray(long... val)
     {
-        return vals;
+        LongArrayList res = new LongArrayList();
+        for (long l : val)
+            res.add(l);
+        return res;
     }
 
-    private static long[] merge(long[] arr1, long[] arr2)
+    public KeyIterator getKeyIterator(KeyFetcher fetcher)
     {
-        long[] copy = new long[arr2.length];
-        int written = 0;
-        for (long l : arr2)
+        return new KeyIterator(fetcher);
+    }
+
+    public void iteratate(KeyOffsetIterator iterator) throws IOException
+    {
+        for (LongObjectCursor<LongArrayList> cursor: container)
         {
-            if (!ArrayUtils.contains(arr1, l))
-                copy[written++] = l;
+            iterator.onPartition(cursor.key, cursor.value.size());
+
+            for (LongCursor rowPosition : cursor.value)
+                iterator.onRow(rowPosition.value);
+        }
+    }
+
+    public Iterable<PartitionCursor> iteratate()
+    {
+        return () ->
+               new Iterator<PartitionCursor>()
+               {
+                   PartitionCursor partitionCursor = new PartitionCursor();
+                   Iterator<LongObjectCursor<LongArrayList>> outerIterator = container.iterator();
+
+                   public boolean hasNext()
+                   {
+                       return outerIterator.hasNext();
+                   }
+
+                   public PartitionCursor next()
+                   {
+                       LongObjectCursor<LongArrayList> cursor = outerIterator.next();
+                       partitionCursor.reset(cursor.key, cursor.value.size());
+                       return partitionCursor;
+                   }
+               };
+
+    }
+
+    public class PartitionCursor
+    {
+        public long partitionPosition;
+        public int rowCount;
+
+        public void reset(long partitionPosition, int rowCount)
+        {
+            this.partitionPosition = partitionPosition;
+            this.rowCount = rowCount;
+        }
+    }
+
+    public interface KeyOffsetIterator
+    {
+        public void onPartition(long partitionPosition, int rowCount) throws IOException;
+        public void onRow(long rowPosition) throws IOException;
+    }
+
+    // TODO: make this iterator hierarchical!
+    // This can be a "bottom part", filtering can be done furehter up as a transformation
+    // Add `skipTo` support
+    // Combine with the rest of the token tree, so that offsets could be fetched /pre-fetched on the go as well
+    public class KeyIterator extends AbstractIterator<RowKey>
+    {
+        private final KeyFetcher keyFetcher;
+        private final Iterator<LongObjectCursor<LongArrayList>> offsets;
+
+        // This has to be completely factored out. We have to have a hierarchical iterator starting here.
+        private DecoratedKey currentPartitionKey;
+        private Iterator<LongCursor> currentCursor = null;
+
+        private KeyIterator(KeyFetcher keyFetcher)
+        {
+            this.keyFetcher = keyFetcher;
+            this.offsets = container.iterator();
         }
 
-        if (written == 0)
-            return arr1;
+        public RowKey computeNext()
+        {
+            if (currentCursor != null && currentCursor.hasNext())
+            {
+                return keyFetcher.getRowKey(currentPartitionKey, currentCursor.next().value);
+            }
+            else if (offsets.hasNext())
+            {
+                LongObjectCursor<LongArrayList> cursor = offsets.next();
+                currentPartitionKey = keyFetcher.getPartitionKey(cursor.key);
+                currentCursor = cursor.value.iterator();
 
-        long[] merged = new long[arr1.length + written];
-        System.arraycopy(arr1, 0, merged, 0, arr1.length);
-        System.arraycopy(copy, 0, merged, arr1.length, written);
-        return merged;
-    }
+                if (currentCursor.hasNext())
+                    return keyFetcher.getRowKey(currentPartitionKey, currentCursor.next().value);
+            }
 
-    private static long[] append(long[] arr1, long v)
-    {
-        if (ArrayUtils.contains(arr1, v))
-            return arr1;
-        else
-            return ArrayUtils.add(arr1, v);
+            return endOfData();
+        }
     }
 }

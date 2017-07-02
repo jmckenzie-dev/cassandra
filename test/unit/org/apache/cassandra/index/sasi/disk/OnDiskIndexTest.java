@@ -18,39 +18,48 @@
 package org.apache.cassandra.index.sasi.disk;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
+import com.google.common.collect.Iterators;
+import com.google.common.collect.Sets;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
+import junit.framework.Assert;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import com.carrotsearch.hppc.cursors.LongObjectCursor;
 import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ClusteringComparator;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.BytesType;
+import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.index.sasi.plan.Expression;
 import org.apache.cassandra.index.sasi.utils.CombinedTerm;
 import org.apache.cassandra.index.sasi.utils.CombinedTermIterator;
 import org.apache.cassandra.index.sasi.utils.KeyConverter;
 import org.apache.cassandra.index.sasi.utils.OnDiskIndexIterator;
 import org.apache.cassandra.index.sasi.utils.RangeIterator;
-import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.db.marshal.Int32Type;
-import org.apache.cassandra.db.marshal.LongType;
-import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.utils.Pair;
-
-import com.google.common.collect.Iterators;
-import com.google.common.collect.Sets;
-
-import junit.framework.Assert;
-
-import org.junit.BeforeClass;
-import org.junit.Ignore;
-import org.junit.Test;
 
 import static org.apache.cassandra.index.sasi.disk.TokenTreeBuilder.TOKENS_PER_BLOCK;
 
@@ -846,9 +855,14 @@ public class OnDiskIndexTest
         {
             Pair<Long, KeyOffsets> pair = offsetIter.next();
 
-            for (LongObjectCursor<long[]> cursor : pair.right)
-                for (long l : cursor.value)
-                    result.add(new RowKey(keyAt(cursor.key), ck(l), CLUSTERING_COMPARATOR));
+            Iterator<RowKey> iter = pair.right.getKeyIterator(KeyConverter.instance);
+            while (iter.hasNext())
+            {
+                result.add(iter.next());
+            }
+//            for (LongObjectCursor<LongArrayList> cursor : pair.right)
+//                for (LongCursor l : cursor.value)
+//                    result.add(new RowKey(keyAt(cursor.key), ck(l.value), CLUSTERING_COMPARATOR));
         }
         return result;
     }
@@ -952,13 +966,25 @@ public class OnDiskIndexTest
         return expressionFor(op, UTF8Type.instance, UTF8Type.instance.decompose(term));
     }
 
-    private static void addAll(OnDiskIndexBuilder builder, ByteBuffer term, TokenTreeBuilder tokens)
+    private static void addAll(OnDiskIndexBuilder builder, ByteBuffer term, TokenTreeBuilder tokens) throws IOException
     {
         for (Pair<Long, KeyOffsets> token : tokens)
         {
-            for (LongObjectCursor<long[]> cursor : token.right)
-                for (long clusteringOffset : cursor.value)
-                    builder.add(term, keyAt(cursor.key), cursor.key, clusteringOffset);
+            token.right.iteratate(new KeyOffsets.KeyOffsetIterator()
+            {
+                private DecoratedKey decoratedKey;
+                private long offset;
+                public void onPartition(long partitionPosition, int rowCount)
+                {
+                    decoratedKey = keyAt(partitionPosition);
+                    offset = partitionPosition;
+                }
+
+                public void onRow(long rowPosition)
+                {
+                    builder.add(term, decoratedKey, offset, rowPosition);
+                }
+            });
         }
     }
 }

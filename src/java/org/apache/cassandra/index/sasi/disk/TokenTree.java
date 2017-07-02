@@ -25,6 +25,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterators;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 
+import com.carrotsearch.hppc.LongArrayList;
+import com.carrotsearch.hppc.cursors.LongCursor;
 import com.carrotsearch.hppc.cursors.LongObjectCursor;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.index.sasi.*;
@@ -110,7 +112,6 @@ public class TokenTree
             return;
 
         throw new IllegalArgumentException("invalid token tree. Written magic: '" + ByteBufferUtil.bytesToHex(file.getPageRegion(file.position() - 100, 200)) + "' " + ByteBufferUtil.bytesToHex(ByteBufferUtil.bytes(AC_MAGIC)));
-//        throw new IllegalArgumentException("invalid token tree. Written magic: '" + ByteBufferUtil.bytesToHex(ByteBufferUtil.bytes(magic)) + "'");
     }
 
     // finds leaf that *could* contain token
@@ -409,10 +410,7 @@ public class TokenTree
         {
             KeyOffsets offsets = new KeyOffsets();
             for (TokenInfo i : info)
-            {
-                for (LongObjectCursor<long[]> offset : i.fetchOffsets())
-                    offsets.put(offset.key, offset.value);
-            }
+                offsets.merge(i.fetchOffsets());
 
             return offsets;
         }
@@ -451,7 +449,7 @@ public class TokenTree
 
         public Iterator<RowKey> iterator()
         {
-            return new KeyIterator(keyFetcher, fetchOffsets());
+            return fetchOffsets().getKeyIterator(keyFetcher);
         }
 
         public int hashCode()
@@ -582,42 +580,5 @@ public class TokenTree
         }
     }
 
-    // TODO: make this iterator hierarchical!
-    // This can be a "bottom part", filtering can be done furehter up as a transformation
-    // Add `skipTo` support
-    // Combine with the rest of the token tree, so that offsets could be fetched /pre-fetched on the go as well
-    private static class KeyIterator extends AbstractIterator<RowKey>
-    {
-        private final KeyFetcher keyFetcher;
-        private final Iterator<LongObjectCursor<long[]>> offsets;
 
-        // This has to be completely factored out. We have to have a hierarchical iterator starting here.
-        private DecoratedKey currentPartitionKey;
-        private PrimitiveIterator.OfLong currentCursor = null;
-
-        public KeyIterator(KeyFetcher keyFetcher, KeyOffsets offsets)
-        {
-            this.keyFetcher = keyFetcher;
-            this.offsets = offsets.iterator();
-        }
-
-        public RowKey computeNext()
-        {
-            if (currentCursor != null && currentCursor.hasNext())
-            {
-                return keyFetcher.getRowKey(currentPartitionKey, currentCursor.nextLong());
-            }
-            else if (offsets.hasNext())
-            {
-                LongObjectCursor<long[]> cursor = offsets.next();
-                currentPartitionKey = keyFetcher.getPartitionKey(cursor.key);
-                currentCursor = LongStream.of(cursor.value).iterator();
-
-                if (currentCursor.hasNext())
-                    return keyFetcher.getRowKey(currentPartitionKey, currentCursor.nextLong());
-            }
-
-            return endOfData();
-        }
-    }
 }

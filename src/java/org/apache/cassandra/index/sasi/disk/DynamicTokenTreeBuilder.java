@@ -21,8 +21,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 
+import com.carrotsearch.hppc.LongArrayList;
+import com.carrotsearch.hppc.cursors.LongCursor;
 import com.carrotsearch.hppc.cursors.LongObjectCursor;
-import org.apache.cassandra.dht.*;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.*;
 
@@ -47,7 +48,7 @@ public class DynamicTokenTreeBuilder extends AbstractTokenTreeBuilder
     {
         KeyOffsets found = tokens.get(token);
         if (found == null)
-            tokens.put(token, (found = new KeyOffsets(2)));
+            tokens.put(token, (found = new KeyOffsets()));
 
         found.put(partitionOffset, rowOffset);
     }
@@ -57,9 +58,13 @@ public class DynamicTokenTreeBuilder extends AbstractTokenTreeBuilder
         while (data.hasNext())
         {
             Pair<Long, KeyOffsets> entry = data.next();
-            for (LongObjectCursor<long[]> cursor : entry.right)
-                for (long l : cursor.value)
-                    add(entry.left, cursor.key, l);
+            KeyOffsets found = tokens.get(entry.left);
+
+            // TODO: mutable???
+            if (found == null)
+                tokens.put(entry.left, entry.right.copy());
+            else
+                found.merge(entry.right);
         }
     }
 
@@ -67,9 +72,13 @@ public class DynamicTokenTreeBuilder extends AbstractTokenTreeBuilder
     {
         for (Map.Entry<Long, KeyOffsets> newEntry : data.entrySet())
         {
-            for (LongObjectCursor<long[]> cursor : newEntry.getValue())
-                for (long l : cursor.value)
-                    add(newEntry.getKey(), cursor.key, l);
+            KeyOffsets found = tokens.get(newEntry.getKey());
+
+            // TODO: mutable??
+            if (found == null)
+                tokens.put(newEntry.getKey(), newEntry.getValue().copy());
+            else
+                found.merge(newEntry.getValue());
         }
     }
 
@@ -97,35 +106,39 @@ public class DynamicTokenTreeBuilder extends AbstractTokenTreeBuilder
         for (Map.Entry<Long, KeyOffsets> entry : tokens.entrySet())
         {
             size += PARTITION_COUNT_BYTES;
-            for (LongObjectCursor<long[]> cursor : entry.getValue())
+
+            for (KeyOffsets.PartitionCursor partitionCursor : entry.getValue().iteratate())
             {
                 size += PARTITION_OFFSET_BYTES + ROW_COUNT_BYTES;
-                size += ROW_OFFSET_BYTES * cursor.value.length;
+                size += ROW_OFFSET_BYTES * partitionCursor.rowCount;
             }
         }
 
         return size;
     }
 
+    // same as the other impl?
     public void writePartitionDescription(DataOutputPlus out) throws IOException
     {
         for (Map.Entry<Long, KeyOffsets> entry : tokens.entrySet())
         {
-            out.writeByte(entry.getValue().size());
+            out.writeByte(entry.getValue().partitionCount());
 
-            for (LongObjectCursor<long[]> cursor : entry.getValue())
+            entry.getValue().iteratate(new KeyOffsets.KeyOffsetIterator()
             {
-                out.writeLong(cursor.key); // partition position (in index file)
-                out.writeInt(cursor.value.length); // row count
+                public void onPartition(long partitionPosition, int rowCount) throws IOException
+                {
+                    out.writeLong(partitionPosition); // partition position (in index file)
+                    out.writeInt(rowCount); // row count
+                }
 
-                for (long rowPosition : cursor.value)
+                public void onRow(long rowPosition) throws IOException
                 {
                     out.writeLong(rowPosition); // row position
                 }
-            }
+            });
         }
     }
-
 
     public boolean isEmpty()
     {
@@ -234,5 +247,10 @@ public class DynamicTokenTreeBuilder extends AbstractTokenTreeBuilder
             return localOffset;
         }
 
+        @Override
+        public String toString()
+        {
+            return "DynamicLeaf (" + tokenCount() + " tokens)";
+        }
     }
 }

@@ -21,7 +21,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-import com.carrotsearch.hppc.cursors.LongObjectCursor;
+import com.carrotsearch.hppc.LongArrayList;
 import com.carrotsearch.hppc.cursors.ObjectCursor;
 import org.apache.cassandra.index.sasi.utils.CombinedTerm;
 import org.apache.cassandra.index.sasi.utils.RangeIterator;
@@ -30,7 +30,6 @@ import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.Pair;
 
 import com.google.common.collect.Iterators;
-import org.apache.commons.lang.NotImplementedException;
 
 /**
  * Intended usage of this class is to be used in place of {@link DynamicTokenTreeBuilder}
@@ -134,7 +133,7 @@ public class StaticTokenTreeBuilder extends AbstractTokenTreeBuilder
             return;
 
         RangeIterator<Long, Token> tokens = combinedTerm.getTokenIterator();
-        ByteBuffer blockBuffer = ByteBuffer.allocate(BLOCK_BYTES);
+        ByteBuffer blockBuffer = ByteBuffer.allocate(BLOCK_BYTES); // TODO: Why block bytes? can't we just do with less?
         Iterator<Node> leafIterator = leftmostLeaf.levelIterator();
         int offset = 0;
         while (leafIterator.hasNext())
@@ -143,7 +142,7 @@ public class StaticTokenTreeBuilder extends AbstractTokenTreeBuilder
             Leaf writeableLeaf = new StaticLeaf(Iterators.limit(tokens, leaf.tokenCount()), leaf);
             // TODO
             offset += writeableLeaf.serialize(-1, blockBuffer, offset);
-            flushBuffer(blockBuffer, out, true);
+            flushBuffer(blockBuffer, out, true); // numBlocks > 1
         }
 
     }
@@ -171,21 +170,27 @@ public class StaticTokenTreeBuilder extends AbstractTokenTreeBuilder
 
             tokenCount++;
 
-            if (tokenValue.getOffsets().size() == 1)
+            if (tokenValue.getOffsets().partitionCount() == 1)
             {
-                offsetCount += tokenValue.getOffsets().values().iterator().next().value.length;
+                offsetCount += tokenValue.getOffsets().iteratate().iterator().next().rowCount;
                 partitionCount++;
             }
             else
             {
-                Iterator<ObjectCursor<long[]>> offsets = tokenValue.getOffsets().values().iterator();
-                while (offsets.hasNext())
+                // TODO: IS THAT EVEN RIgHT?
+                for (KeyOffsets.PartitionCursor partitionCursor : tokenValue.getOffsets().iteratate())
                 {
-                    offsetCount += offsets.next().value.length;
+                    offsetCount += partitionCursor.rowCount;
+                    partitionCount++;
                 }
-
-                offsetCount += tokenValue.getOffsets().values().iterator().next().value.length;
-                partitionCount++;
+//                Iterator<ObjectCursor<LongArrayList>> offsets = tokenValue.getOffsets().values().iterator();
+//                while (offsets.hasNext())
+//                {
+//                    offsetCount += offsets.next().value.size();
+//                }
+//
+//                offsetCount += tokenValue.getOffsets().values().iterator().next().value.size();
+//                partitionCount++;
             }
 
             leafSize++;
@@ -242,6 +247,12 @@ public class StaticTokenTreeBuilder extends AbstractTokenTreeBuilder
         protected long serializeData(ByteBuffer buf, long offset)
         {
             throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String toString()
+        {
+            return "PartialLeaf (" + tokenCount() + " tokens)";
         }
     }
 

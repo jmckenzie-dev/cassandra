@@ -22,6 +22,10 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 
+import com.google.common.base.Strings;
+
+import com.carrotsearch.hppc.LongArrayList;
+import com.carrotsearch.hppc.cursors.LongCursor;
 import com.carrotsearch.hppc.cursors.LongObjectCursor;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.AbstractIterator;
@@ -30,13 +34,14 @@ import org.apache.cassandra.utils.Pair;
 
 public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
 {
+    protected long tokenCount = 0;
     protected int numBlocks;
 
     protected Node root;
     protected InteriorNode rightmostParent;
     protected Leaf leftmostLeaf;
     protected Leaf rightmostLeaf;
-    protected long tokenCount = 0;
+
     protected long treeMinToken;
     protected long treeMaxToken;
 
@@ -70,19 +75,21 @@ public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
 
     protected void writeKeyOffsets(DataOutputPlus out, KeyOffsets offsets) throws IOException
     {
-        assert offsets.size() < Byte.MAX_VALUE;
-        out.writeByte(offsets.size());
+        out.writeByte(offsets.partitionCount());
 
-        for (LongObjectCursor<long[]> cursor : offsets)
+        offsets.iteratate(new KeyOffsets.KeyOffsetIterator()
         {
-            out.writeLong(cursor.key); // partition position (in index file)
-            out.writeInt(cursor.value.length); // row count
-
-            for (long rowPosition : cursor.value)
+            public void onPartition(long partitionPosition, int rowCount) throws IOException
             {
-                out.writeLong(rowPosition); // row position
+                out.writeLong(partitionPosition);
+                out.writeInt(rowCount);
             }
-        }
+
+            public void onRow(long rowPosition) throws IOException
+            {
+                out.writeLong(rowPosition);
+            }
+        });
     }
 
     // TODO: rename to `writeTree` or something
@@ -106,7 +113,7 @@ public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
                 if (block.isSerializable())
                 {
                     offset += block.serialize(childBlockIndex, blockBuffer, offset);
-                    flushBuffer(blockBuffer, out, numBlocks != 1);
+                    flushBuffer(blockBuffer, out, numBlocks > 1);
                 }
 
                 childBlockIndex += block.childCount();
@@ -325,15 +332,17 @@ public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
 
         protected abstract long serializeData(ByteBuffer buf, long offset);
 
+        // TODO: rename to serlialiez token description
         protected long serializeToken(ByteBuffer buf, Long token, KeyOffsets offsets, final long offset)
         {
             long tokenOffset = PARTITION_COUNT_BYTES;  // partition count
-            for (LongObjectCursor<long[]> cursor : offsets)
+
+            for (KeyOffsets.PartitionCursor cursor : offsets.iteratate())
             {
                 // TODO: solve through multiplication
                 // OR EVEN BETTER: denormalize it / make it a helper method on @KeyOffsets
                 tokenOffset += PARTITION_OFFSET_BYTES + ROW_COUNT_BYTES; // partition offset, row count
-                tokenOffset += cursor.value.length * ROW_OFFSET_BYTES; // row positions
+                tokenOffset += cursor.rowCount * ROW_OFFSET_BYTES; // row positions
             }
 
             buf.putLong(token);
@@ -513,13 +522,29 @@ public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
 
         private void serializeTokens(ByteBuffer buf)
         {
+            assert tokens.size() <= TOKENS_PER_BLOCK;
             tokens.forEach(buf::putLong);
         }
 
         private void serializeChildOffsets(long childBlockIndex, ByteBuffer buf)
         {
+            assert children.size() <= (TOKENS_PER_BLOCK + 1);
             for (int i = 0; i < children.size(); i++)
                 buf.putLong((childBlockIndex + i) * BLOCK_BYTES);
+        }
+
+        @Override
+        public String toString()
+        {
+            int depth = 1;
+            Node p = parent;
+            while (p != null)
+            {
+                p = p.parent;
+                depth++;
+            }
+
+            return "\n" + Strings.repeat("\t", depth) + "InteriorNode (" + tokenCount() + " tokens, " + childCount() + " children: \n" + Strings.repeat("\t", depth + 1) + " " + children + ")";
         }
     }
 
@@ -550,6 +575,12 @@ public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
         long curPos = buffer.position();
         if ((curPos & (blockSize - 1)) != 0) // align on the block boundary if needed
             buffer.position((int) FBUtilities.align(curPos, blockSize));
+    }
+
+    @Override
+    public String toString()
+    {
+        return "TokenTree (root: " + root + ")";
     }
 
     private static short safeCast(int s)

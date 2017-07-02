@@ -86,7 +86,7 @@ public class LongIterator extends RangeIterator<Long, Token>
         @Override
         public KeyOffsets getOffsets()
         {
-            return new KeyOffsets(4);
+            return new KeyOffsets();
         }
 
         @Override
