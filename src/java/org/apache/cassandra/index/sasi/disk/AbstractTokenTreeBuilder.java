@@ -218,7 +218,7 @@ public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
             public void serialize(ByteBuffer buf)
             {
                 buf.put(infoByte())
-                   .putShort((short) (tokenCount()))
+                   .putShort(safeCast((tokenCount())))
                    .putLong(nodeMinToken)
                    .putLong(nodeMaxToken);
             }
@@ -243,7 +243,7 @@ public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
 //                System.out.println("numBlocks = " + numBlocks);
 //                System.out.println("numBlocks = " + numBlocks);
                 buf.putLong(tokenCount)
-                   .putLong(numBlocks)
+                   .putShort(safeCast(numBlocks))
                    .putLong(treeMinToken)
                    .putLong(treeMaxToken);
             }
@@ -552,4 +552,9 @@ public abstract class AbstractTokenTreeBuilder implements TokenTreeBuilder
             buffer.position((int) FBUtilities.align(curPos, blockSize));
     }
 
+    private static short safeCast(int s)
+    {
+        assert s <= Short.MAX_VALUE;
+        return (short) s;
+    }
 }

@@ -66,7 +66,7 @@ public class TokenTree
         validateMagic();
 
         tokenCount = file.getLong();
-        blockCount = file.getLong();
+        blockCount = file.getShort();
         treeMinToken = file.getLong();
         treeMaxToken = file.getLong();
     }

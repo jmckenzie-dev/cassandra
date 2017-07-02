@@ -32,8 +32,8 @@ public interface TokenTreeBuilder extends Iterable<Pair<Long, KeyOffsets>>
     final static int HEADER_TOKEN_COUNT_BYTES = Short.BYTES;
 
     final static int ROOT_HEADER_MAGIC_SIZE = Short.BYTES;
-    final static int ROOT_HEADER_TOKEN_COUNT_SIZE = Long.BYTES; // rename to bytes
-    final static int ROOT_HEADER_BLOCK_COUNT_SIZE = Long.BYTES;
+    final static int ROOT_HEADER_TOKEN_COUNT_SIZE = Long.BYTES;
+    final static int ROOT_HEADER_BLOCK_COUNT_SIZE = Short.BYTES;
 
     //    [   token   ] [ partition description offset ]
     //    [ 8b (long) ] [            4b (int)          ]
@@ -48,8 +48,8 @@ public interface TokenTreeBuilder extends Iterable<Pair<Long, KeyOffsets>>
     final static int SHARED_HEADER_BYTES = HEADER_INFO_BYTE_BYTES + HEADER_TOKEN_COUNT_BYTES + 2 * TOKEN_BYTES;
     // Block header size in bytes, see {@class AbstractTreeBuilder$RootHeader}
     final static int BLOCK_HEADER_BYTES = BitUtil.nextHighestPowerOfTwo(SHARED_HEADER_BYTES + ROOT_HEADER_MAGIC_SIZE + ROOT_HEADER_TOKEN_COUNT_SIZE + ROOT_HEADER_BLOCK_COUNT_SIZE + 2 * TOKEN_BYTES);
+    // ?? can it be that we miscalculate here? is it just leaf entry? we should take into account everything we put into the block
     final static int TOKENS_PER_BLOCK = (TokenTreeBuilder.BLOCK_BYTES - BLOCK_HEADER_BYTES) / LEAF_ENTRY_BYTES;
-
 
     //    [ partition count ] ( [ partition offset ] [  row count ] ( [    row offset  ] )* )*
     //    [    1b (byte)    ] ( [     8b (long)    ] [   4b (int) ] ( [  8b (long)     ] )* )*
@@ -69,6 +69,7 @@ public interface TokenTreeBuilder extends Iterable<Pair<Long, KeyOffsets>>
     final short AB_MAGIC = 0x5A51;
     final short AC_MAGIC = 0x7C63;
 
+    // Left here for compatibility with AB format
     // note: ordinal positions are used here, do not change order
     enum EntryType
     {
