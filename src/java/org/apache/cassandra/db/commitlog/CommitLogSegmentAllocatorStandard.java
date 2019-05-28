@@ -19,15 +19,35 @@
 package org.apache.cassandra.db.commitlog;
 
 import java.io.File;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.io.util.FileUtils;
 
-public class CommitLogSegmentManagerStandard extends AbstractCommitLogSegmentManager
+/**
+ * This is a fairly simple form of a CommitLogSegmentAllocator.
+ */
+public class CommitLogSegmentAllocatorStandard implements CommitLogSegmentAllocator
 {
-    public CommitLogSegmentManagerStandard(final CommitLog commitLog, String storageDirectory)
-    {
-        super(commitLog, storageDirectory);
+    static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentAllocatorStandard.class);
+    private final CommitLogSegmentManager segmentManager;
+
+    public void start() {}
+    public void shutdown() {}
+
+    public CommitLogSegmentAllocatorStandard(CommitLogSegmentManager segmentManager) {
+        this.segmentManager = segmentManager;
+    }
+
+    /**
+     * No unique actions needed on segment replay by the standard segment allocator
+     * @param file
+     */
+    public void handleReplayedSegment(final File file) {
+        // (don't decrease managed size, since this was never a "live" segment)
+        logger.trace("(Unopened) segment {} is no longer needed and will be deleted now", file);
+        FileUtils.deleteWithConfirm(file);
     }
 
     public void discard(CommitLogSegment segment, boolean delete)
@@ -35,12 +55,12 @@ public class CommitLogSegmentManagerStandard extends AbstractCommitLogSegmentMan
         segment.close();
         if (delete)
             FileUtils.deleteWithConfirm(segment.logFile);
-        addSize(-segment.onDiskSize());
+        segmentManager.addSize(-segment.onDiskSize());
     }
 
     /**
      * Reserve space in the current segment for the provided mutation or, if there isn't space available,
-     * create a new segment. allocate() is blocking until allocation succeeds as it waits on a signal in advanceAllocatingFrom
+     * create a new segment. allocate() is blocking until allocation succeeds as it waits on a signal in switchToNewSegment
      *
      * @param mutation mutation to allocate space for
      * @param size total size of mutation (overhead + serialized size)
@@ -48,21 +68,21 @@ public class CommitLogSegmentManagerStandard extends AbstractCommitLogSegmentMan
      */
     public CommitLogSegment.Allocation allocate(Mutation mutation, int size)
     {
-        CommitLogSegment segment = allocatingFrom();
+        CommitLogSegment segment = segmentManager.getActiveSegment();
 
         CommitLogSegment.Allocation alloc;
         while ( null == (alloc = segment.allocate(mutation, size)) )
         {
             // failed to allocate, so move to a new segment with enough room
-            advanceAllocatingFrom(segment);
-            segment = allocatingFrom();
+            segmentManager.switchToNewSegment(segment);
+            segment = segmentManager.getActiveSegment();
         }
 
         return alloc;
     }
 
-   public CommitLogSegment createSegment()
+    public CommitLogSegment createSegment()
     {
-        return CommitLogSegment.createSegment(commitLog, this);
+        return CommitLogSegment.createSegment(segmentManager.commitLog, segmentManager);
     }
 }

@@ -41,7 +41,7 @@ public class CompressedSegment extends FileDirectSegment
     /**
      * Constructs a new segment file.
      */
-    CompressedSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    CompressedSegment(CommitLog commitLog, CommitLogSegmentManager manager)
     {
         super(commitLog, manager);
         this.compressor = commitLog.configuration.getCompressor();

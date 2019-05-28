@@ -67,7 +67,7 @@ public class CommitLog implements CommitLogMBean
     // empty segments when writing large records
     final long MAX_MUTATION_SIZE = DatabaseDescriptor.getMaxMutationSize();
 
-    final public AbstractCommitLogSegmentManager segmentManager;
+    final public CommitLogSegmentManager segmentManager;
 
     public final CommitLogArchiver archiver;
     final CommitLogMetrics metrics;
@@ -108,9 +108,7 @@ public class CommitLog implements CommitLogMBean
                 throw new IllegalArgumentException("Unknown commitlog service type: " + DatabaseDescriptor.getCommitLogSync());
         }
 
-        segmentManager = DatabaseDescriptor.isCDCEnabled()
-                         ? new CommitLogSegmentManagerCDC(this, DatabaseDescriptor.getCommitLogLocation())
-                         : new CommitLogSegmentManagerStandard(this, DatabaseDescriptor.getCommitLogLocation());
+        segmentManager = new CommitLogSegmentManager(this, DatabaseDescriptor.getCommitLogLocation());
 
         // register metrics
         metrics.attach(executor, segmentManager);
@@ -288,7 +286,7 @@ public class CommitLog implements CommitLogMBean
         }
         catch (IOException e)
         {
-            throw new FSWriteError(e, segmentManager.allocatingFrom().getPath());
+            throw new FSWriteError(e, segmentManager.getActiveSegment().getPath());
         }
     }
 
