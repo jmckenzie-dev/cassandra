@@ -40,7 +40,7 @@ public class MemoryMappedSegment extends CommitLogSegment
      *
      * @param commitLog the commit log it will be used with.
      */
-    MemoryMappedSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    MemoryMappedSegment(CommitLog commitLog, CommitLogSegmentManager manager)
     {
         super(commitLog, manager);
         // mark the initial sync marker as uninitialised

@@ -39,28 +39,27 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.DirectorySizeCalculator;
 import org.apache.cassandra.utils.NoSpamLogger;
 
-public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
+public class CommitLogSegmentAllocatorCDC implements CommitLogSegmentAllocator
 {
-    static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentManagerCDC.class);
+    static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentAllocatorCDC.class);
     private final CDCSizeTracker cdcSizeTracker;
+    private final CommitLogSegmentManager segmentManager;
 
-    public CommitLogSegmentManagerCDC(final CommitLog commitLog, String storageDirectory)
+    CommitLogSegmentAllocatorCDC(CommitLogSegmentManager segmentManager)
     {
-        super(commitLog, storageDirectory);
-        cdcSizeTracker = new CDCSizeTracker(this, new File(DatabaseDescriptor.getCDCLogLocation()));
+        this.segmentManager = segmentManager;
+        cdcSizeTracker = new CDCSizeTracker(segmentManager, new File(DatabaseDescriptor.getCDCLogLocation()));
     }
 
-    @Override
-    void start()
+    public void start()
     {
         cdcSizeTracker.start();
-        super.start();
     }
 
     public void discard(CommitLogSegment segment, boolean delete)
     {
         segment.close();
-        addSize(-segment.onDiskSize());
+        segmentManager.addSize(-segment.onDiskSize());
 
         cdcSizeTracker.processDiscardedSegment(segment);
 
@@ -82,12 +81,11 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
     }
 
     /**
-     * Initiates the shutdown process for the management thread. Also stops the cdc on-disk size calculator executor.
+     * Stops the thread pool for CDC on disk size tracking.
      */
     public void shutdown()
     {
         cdcSizeTracker.shutdown();
-        super.shutdown();
     }
 
     /**
@@ -99,20 +97,23 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
      * @return the created Allocation object
      * @throws CDCWriteException If segment disallows CDC mutations, we throw
      */
-    @Override
     public CommitLogSegment.Allocation allocate(Mutation mutation, int size) throws CDCWriteException
     {
-        CommitLogSegment segment = allocatingFrom();
-        CommitLogSegment.Allocation alloc;
-
+        CommitLogSegment segment = segmentManager.getActiveSegment();
         throwIfForbidden(mutation, segment);
-        while ( null == (alloc = segment.allocate(mutation, size)) )
+
+        CommitLogSegment.Allocation alloc = segment.allocate(mutation, size);
+        // If we failed to allocate in the segment, prompt for a switch to a new segment and loop on re-attempt. This
+        // is expected to succeed or throw, since CommitLog allocation working is central to how a node operates.
+        while (alloc == null)
         {
             // Failed to allocate, so move to a new segment with enough room if possible.
-            advanceAllocatingFrom(segment);
-            segment = allocatingFrom();
+            segmentManager.switchToNewSegment(segment);
+            segment = segmentManager.getActiveSegment();
 
+            // New segment, so confirm whether or not CDC mutations are allowed on this.
             throwIfForbidden(mutation, segment);
+            alloc = segment.allocate(mutation, size);
         }
 
         if (mutation.trackedByCDC())
@@ -143,7 +144,7 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
      */
     public CommitLogSegment createSegment()
     {
-        CommitLogSegment segment = CommitLogSegment.createSegment(commitLog, this);
+        CommitLogSegment segment = CommitLogSegment.createSegment(segmentManager.commitLog, segmentManager);
 
         // Hard link file in cdc folder for realtime tracking
         FileUtils.createHardLink(segment.logFile, segment.getCDCFile());
@@ -157,11 +158,8 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
      *
      * @param file segment file that is no longer in use.
      */
-    @Override
-    void handleReplayedSegment(final File file)
+    public void handleReplayedSegment(final File file)
     {
-        super.handleReplayedSegment(file);
-
         // delete untracked cdc segment hard link files if their index files do not exist
         File cdcFile = new File(DatabaseDescriptor.getCDCLogLocation(), file.getName());
         File cdcIndexFile = new File(DatabaseDescriptor.getCDCLogLocation(), CommitLogDescriptor.fromFileName(file.getName()).cdcIndexFileName());
@@ -175,7 +173,7 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
     /**
      * For use after replay when replayer hard-links / adds tracking of replayed segments
      */
-    public void addCDCSize(long size)
+    void addCDCSize(long size)
     {
         cdcSizeTracker.addSize(size);
     }
@@ -191,12 +189,12 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
     {
         private final RateLimiter rateLimiter = RateLimiter.create(1000.0 / DatabaseDescriptor.getCDCDiskCheckInterval());
         private ExecutorService cdcSizeCalculationExecutor;
-        private CommitLogSegmentManagerCDC segmentManager;
+        private CommitLogSegmentManager segmentManager;
 
         // Used instead of size during walk to remove chance of over-allocation
         private volatile long sizeInProgress = 0;
 
-        CDCSizeTracker(CommitLogSegmentManagerCDC segmentManager, File path)
+        CDCSizeTracker(CommitLogSegmentManager segmentManager, File path)
         {
             super(path);
             this.segmentManager = segmentManager;
@@ -215,9 +213,9 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
          * Synchronous size recalculation on each segment creation/deletion call could lead to very long delays in new
          * segment allocation, thus long delays in thread signaling to wake waiting allocation / writer threads.
          *
-         * This can be reached either from the segment management thread in ABstractCommitLogSegmentManager or from the
+         * This can be reached either from the segment management thread in CommitLogSegmentManager or from the
          * size recalculation executor, so we synchronize on this object to reduce the race overlap window available for
-         * size to get off.
+         * size to drift.
          *
          * Reference DirectorySizerBench for more information about performance of the directory size recalc.
          */
@@ -237,6 +235,10 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
             submitOverflowSizeRecalculation();
         }
 
+        /**
+         * Upon segment discard, we need to adjust our known CDC consumption on disk based on whether or not this segment
+         * was flagged to be allowable for CDC.
+         */
         void processDiscardedSegment(CommitLogSegment segment)
         {
             // See synchronization in CommitLogSegment.setCDCState
@@ -258,7 +260,13 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
             return (long)DatabaseDescriptor.getCDCSpaceInMB() * 1024 * 1024;
         }
 
-        public void submitOverflowSizeRecalculation()
+        /**
+         * The overflow size calculation requires walking the flie tree and checking file size for all linked CDC
+         * files. As such, we do this async on the executor in the CDCSizeTracker instead of the context of the calling
+         * thread. While this can obviously introduce some delay / raciness in the calculation of CDC size consumed,
+         * the alternative of significantly long blocks for critical path CL allocation is unacceptable.
+         */
+        void submitOverflowSizeRecalculation()
         {
             try
             {
@@ -274,9 +282,12 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         {
             rateLimiter.acquire();
             calculateSize();
-            CommitLogSegment allocatingFrom = segmentManager.allocatingFrom();
-            if (allocatingFrom.getCDCState() == CDCState.FORBIDDEN)
-                processNewSegment(allocatingFrom);
+            CommitLogSegment activeCommitLogSegment = segmentManager.getActiveSegment();
+            // In the event that the current segment is disallowed for CDC, re-check it as our size on disk may have
+            // reduced, thus allowing the segment to accept CDC writes. It's worth noting: this would spin on recalc
+            // endlessly if not for the rate limiter dropping looping calls on the floor.
+            if (activeCommitLogSegment.getCDCState() == CDCState.FORBIDDEN)
+                processNewSegment(activeCommitLogSegment);
         }
 
         private int defaultSegmentSize()
@@ -327,7 +338,7 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
      * Only use for testing / validation that size tracker is working. Not for production use.
      */
     @VisibleForTesting
-    public long updateCDCTotalSize()
+    long updateCDCTotalSize()
     {
         cdcSizeTracker.submitOverflowSizeRecalculation();
 
@@ -336,7 +347,9 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         {
             Thread.sleep(DatabaseDescriptor.getCDCDiskCheckInterval() + 10);
         }
-        catch (InterruptedException e) {}
+        catch (InterruptedException e) {
+            // Expected in test context. no-op.
+        }
 
         return cdcSizeTracker.totalCDCSizeOnDisk();
     }
