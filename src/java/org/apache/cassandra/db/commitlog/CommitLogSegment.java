@@ -123,14 +123,14 @@ public abstract class CommitLogSegment
     final FileChannel channel;
     final int fd;
 
-    protected final AbstractCommitLogSegmentManager manager;
+    protected final CommitLogSegmentManager manager;
 
     ByteBuffer buffer;
     private volatile boolean headerWritten;
 
     public final CommitLogDescriptor descriptor;
 
-    static CommitLogSegment createSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    static CommitLogSegment createSegment(CommitLog commitLog, CommitLogSegmentManager manager)
     {
         Configuration config = commitLog.configuration;
         CommitLogSegment segment = config.useEncryption() ? new EncryptedSegment(commitLog, manager)
@@ -160,7 +160,7 @@ public abstract class CommitLogSegment
     /**
      * Constructs a new segment file.
      */
-    CommitLogSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    CommitLogSegment(CommitLog commitLog, CommitLogSegmentManager manager)
     {
         this.manager = manager;
 
@@ -265,10 +265,10 @@ public abstract class CommitLogSegment
         }
     }
 
-    // ensures no more of this segment is writeable, by allocating any unused section at the end and marking it discarded
+    // Ensures no more of this segment is writeable, by allocating any unused section at the end and marking it discarded.
     void discardUnusedTail()
     {
-        // We guard this with the OpOrdering instead of synchronised due to potential dead-lock with ACLSM.advanceAllocatingFrom()
+        // We guard this with the OpOrdering instead of synchronised due to potential dead-lock with CLSM.switchToNewSegment()
         // Ensures endOfBuffer update is reflected in the buffer end position picked up by sync().
         // This actually isn't strictly necessary, as currently all calls to discardUnusedTail are executed either by the thread
         // running sync or within a mutation already protected by this OpOrdering, but to prevent future potential mistakes,
@@ -619,7 +619,7 @@ public abstract class CommitLogSegment
      */
     public synchronized boolean isUnused()
     {
-        // if room to allocate, we're still in use as the active allocatingFrom,
+        // if room to allocate, we're still in use as the active segment,
         // so we don't want to race with updates to tableClean with removeCleanFromDirty
         if (isStillAllocating())
             return false;

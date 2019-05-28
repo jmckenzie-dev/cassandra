@@ -287,7 +287,7 @@ public abstract class CommitLogStressTest
 
         List<String> logFileNames = commitLog.getActiveSegmentNames();
         Map<String, Double> ratios = commitLog.getActiveSegmentCompressionRatios();
-        Collection<CommitLogSegment> segments = commitLog.segmentManager.getActiveSegments();
+        Collection<CommitLogSegment> segments = commitLog.segmentManager.getUnflushedSegments();
 
         for (CommitLogSegment segment : segments)
         {
