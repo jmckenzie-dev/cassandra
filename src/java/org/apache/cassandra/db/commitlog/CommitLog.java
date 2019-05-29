@@ -306,7 +306,7 @@ public class CommitLog implements CommitLogMBean
         // flushed CF as clean, until we reach the segment file containing the CommitLogPosition passed
         // in the arguments. Any segments that become unused after they are marked clean will be
         // recycled or discarded.
-        for (Iterator<CommitLogSegment> iter = segmentManager.getActiveSegments().iterator(); iter.hasNext();)
+        for (Iterator<CommitLogSegment> iter = segmentManager.getUnflushedSegments().iterator(); iter.hasNext();)
         {
             CommitLogSegment segment = iter.next();
             segment.markClean(id, lowerBound, upperBound);
@@ -362,7 +362,7 @@ public class CommitLog implements CommitLogMBean
 
     public List<String> getActiveSegmentNames()
     {
-        Collection<CommitLogSegment> segments = segmentManager.getActiveSegments();
+        Collection<CommitLogSegment> segments = segmentManager.getUnflushedSegments();
         List<String> segmentNames = new ArrayList<>(segments.size());
         for (CommitLogSegment seg : segments)
             segmentNames.add(seg.getName());
@@ -378,7 +378,7 @@ public class CommitLog implements CommitLogMBean
     public long getActiveContentSize()
     {
         long size = 0;
-        for (CommitLogSegment seg : segmentManager.getActiveSegments())
+        for (CommitLogSegment seg : segmentManager.getUnflushedSegments())
             size += seg.contentSize();
         return size;
     }
@@ -393,7 +393,7 @@ public class CommitLog implements CommitLogMBean
     public Map<String, Double> getActiveSegmentCompressionRatios()
     {
         Map<String, Double> segmentRatios = new TreeMap<>();
-        for (CommitLogSegment seg : segmentManager.getActiveSegments())
+        for (CommitLogSegment seg : segmentManager.getUnflushedSegments())
             segmentRatios.put(seg.getName(), 1.0 * seg.onDiskSize() / seg.contentSize());
         return segmentRatios;
     }

@@ -70,12 +70,15 @@ public class CommitLogSegmentAllocatorStandard implements CommitLogSegmentAlloca
     {
         CommitLogSegment segment = segmentManager.getActiveSegment();
 
-        CommitLogSegment.Allocation alloc;
-        while ( null == (alloc = segment.allocate(mutation, size)) )
+        CommitLogSegment.Allocation alloc = segment.allocate(mutation, size);
+        // If we failed to allocate in the segment, prompt for a switch to a new segment and loop on re-attempt. This
+        // is expected to succeed or throw, since CommitLog allocation working is central to how a node operates.
+        while (alloc == null)
         {
-            // failed to allocate, so move to a new segment with enough room
+            // Failed to allocate, so move to a new segment with enough room if possible.
             segmentManager.switchToNewSegment(segment);
             segment = segmentManager.getActiveSegment();
+            alloc = segment.allocate(mutation, size);
         }
 
         return alloc;

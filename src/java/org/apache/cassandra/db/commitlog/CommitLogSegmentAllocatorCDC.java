@@ -100,16 +100,20 @@ public class CommitLogSegmentAllocatorCDC implements CommitLogSegmentAllocator
     public CommitLogSegment.Allocation allocate(Mutation mutation, int size) throws CDCWriteException
     {
         CommitLogSegment segment = segmentManager.getActiveSegment();
-        CommitLogSegment.Allocation alloc;
-
         throwIfForbidden(mutation, segment);
-        while ( null == (alloc = segment.allocate(mutation, size)) )
+
+        CommitLogSegment.Allocation alloc = segment.allocate(mutation, size);
+        // If we failed to allocate in the segment, prompt for a switch to a new segment and loop on re-attempt. This
+        // is expected to succeed or throw, since CommitLog allocation working is central to how a node operates.
+        while (alloc == null)
         {
             // Failed to allocate, so move to a new segment with enough room if possible.
             segmentManager.switchToNewSegment(segment);
             segment = segmentManager.getActiveSegment();
 
+            // New segment, so confirm whether or not CDC mutations are allowed on this.
             throwIfForbidden(mutation, segment);
+            alloc = segment.allocate(mutation, size);
         }
 
         if (mutation.trackedByCDC())

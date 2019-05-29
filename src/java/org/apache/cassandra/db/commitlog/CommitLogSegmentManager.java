@@ -65,7 +65,7 @@ public class CommitLogSegmentManager
     private final WaitQueue segmentPrepared = new WaitQueue();
 
     /** Segments that are still in memtables and not yet flushed to sstables.
-     * The tail of this queue is the one we allocate writes to
+     * The tail of this queue is the one we allocate writes to.
      */
     private final ConcurrentLinkedQueue<CommitLogSegment> unflushedSegments = new ConcurrentLinkedQueue<>();
 
@@ -294,8 +294,8 @@ public class CommitLogSegmentManager
                     archiveAndDiscard(segment);
             }
 
-            CommitLogSegment first;
-            if ((first = unflushedSegments.peek()) != null && first.id <= last.id)
+            CommitLogSegment first = unflushedSegments.peek();
+            if (first != null && first.id <= last.id)
                 logger.error("Failed to force-recycle all segments; at least one segment is still in use with dirty CFs.");
         }
         catch (Throwable t)

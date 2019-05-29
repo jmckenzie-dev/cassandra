@@ -113,19 +113,19 @@ public class CommitLogSegmentBackpressureTest
 
             CommitLogSegmentManager clsm = CommitLog.instance.segmentManager;
 
-            Util.spinAssertEquals(3, () -> clsm.getActiveSegments().size(), 5);
+            Util.spinAssertEquals(3, () -> clsm.getUnflushedSegments().size(), 5);
 
             Thread.sleep(1000);
 
             // Should only be able to create 3 segments not 7 because it blocks waiting for truncation that never comes
-            Assert.assertEquals(3, clsm.getActiveSegments().size());
+            Assert.assertEquals(3, clsm.getUnflushedSegments().size());
 
             // Discard the currently active segments so allocation can continue.
             // Take snapshot of the list, otherwise this will also discard newly allocated segments.
-            new ArrayList<>(clsm.getActiveSegments()).forEach( clsm::archiveAndDiscard );
+            new ArrayList<>(clsm.getUnflushedSegments()).forEach( clsm::archiveAndDiscard );
 
             // The allocated count should reach the limit again.
-            Util.spinAssertEquals(3, () -> clsm.getActiveSegments().size(), 5);
+            Util.spinAssertEquals(3, () -> clsm.getUnflushedSegments().size(), 5);
         }
         finally
         {

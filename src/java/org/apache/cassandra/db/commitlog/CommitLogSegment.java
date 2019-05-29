@@ -265,10 +265,10 @@ public abstract class CommitLogSegment
         }
     }
 
-    // ensures no more of this segment is writeable, by allocating any unused section at the end and marking it discarded
+    // Ensures no more of this segment is writeable, by allocating any unused section at the end and marking it discarded.
     void discardUnusedTail()
     {
-        // We guard this with the OpOrdering instead of synchronised due to potential dead-lock with ACLSM.switchToNewSegment()
+        // We guard this with the OpOrdering instead of synchronised due to potential dead-lock with CLSM.switchToNewSegment()
         // Ensures endOfBuffer update is reflected in the buffer end position picked up by sync().
         // This actually isn't strictly necessary, as currently all calls to discardUnusedTail are executed either by the thread
         // running sync or within a mutation already protected by this OpOrdering, but to prevent future potential mistakes,
