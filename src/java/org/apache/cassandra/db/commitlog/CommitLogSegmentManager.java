@@ -64,8 +64,10 @@ public class CommitLogSegmentManager
 
     private final WaitQueue segmentPrepared = new WaitQueue();
 
-    /** Active segments, containing unflushed data. The tail of this queue is the one we allocate writes to */
-    private final ConcurrentLinkedQueue<CommitLogSegment> activeSegments = new ConcurrentLinkedQueue<>();
+    /** Segments that are still in memtables and not yet flushed to sstables.
+     * The tail of this queue is the one we allocate writes to
+     */
+    private final ConcurrentLinkedQueue<CommitLogSegment> unflushedSegments = new ConcurrentLinkedQueue<>();
 
     /**
      * The segment we are currently allocating commit log records to.
@@ -176,7 +178,7 @@ public class CommitLogSegmentManager
         {
             long flushingSize = 0;
             List<CommitLogSegment> segmentsToRecycle = new ArrayList<>();
-            for (CommitLogSegment segment : activeSegments)
+            for (CommitLogSegment segment : unflushedSegments)
             {
                 if (segment == activeSegment)
                     break;
@@ -201,17 +203,17 @@ public class CommitLogSegmentManager
         {
             synchronized (this)
             {
-                // do this in a critical section so we can maintain the order of segment construction when moving to activeSegment/activeSegments
+                // do this in a critical section so we can maintain the order of segment construction when moving to activeSegment/unflushedSegments
                 if (activeSegment != old)
                     return;
 
                 // If a segment is ready, take it now, otherwise wait for the management thread to construct it.
                 if (availableSegment != null)
                 {
-                    // Success! Change activeSegment and activeSegments (which must be kept in order) before leaving
+                    // Success! Change activeSegment and unflushedSegments (which must be kept in order) before leaving
                     // the critical section.
                     activeSegment = availableSegment;
-                    activeSegments.add(activeSegment);
+                    unflushedSegments.add(activeSegment);
                     availableSegment = null;
                     break;
                 }
@@ -262,7 +264,7 @@ public class CommitLogSegmentManager
      */
     void forceRecycleAll(Iterable<TableId> droppedTables)
     {
-        List<CommitLogSegment> segmentsToRecycle = new ArrayList<>(activeSegments);
+        List<CommitLogSegment> segmentsToRecycle = new ArrayList<>(unflushedSegments);
         CommitLogSegment last = segmentsToRecycle.get(segmentsToRecycle.size() - 1);
         switchToNewSegment(last);
 
@@ -279,21 +281,21 @@ public class CommitLogSegmentManager
         {
             future.get();
 
-            for (CommitLogSegment segment : activeSegments)
+            for (CommitLogSegment segment : unflushedSegments)
                 for (TableId tableId : droppedTables)
                     segment.markClean(tableId, CommitLogPosition.NONE, segment.getCurrentCommitLogPosition());
 
             // now recycle segments that are unused, as we may not have triggered a discardCompletedSegments()
             // if the previous active segment was the only one to recycle (since an active segment isn't
             // necessarily dirty, and we only call dCS after a flush).
-            for (CommitLogSegment segment : activeSegments)
+            for (CommitLogSegment segment : unflushedSegments)
             {
                 if (segment.isUnused())
                     archiveAndDiscard(segment);
             }
 
             CommitLogSegment first;
-            if ((first = activeSegments.peek()) != null && first.id <= last.id)
+            if ((first = unflushedSegments.peek()) != null && first.id <= last.id)
                 logger.error("Failed to force-recycle all segments; at least one segment is still in use with dirty CFs.");
         }
         catch (Throwable t)
@@ -311,7 +313,7 @@ public class CommitLogSegmentManager
     void archiveAndDiscard(final CommitLogSegment segment)
     {
         boolean archiveSuccess = commitLog.archiver.maybeWaitForArchiving(segment.getName());
-        if (!activeSegments.remove(segment))
+        if (!unflushedSegments.remove(segment))
             return; // already discarded
         // if archiving (command) was not successful then leave the file alone. don't delete or recycle.
         logger.debug("Segment {} is no longer active and will be deleted {}", segment, archiveSuccess ? "now" : "by the archive script");
@@ -410,9 +412,9 @@ public class CommitLogSegmentManager
             throw new RuntimeException(e);
         }
 
-        for (CommitLogSegment segment : activeSegments)
+        for (CommitLogSegment segment : unflushedSegments)
             closeAndDeleteSegmentUnsafe(segment, deleteSegments);
-        activeSegments.clear();
+        unflushedSegments.clear();
 
         size.set(0L);
 
@@ -481,19 +483,19 @@ public class CommitLogSegmentManager
         managerThread.join();
         managerThread = null;
 
-        for (CommitLogSegment segment : activeSegments)
+        for (CommitLogSegment segment : unflushedSegments)
             segment.close();
 
         bufferPool.shutdown();
     }
 
     /**
-     * @return a read-only collection of the active commit log segments
+     * @return a read-only collection of all active and unflushed segments in the system
      */
     @VisibleForTesting
-    public Collection<CommitLogSegment> getActiveSegments()
+    public Collection<CommitLogSegment> getUnflushedSegments()
     {
-        return Collections.unmodifiableCollection(activeSegments);
+        return Collections.unmodifiableCollection(unflushedSegments);
     }
 
     /**
@@ -512,7 +514,7 @@ public class CommitLogSegmentManager
     public void sync(boolean flush) throws IOException
     {
         CommitLogSegment current = activeSegment;
-        for (CommitLogSegment segment : getActiveSegments())
+        for (CommitLogSegment segment : getUnflushedSegments())
         {
             // Do not sync segments that became active after sync started.
             if (segment.id > current.id)

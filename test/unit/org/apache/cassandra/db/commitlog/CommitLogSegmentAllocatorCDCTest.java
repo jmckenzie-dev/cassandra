@@ -449,6 +449,6 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
 
     private long updateCDCTotalSize(CommitLogSegmentManager segmentManager)
     {
-        return ((CommitLogSegmentAllocator)segmentManager.segmentAllocator).updateCDCTotalSize();
+        return ((CommitLogSegmentAllocatorCDC)segmentManager.segmentAllocator).updateCDCTotalSize();
     }
 }
