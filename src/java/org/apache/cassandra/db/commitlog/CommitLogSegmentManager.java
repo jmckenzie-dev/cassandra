@@ -241,20 +241,20 @@ public class CommitLogSegmentManager
 
     /**
      * Spins while waiting on next available segment's allocation, putting caller to sleep until the new segment is created.
-     * @param knownSegment
+     * @param oldActiveSegment
      */
-    void awaitSegmentAllocation(CommitLogSegment knownSegment)
+    void awaitSegmentAllocation(CommitLogSegment oldActiveSegment)
     {
         do
         {
             WaitQueue.Signal prepared = segmentPrepared.register(commitLog.metrics.waitingOnSegmentAllocation.time());
             // No new segment created, and the active segment is the one we already know about. Time to sleep...
-            if (availableSegment == null && activeSegment == knownSegment)
+            if (availableSegment == null && activeSegment == oldActiveSegment)
                 prepared.awaitUninterruptibly();
             else
                 prepared.cancel();
         }
-        while (availableSegment == null && activeSegment == knownSegment);
+        while (availableSegment == null && activeSegment == oldActiveSegment);
     }
 
     /**

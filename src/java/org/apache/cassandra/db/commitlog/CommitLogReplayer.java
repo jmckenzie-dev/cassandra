@@ -167,7 +167,6 @@ public class CommitLogReplayer implements CommitLogReadHandler
      */
     private void handleCDCReplayCompletion(File f) throws IOException
     {
-        // TODO: Get this thing wrapped in CommitLogSegmentManager. Casting and poking this whole is ugly.
         // Can only reach this point if CDC is enabled, thus we have a CDC Allocator
         ((CommitLogSegmentAllocatorCDC)CommitLog.instance.segmentManager.segmentAllocator).addCDCSize(f.length());
 

@@ -59,7 +59,7 @@ public class CompressedSegment extends FileDirectSegment
         int contentStart = startMarker + SYNC_MARKER_SIZE;
         int length = nextMarker - contentStart;
         // The length may be 0 when the segment is being closed.
-        assert length > 0 || length == 0 && !isStillAllocating();
+        assert length > 0 || length == 0 && !hasRoom();
 
         try
         {

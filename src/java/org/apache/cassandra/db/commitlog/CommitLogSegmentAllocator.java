@@ -28,7 +28,7 @@ public interface CommitLogSegmentAllocator
     void shutdown();
 
     /**
-     * Indicates that a segment file has been flushed and is no longer needed. This generally performs blocking disk
+     * Indicates that a segment file has been flushed and is no longer needed. This can perform blocking disk
      * operations so use with caution in critical path.
      *
      * @param segment segment to be discarded
@@ -43,8 +43,8 @@ public interface CommitLogSegmentAllocator
     CommitLogSegment.Allocation allocate(Mutation mutation, int size);
 
     /**
-     * Hook to allow segment managers to track state surrounding creation of new segments. This takes place on a segment
-     * management thread instead of the calling thread context.
+     * Hook to allow segment managers to track state surrounding creation of new segments. This method is called
+     * on a separate segment management thread instead of the critical path so longer-running operations are acceptable.
      */
     CommitLogSegment createSegment();
 

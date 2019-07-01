@@ -425,7 +425,7 @@ public abstract class CommitLogSegment
 
     abstract void flush(int startMarker, int nextMarker);
 
-    public boolean isStillAllocating()
+    public boolean hasRoom()
     {
         return allocatePosition.get() < endOfBuffer;
     }
@@ -576,7 +576,7 @@ public abstract class CommitLogSegment
     private void removeCleanFromDirty()
     {
         // if we're still allocating from this segment, don't touch anything since it can't be done thread-safely
-        if (isStillAllocating())
+        if (hasRoom())
             return;
 
         Iterator<Map.Entry<TableId, IntegerInterval.Set>> iter = tableClean.entrySet().iterator();
@@ -621,7 +621,7 @@ public abstract class CommitLogSegment
     {
         // if room to allocate, we're still in use as the active segment,
         // so we don't want to race with updates to tableClean with removeCleanFromDirty
-        if (isStillAllocating())
+        if (hasRoom())
             return false;
 
         removeCleanFromDirty();

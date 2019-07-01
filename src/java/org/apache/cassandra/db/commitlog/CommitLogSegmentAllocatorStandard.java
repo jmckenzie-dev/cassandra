@@ -41,7 +41,7 @@ public class CommitLogSegmentAllocatorStandard implements CommitLogSegmentAlloca
     }
 
     /**
-     * No unique actions needed on segment replay by the standard segment allocator
+     * No extra processing required beyond deletion of the file once we have replayed it.
      * @param file
      */
     public void handleReplayedSegment(final File file) {
