@@ -32,17 +32,13 @@ import org.slf4j.LoggerFactory;
 import net.nicoulaj.compilecommand.annotations.DontInline;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.commitlog.CommitLogSegmentAllocatorCDC;
-import org.apache.cassandra.db.commitlog.CommitLogSegmentAllocatorStandard;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
-import org.apache.cassandra.utils.*;
+import org.apache.cassandra.utils.JVMStabilityInspector;
+import org.apache.cassandra.utils.WrappedRunnable;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
-
-import static org.apache.cassandra.db.commitlog.CommitLogSegment.Allocation;
 
 /**
  * Performs eager-creation of commit log segments in a background thread. All the
