@@ -45,7 +45,7 @@ public class CommitLogSegmentAllocatorCDC implements CommitLogSegmentAllocator
     private final CDCSizeTracker cdcSizeTracker;
     private final CommitLogSegmentManager segmentManager;
 
-    public CommitLogSegmentAllocatorCDC(CommitLogSegmentManager segmentManager)
+    CommitLogSegmentAllocatorCDC(CommitLogSegmentManager segmentManager)
     {
         this.segmentManager = segmentManager;
         cdcSizeTracker = new CDCSizeTracker(segmentManager, new File(DatabaseDescriptor.getCDCLogLocation()));
@@ -173,7 +173,7 @@ public class CommitLogSegmentAllocatorCDC implements CommitLogSegmentAllocator
     /**
      * For use after replay when replayer hard-links / adds tracking of replayed segments
      */
-    public void addCDCSize(long size)
+    void addCDCSize(long size)
     {
         cdcSizeTracker.addSize(size);
     }
@@ -266,7 +266,7 @@ public class CommitLogSegmentAllocatorCDC implements CommitLogSegmentAllocator
          * thread. While this can obviously introduce some delay / raciness in the calculation of CDC size consumed,
          * the alternative of significantly long blocks for critical path CL allocation is unacceptable.
          */
-        public void submitOverflowSizeRecalculation()
+        void submitOverflowSizeRecalculation()
         {
             try
             {
@@ -338,7 +338,7 @@ public class CommitLogSegmentAllocatorCDC implements CommitLogSegmentAllocator
      * Only use for testing / validation that size tracker is working. Not for production use.
      */
     @VisibleForTesting
-    public long updateCDCTotalSize()
+    long updateCDCTotalSize()
     {
         cdcSizeTracker.submitOverflowSizeRecalculation();
 
@@ -347,7 +347,9 @@ public class CommitLogSegmentAllocatorCDC implements CommitLogSegmentAllocator
         {
             Thread.sleep(DatabaseDescriptor.getCDCDiskCheckInterval() + 10);
         }
-        catch (InterruptedException e) {}
+        catch (InterruptedException e) {
+            // Expected in test context. no-op.
+        }
 
         return cdcSizeTracker.totalCDCSizeOnDisk();
     }

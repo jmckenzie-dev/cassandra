@@ -36,13 +36,12 @@ public class CommitLogSegmentAllocatorStandard implements CommitLogSegmentAlloca
     public void start() {}
     public void shutdown() {}
 
-    public CommitLogSegmentAllocatorStandard(CommitLogSegmentManager segmentManager) {
+    CommitLogSegmentAllocatorStandard(CommitLogSegmentManager segmentManager) {
         this.segmentManager = segmentManager;
     }
 
     /**
      * No extra processing required beyond deletion of the file once we have replayed it.
-     * @param file
      */
     public void handleReplayedSegment(final File file) {
         // (don't decrease managed size, since this was never a "live" segment)
