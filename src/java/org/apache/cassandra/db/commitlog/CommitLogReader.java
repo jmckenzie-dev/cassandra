@@ -48,7 +48,8 @@ import static org.apache.cassandra.utils.FBUtilities.updateChecksumInt;
 
 /**
  * A CommitLogReader is used to traverse a flat CommitLog file and provide deserialized Mutation objects to an accepting
- * CommitLogReadHandler.
+ * CommitLogReadHandler. None of the actual state about traversal or progress is actually stored inside this class; it's
+ * largely a stateless container w/logic to allow reading files which are assumed to be CommitLog Segments.
  */
 public class CommitLogReader
 {
@@ -78,11 +79,53 @@ public class CommitLogReader
     /**
      * Reads all passed in files with no minimum, no start, and no mutation limit.
      */
-    void readAllFiles(CommitLogReadHandler handler, File[] files) throws IOException
+    public void readAllFiles(CommitLogReadHandler handler, File[] files) throws IOException
     {
         readAllFiles(handler, files, CommitLogPosition.NONE);
     }
 
+    /**
+     * Reads all passed in files with minPosition, no start, and no mutation limit.
+     */
+    public void readAllFiles(CommitLogReadHandler handler, File[] files, CommitLogPosition minPosition) throws IOException
+    {
+        List<File> filteredLogs = filterCommitLogFiles(files);
+        int i = 0;
+        for (File file: filteredLogs)
+        {
+            i++;
+            readCommitLogSegment(handler, file, minPosition, ALL_MUTATIONS, i == filteredLogs.size());
+        }
+    }
+
+    /**
+     * Reads passed in file fully
+     */
+    public void readCommitLogSegment(CommitLogReadHandler handler, File file, boolean tolerateTruncation) throws IOException
+    {
+        readCommitLogSegment(handler, file, CommitLogPosition.NONE, ALL_MUTATIONS, tolerateTruncation);
+    }
+
+    /**
+     * Reads all mutations from passed in file from minPosition
+     */
+    public void readCommitLogSegment(CommitLogReadHandler handler, File file, CommitLogPosition minPosition, boolean tolerateTruncation) throws IOException
+    {
+        readCommitLogSegment(handler, file, minPosition, ALL_MUTATIONS, tolerateTruncation);
+    }
+
+    /**
+     * Reads passed in file fully, up to mutationLimit count
+     */
+    @VisibleForTesting
+    public void readCommitLogSegment(CommitLogReadHandler handler, File file, int mutationLimit, boolean tolerateTruncation) throws IOException
+    {
+        readCommitLogSegment(handler, file, CommitLogPosition.NONE, mutationLimit, tolerateTruncation);
+    }
+
+    /**
+     * Confirms whether the passed in file is one we should read or skip based on whether it's empty and passes crc
+     */
     private static boolean shouldSkip(File file) throws IOException, ConfigurationException
     {
         try(RandomAccessReader reader = RandomAccessReader.open(file))
@@ -120,44 +163,6 @@ public class CommitLogReader
         return filtered;
     }
 
-    /**
-     * Reads all passed in files with minPosition, no start, and no mutation limit.
-     */
-    private void readAllFiles(CommitLogReadHandler handler, File[] files, CommitLogPosition minPosition) throws IOException
-    {
-        List<File> filteredLogs = filterCommitLogFiles(files);
-        int i = 0;
-        for (File file: filteredLogs)
-        {
-            i++;
-            readCommitLogSegment(handler, file, minPosition, ALL_MUTATIONS, i == filteredLogs.size());
-        }
-    }
-
-    /**
-     * Reads passed in file fully
-     */
-    public void readCommitLogSegment(CommitLogReadHandler handler, File file, boolean tolerateTruncation) throws IOException
-    {
-        readCommitLogSegment(handler, file, CommitLogPosition.NONE, ALL_MUTATIONS, tolerateTruncation);
-    }
-
-    /**
-     * Reads all mutations from passed in file from minPosition
-     */
-    void readCommitLogSegment(CommitLogReadHandler handler, File file, CommitLogPosition minPosition, boolean tolerateTruncation) throws IOException
-    {
-        readCommitLogSegment(handler, file, minPosition, ALL_MUTATIONS, tolerateTruncation);
-    }
-
-    /**
-     * Reads passed in file fully, up to mutationLimit count
-     */
-    @VisibleForTesting
-    void readCommitLogSegment(CommitLogReadHandler handler, File file, int mutationLimit, boolean tolerateTruncation) throws IOException
-    {
-        readCommitLogSegment(handler, file, CommitLogPosition.NONE, mutationLimit, tolerateTruncation);
-    }
 
     /**
      * Reads mutations from file, handing them off to handler
@@ -508,7 +513,7 @@ public class CommitLogReader
     }
 
     /**
-     * Caches the state needed for decision-making on multiple CommitLog Read operations
+     * Caches the state needed for decision-making on multiple CommitLog Read operations. Used internally in the CommitLogReader
      */
     private static class ReadStatusTracker
     {

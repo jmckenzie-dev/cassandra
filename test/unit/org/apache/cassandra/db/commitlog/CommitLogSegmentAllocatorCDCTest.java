@@ -19,7 +19,6 @@
 package org.apache.cassandra.db.commitlog;
 
 import java.io.*;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -40,8 +39,6 @@ import org.apache.cassandra.schema.TableMetadata;
 
 public class CommitLogSegmentAllocatorCDCTest extends CQLTester
 {
-    private static final Random random = new Random();
-
     @BeforeClass
     public static void setUpClass()
     {
@@ -56,7 +53,7 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
         // Need to clean out any files from previous test runs. Prevents flaky test failures.
         CommitLog.instance.stopUnsafe(true);
         CommitLog.instance.start();
-        updateCDCTotalSize(CommitLog.instance.segmentManager);
+        CommitLogTestUtils.updateCDCTotalSize(CommitLog.instance.segmentManager);
     }
 
     @Test
@@ -78,7 +75,7 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
                 for (int i = 0; i < 100; i++)
                 {
                     new RowUpdateBuilder(cfm, 0, i)
-                        .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
+                        .add("data", CommitLogTestUtils.randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
                         .build().apply();
                 }
                 Assert.fail("Expected CDCWriteException from full CDC but did not receive it.");
@@ -87,7 +84,7 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
             {
                 // expected, do nothing
             }
-            expectCurrentCDCState(CDCState.FORBIDDEN);
+            CommitLogTestUtils.expectCurrentCDCState(CDCState.FORBIDDEN);
 
             // Confirm we can create a non-cdc table and write to it even while at cdc capacity
             createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=false;");
@@ -97,15 +94,15 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
             Keyspace.open(keyspace()).getColumnFamilyStore(currentTable()).forceBlockingFlush();
             CommitLog.instance.forceRecycleAllSegments();
             cdcMgr.awaitManagementTasksCompletion();
-            Assert.assertTrue("Expected files to be moved to overflow.", getCDCRawCount() > 0);
+            Assert.assertTrue("Expected files to be moved to overflow.", CommitLogTestUtils.getCDCRawCount() > 0);
 
             // Simulate a CDC consumer reading files then deleting them
             for (File f : new File(DatabaseDescriptor.getCDCLogLocation()).listFiles())
                 FileUtils.deleteWithConfirm(f);
 
             // Update size tracker to reflect deleted files. Should flip flag on current active segment to allow.
-            updateCDCTotalSize(cdcMgr);
-            expectCurrentCDCState(CDCState.PERMITTED);
+            CommitLogTestUtils.updateCDCTotalSize(cdcMgr);
+            CommitLogTestUtils.expectCurrentCDCState(CDCState.PERMITTED);
         }
         finally
         {
@@ -130,23 +127,23 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
                 for (int i = 0; i < 1000; i++)
                 {
                     new RowUpdateBuilder(ccfm, 0, i)
-                        .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
+                        .add("data", CommitLogTestUtils.randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
                         .build().apply();
                 }
                 Assert.fail("Expected CDCWriteException from full CDC but did not receive it.");
             }
             catch (CDCWriteException e) { }
 
-            expectCurrentCDCState(CDCState.FORBIDDEN);
+            CommitLogTestUtils.expectCurrentCDCState(CDCState.FORBIDDEN);
             CommitLog.instance.forceRecycleAllSegments();
 
             cdcMgr.awaitManagementTasksCompletion();
             // Delete all files in cdc_raw
             for (File f : new File(DatabaseDescriptor.getCDCLogLocation()).listFiles())
                 f.delete();
-            updateCDCTotalSize(cdcMgr);
+            CommitLogTestUtils.updateCDCTotalSize(cdcMgr);
             // Confirm cdc update process changes flag on active segment
-            expectCurrentCDCState(CDCState.PERMITTED);
+            CommitLogTestUtils.expectCurrentCDCState(CDCState.PERMITTED);
 
             // Clear out archived CDC files
             for (File f : new File(DatabaseDescriptor.getCDCLogLocation()).listFiles()) {
@@ -164,7 +161,7 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
     {
         createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=true;");
         new RowUpdateBuilder(currentTableMetadata(), 0, 1)
-            .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
+            .add("data", CommitLogTestUtils.randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
             .build().apply();
 
         CommitLog.instance.sync(true);
@@ -196,7 +193,7 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
             for (int i = 0; i < 1000; i++)
             {
                 new RowUpdateBuilder(currentTableMetadata(), 0, 1)
-                .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
+                .add("data", CommitLogTestUtils.randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
                 .build().apply();
             }
         }
@@ -228,7 +225,7 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
     {
         createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=false;");
         new RowUpdateBuilder(currentTableMetadata(), 0, 1)
-            .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
+            .add("data", CommitLogTestUtils.randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
             .build().apply();
         CommitLogSegment currentSegment = CommitLog.instance.segmentManager.getActiveSegment();
 
@@ -258,7 +255,7 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
         Assert.assertFalse("Expected no index file before flush but found: " + cdcIndexFile, cdcIndexFile.exists());
 
         new RowUpdateBuilder(currentTableMetadata(), 0, 1)
-            .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
+            .add("data", CommitLogTestUtils.randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
             .build().apply();
 
         Path linked = new File(DatabaseDescriptor.getCDCLogLocation(), currentSegment.logFile.getName()).toPath();
@@ -290,7 +287,7 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
             for (int i = 0; i < 1000; i++)
             {
                 new RowUpdateBuilder(ccfm, 0, i)
-                    .add("data", randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
+                    .add("data", CommitLogTestUtils.randomizeBuffer(DatabaseDescriptor.getCommitLogSegmentSize() / 3))
                     .build().apply();
             }
             Assert.fail("Expected CDCWriteException from full CDC but did not receive it.");
@@ -423,32 +420,5 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
         }
     }
 
-    private ByteBuffer randomizeBuffer(int size)
-    {
-        byte[] toWrap = new byte[size];
-        random.nextBytes(toWrap);
-        return ByteBuffer.wrap(toWrap);
-    }
 
-    private int getCDCRawCount()
-    {
-        return new File(DatabaseDescriptor.getCDCLogLocation()).listFiles().length;
-    }
-
-    private void expectCurrentCDCState(CDCState expectedState)
-    {
-        CDCState currentState = CommitLog.instance.segmentManager.getActiveSegment().getCDCState();
-        if (currentState != expectedState)
-        {
-            logger.error("expectCurrentCDCState violation! Expected state: {}. Found state: {}. Current CDC allocation: {}",
-                         expectedState, currentState, updateCDCTotalSize(CommitLog.instance.segmentManager));
-            Assert.fail(String.format("Received unexpected CDCState on current active segment. Expected: %s. Received: %s",
-                        expectedState, currentState));
-        }
-    }
-
-    private long updateCDCTotalSize(CommitLogSegmentManager segmentManager)
-    {
-        return ((CommitLogSegmentAllocatorCDC)segmentManager.segmentAllocator).updateCDCTotalSize();
-    }
 }
