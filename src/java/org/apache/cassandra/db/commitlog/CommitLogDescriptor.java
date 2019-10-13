@@ -62,7 +62,7 @@ public class CommitLogDescriptor
     public static final int VERSION_40 = 7;
 
     /**
-     * Increment this number if there is a changes in the commit log disc layout or MessagingVersion changes.
+     * Increment this number if there is a changes in the commit log disk layout or MessagingVersion changes.
      * Note: make sure to handle {@link #getMessagingVersion()}
      */
     @VisibleForTesting

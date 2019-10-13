@@ -137,6 +137,10 @@ public class CommitLogReader
         }
     }
 
+    /**
+     * Filters list of passed in CommitLogSegments based on shouldSkip logic, specifically whether files are empty and
+     * pass crc.
+     */
     static List<File> filterCommitLogFiles(File[] toFilter)
     {
         List<File> filtered = new ArrayList<>(toFilter.length);
@@ -175,10 +179,10 @@ public class CommitLogReader
      * @throws IOException
      */
     void readCommitLogSegment(CommitLogReadHandler handler,
-                                     File file,
-                                     CommitLogPosition minPosition,
-                                     int mutationLimit,
-                                     boolean tolerateTruncation) throws IOException
+                              File file,
+                              CommitLogPosition minPosition,
+                              int mutationLimit,
+                              boolean tolerateTruncation) throws IOException
     {
         // just transform from the file name (no reading of headers) to determine version
         CommitLogDescriptor desc = CommitLogDescriptor.fromFileName(file.getName());

@@ -49,7 +49,7 @@ import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 import static org.apache.cassandra.utils.FBUtilities.updateChecksumInt;
 
-/*
+/**
  * A single commit log file on disk. Manages creation of the file and writing mutations to disk,
  * as well as tracking the last mutation position of any "dirty" CFs covered by the segment file. Segment
  * files are initially allocated to a fixed size and can grow to accomidate a larger value if necessary.
@@ -80,20 +80,21 @@ public abstract class CommitLogSegment
         replayLimitId = idBase = Math.max(System.currentTimeMillis(), maxId + 1);
     }
 
-    // The commit log entry overhead in bytes (int: length + int: head checksum + int: tail checksum)
+    /** The commit log entry overhead in bytes (int: length + int: head checksum + int: tail checksum) */
     static final int ENTRY_OVERHEAD_SIZE = 4 + 4 + 4;
 
-    // The commit log (chained) sync marker/header size in bytes (int: length + int: checksum [segmentId, position])
+    /** The commit log (chained) sync marker/header size in bytes (int: length + int: checksum [segmentId, position]) */
     static final int SYNC_MARKER_SIZE = 4 + 4;
 
-    // The OpOrder used to order appends wrt sync
+    /** The OpOrder used to order appends wrt sync */
     private final OpOrder appendOrder = new OpOrder();
 
     private final AtomicInteger allocatePosition = new AtomicInteger();
 
-    // Everything before this offset has been synced and written.  The SYNC_MARKER_SIZE bytes after
-    // each sync are reserved, and point forwards to the next such offset.  The final
-    // sync marker in a segment will be zeroed out, or point to a position too close to the EOF to fit a marker.
+    /** Everything before this offset has been synced and written.  The SYNC_MARKER_SIZE bytes after
+     * each sync are reserved, and point forwards to the next such offset.  The final
+     * sync marker in a segment will be zeroed out, or point to a position too close to the EOF to fit a marker.
+     */
     @VisibleForTesting
     volatile int lastSyncedOffset;
 
@@ -103,18 +104,19 @@ public abstract class CommitLogSegment
      */
     private volatile int lastMarkerOffset;
 
-    // The end position of the buffer. Initially set to its capacity and updated to point to the last written position
-    // as the segment is being closed.
-    // No need to be volatile as writes are protected by appendOrder barrier.
+    /** The end position of the buffer. Initially set to its capacity and updated to point to the last written position
+     * as the segment is being closed.
+     * No need to be volatile as writes are protected by appendOrder barrier.
+     */
     private int endOfBuffer;
 
-    // a signal for writers to wait on to confirm the log message they provided has been written to disk
+    /** a signal for writers to wait on to confirm the log message they provided has been written to disk */
     private final WaitQueue syncComplete = new WaitQueue();
 
-    // a map of Cf->dirty interval in this segment; if interval is not covered by the clean set, the log contains unflushed data
+    /** a map of Cf->dirty interval in this segment; if interval is not covered by the clean set, the log contains unflushed data */
     private final NonBlockingHashMap<TableId, IntegerInterval> tableDirty = new NonBlockingHashMap<>(1024);
 
-    // a map of Cf->clean intervals; separate map from above to permit marking Cfs clean whilst the log is still in use
+    /** a map of Cf->clean intervals; separate map from above to permit marking Cfs clean whilst the log is still in use */
     private final ConcurrentHashMap<TableId, IntegerInterval.Set> tableClean = new ConcurrentHashMap<>();
 
     public final long id;

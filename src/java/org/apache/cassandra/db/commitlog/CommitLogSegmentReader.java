@@ -53,11 +53,15 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
     private final boolean tolerateTruncation;
 
     /**
-     * ending position of the current sync section.
+     * Ending position of the current sync section.
      */
     protected int end;
 
-    protected CommitLogSegmentReader(CommitLogReadHandler handler,
+    /**
+     * Rather than relying on a formal Builder, this constructs the appropriate type of segment reader (memmap, encrypted,
+     * compressed) based on the type stored in the descriptor.
+     */
+    CommitLogSegmentReader(CommitLogReadHandler handler,
                                      CommitLogDescriptor descriptor,
                                      RandomAccessReader reader,
                                      boolean tolerateTruncation)
@@ -180,6 +184,9 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
         }
     }
 
+    /**
+     * The logical unit of data we sync across and read across in CommitLogs.
+     */
     public static class SyncSegment
     {
         /** the 'buffer' to replay commit log data from */

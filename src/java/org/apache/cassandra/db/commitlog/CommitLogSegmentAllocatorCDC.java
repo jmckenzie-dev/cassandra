@@ -39,6 +39,18 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.DirectorySizeCalculator;
 import org.apache.cassandra.utils.NoSpamLogger;
 
+/**
+ * A CommitLogSegmentAllocator that respects the configured total allowable CDC space on disk. On allocation of a mutation
+ * checks if it's on a table tracked by CDC and, if so, either throws an exception if at CDC limit or flags that segment
+ * as containing a CDC mutation if it's a new one.
+ *
+ * This code path is only exercised if cdc is enabled on a node. We pay the duplication cost of having both CDC and non
+ * allocators in order to keep the old allocator code clean and separate from this allocator, as well as to not introduce
+ * unnecessary operations on the critical path for nodes / users where they have no interest in CDC. May be worth considering
+ * unifying in the future should the perf implications of this be shown to be negligible, though the hard linking and
+ * size tracking is somewhat distasteful to have floating around on nodes where cdc is not in use (which we assume to be
+ * the majority).
+ */
 public class CommitLogSegmentAllocatorCDC implements CommitLogSegmentAllocator
 {
     static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentAllocatorCDC.class);
