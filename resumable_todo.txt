@@ -1,0 +1,10 @@
+ToDo:
+	+Get the unit test prep up and working
+	+	Finish stubbing in CDCMockInitiator
+	+		processMutation
+	+	Get back to initial test
+	+		testNonResumedGeneralCase -> test out the infra / piping of the logic on the test pieces
+	Think about resumability design and doc here:
+		Per SyncSegment? That abstraction bubbles out?
+		What do we hand out? What kind of class can we wrap that in?
+

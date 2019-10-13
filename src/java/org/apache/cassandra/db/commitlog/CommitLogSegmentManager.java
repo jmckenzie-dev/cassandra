@@ -242,7 +242,7 @@ public class CommitLogSegmentManager
      * Spins while waiting on next available segment's allocation, putting caller to sleep until the new segment is created.
      * @param oldActiveSegment
      */
-    void awaitSegmentAllocation(CommitLogSegment oldActiveSegment)
+    private void awaitSegmentAllocation(CommitLogSegment oldActiveSegment)
     {
         do
         {
@@ -401,7 +401,7 @@ public class CommitLogSegmentManager
      * Stops CL, for testing purposes. DO NOT USE THIS OUTSIDE OF TESTS.
      * Only call this after the AbstractCommitLogService is shut down.
      */
-    public void stopUnsafe(boolean deleteSegments)
+    void stopUnsafe(boolean deleteSegments)
     {
         logger.debug("CLSM closing and clearing existing commit log segments...");
 

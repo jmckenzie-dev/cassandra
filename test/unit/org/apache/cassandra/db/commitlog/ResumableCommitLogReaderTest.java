@@ -19,8 +19,7 @@
 package org.apache.cassandra.db.commitlog;
 
 import java.io.File;
-import java.nio.ByteBuffer;
-import java.util.Random;
+import java.io.IOException;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -32,10 +31,14 @@ import org.apache.cassandra.cql3.CQLTester;
 
 /* Forces CDC enabled on the run of these tests as they aren't used in non-CDC context and ResumableCommitLogReader
  * class asserts cdc enabled on creation.
+ *
+ * Note: Many of these tests depend on having a CommitLog segment they're working on, and we don't force a stop of the
+ * commit log segment allocator or flushing mechanisms while running these tests. As such, it's _possible_ we could end
+ * up with files getting yanked out from under us and the test failing, but with 4+ segments created by the default ref
+ * data population, the risk of that should be very low. Keep it in mind as time goes by.
  */
 public class ResumableCommitLogReaderTest extends CQLTester
 {
-    private Random random = new Random();
 
     @BeforeClass
     public static void setUpClass()
@@ -49,32 +52,11 @@ public class ResumableCommitLogReaderTest extends CQLTester
     {
         super.beforeTest();
 
-        // Need to clean out any files from previous test runs. Prevents flaky test failures.
-        CommitLog.instance.stopUnsafe(true);
-        CommitLog.instance.start();
+        // Start with a clean slate each test. Arguably could pre-populate and just use populated data; keep an eye
+        // on runtime for this test suite and group if that becomes a worthy time and complexity tradeoff.
+        CommitLog.instance.resetUnsafe(true);
 
-        // For each test, we start with the assumption of a populated set of a few files we can pull from.
-        createTable("CREATE TABLE %s (a int, b int, c double, d decimal, e smallint, f tinyint, g blob, primary key (a, b))");
-
-        byte[] bBlob = new byte[1024 * 1024];
-        CommitLog.instance.sync(true);
-
-        // Populate some CommitLog segments on disk
-        for (int i = 0; i < 20; i++)
-        {
-            random.nextBytes(bBlob);
-
-            logger.debug(String.format("Executing insert for index: [%d]", i));
-            execute("INSERT INTO %s (a, b, c, d, e, f, g) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    random.nextInt(),
-                    random.nextInt(),
-                    random.nextDouble(),
-                    random.nextLong(),
-                    (short)random.nextInt(),
-                    (byte)random.nextInt(),
-                    ByteBuffer.wrap(bBlob));
-        }
-        CommitLog.instance.sync(true);
+        populateReferenceData(true);
 
         // Should have well more than 3 segments to work with on subsequent tests.
         Assert.assertTrue(CommitLog.instance.segmentManager.getSegmentsForUnflushedTables().size() > 3);
@@ -84,12 +66,37 @@ public class ResumableCommitLogReaderTest extends CQLTester
      * Expect operation as though non-resumable, read file to end and complete.
      */
     @Test
-    public void testNonResumedGeneralCase()
+    public void testNonResumedGeneralCase() throws IOException
     {
         File writtenFile = CommitLogTestUtils.getFilledCommitLogFile();
-        CommitLogTestUtils.debugLog(String.format("Got written CL segment: %s", writtenFile.toString()));
-        CommitLogTestUtils.debugLog(String.format("Active segment writing to is: %s", CommitLog.instance.segmentManager.getActiveSegment().logFile.toString()));
-        CommitLogTestUtils.listCommitLogFiles("Checking total CL files:");
+        Assert.assertTrue(writtenFile.length() > 0);
+
+        CommitLogTestUtils.CDCMutationCountingReplayer testReplayer = new CommitLogTestUtils.CDCMutationCountingReplayer();
+        testReplayer.replaySingleFile(writtenFile);
+
+        Assert.assertTrue("Did not see any CDC enabled mutations.", testReplayer.sawCDCMutation);
+        Assert.assertFalse("Saw a duplicate mutation while replaying a single file. This... shouldn't happen.",
+                           testReplayer.hasSeenDuplicateMutations());
+    }
+
+    /**
+     * Confirm our duplicate mutation testing infrastructure is working.
+     */
+    @Test
+    public void testDuplicateCheckLogic() throws IOException
+    {
+        File writtenFile = CommitLogTestUtils.getFilledCommitLogFile();
+        Assert.assertTrue(writtenFile.length() > 0);
+
+        CommitLogTestUtils.CDCMutationCountingReplayer testReplayer = new CommitLogTestUtils.CDCMutationCountingReplayer();
+        testReplayer.replaySingleFile(writtenFile);
+
+        Assert.assertTrue("Did not see any CDC enabled mutations.", testReplayer.sawCDCMutation);
+        Assert.assertFalse("Saw a duplicate mutation while replaying a single file. This... shouldn't happen.",
+                           testReplayer.hasSeenDuplicateMutations());
+
+        testReplayer.replaySingleFile(writtenFile);
+        Assert.assertTrue("Expected to see duplicate mutations on 2nd replay of file.", testReplayer.hasSeenDuplicateMutations());
     }
 
     /**
@@ -158,4 +165,6 @@ public class ResumableCommitLogReaderTest extends CQLTester
     public void testWrongFile()
     {
     }
+
+
 }

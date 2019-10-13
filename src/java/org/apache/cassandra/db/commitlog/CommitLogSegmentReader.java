@@ -186,17 +186,17 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
         public final FileDataInput input;
 
         /** offset in file where this section begins. */
-        public final int fileStartPosition;
+        final int fileStartPosition;
 
         /** offset in file where this section ends. */
-        public final int fileEndPosition;
+        final int fileEndPosition;
 
         /** the logical ending position of the buffer */
-        public final int endPosition;
+        final int endPosition;
 
-        public final boolean toleratesErrorsInSection;
+        final boolean toleratesErrorsInSection;
 
-        public SyncSegment(FileDataInput input, int fileStartPosition, int fileEndPosition, int endPosition, boolean toleratesErrorsInSection)
+        SyncSegment(FileDataInput input, int fileStartPosition, int fileEndPosition, int endPosition, boolean toleratesErrorsInSection)
         {
             this.input = input;
             this.fileStartPosition = fileStartPosition;
@@ -234,7 +234,7 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
     {
         private final RandomAccessReader reader;
 
-        public NoOpSegmenter(RandomAccessReader reader)
+        NoOpSegmenter(RandomAccessReader reader)
         {
             this.reader = reader;
         }
@@ -259,12 +259,12 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
         private byte[] uncompressedBuffer;
         private long nextLogicalStart;
 
-        public CompressedSegmenter(CommitLogDescriptor desc, RandomAccessReader reader)
+        CompressedSegmenter(CommitLogDescriptor desc, RandomAccessReader reader)
         {
             this(CompressionParams.createCompressor(desc.compression), reader);
         }
 
-        public CompressedSegmenter(ICompressor compressor, RandomAccessReader reader)
+        CompressedSegmenter(ICompressor compressor, RandomAccessReader reader)
         {
             this.compressor = compressor;
             this.reader = reader;
@@ -315,7 +315,7 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
         private long currentSegmentEndPosition;
         private long nextLogicalStart;
 
-        public EncryptedSegmenter(CommitLogDescriptor descriptor, RandomAccessReader reader)
+        EncryptedSegmenter(CommitLogDescriptor descriptor, RandomAccessReader reader)
         {
             this(reader, descriptor.getEncryptionContext());
         }

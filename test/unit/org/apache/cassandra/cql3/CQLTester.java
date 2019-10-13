@@ -1697,6 +1697,42 @@ public abstract class CQLTester
         return clusters.get(protocolVersion).getMetadata().newTupleType(types);
     }
 
+    /**
+     * Creates a default reference table with some pre-populated data, generating enough data to create a few commit log
+     * files.
+     */
+    protected void populateReferenceData(boolean withCDC) throws Throwable
+    {
+        Random random = new Random();
+
+        String createString = "CREATE TABLE %s (a int, b int, c double, d decimal, e smallint, f tinyint, g blob, primary key (a, b))";
+        if (withCDC)
+            createString += " WITH cdc=true";
+
+        // For each test, we start with the assumption of a populated set of a few files we can pull from.
+        createTable(createString);
+
+        byte[] bBlob = new byte[1024 * 1024];
+        CommitLog.instance.sync(true);
+
+        // Populate some CommitLog segments on disk
+        for (int i = 0; i < 20; i++)
+        {
+            random.nextBytes(bBlob);
+
+            logger.debug(String.format("Executing insert for index: [%d]", i));
+            execute("INSERT INTO %s (a, b, c, d, e, f, g) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    random.nextInt(),
+                    random.nextInt(),
+                    random.nextDouble(),
+                    random.nextLong(),
+                    (short)random.nextInt(),
+                    (byte)random.nextInt(),
+                    ByteBuffer.wrap(bBlob));
+        }
+        CommitLog.instance.sync(true);
+    }
+
     // Attempt to find an AbstracType from a value (for serialization/printing sake).
     // Will work as long as we use types we know of, which is good enough for testing
     private static AbstractType typeFor(Object value)

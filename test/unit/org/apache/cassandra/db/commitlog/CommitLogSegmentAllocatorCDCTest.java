@@ -18,10 +18,16 @@
 
 package org.apache.cassandra.db.commitlog;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -322,8 +328,8 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
             CommitLog.instance.start();
             CommitLog.instance.segmentManager.awaitManagementTasksCompletion();
         }
-        CDCTestReplayer replayer = new CDCTestReplayer();
-        replayer.examineCommitLog();
+        CommitLogTestUtils.CDCMutationCountingReplayer replayer = new CommitLogTestUtils.CDCMutationCountingReplayer();
+        replayer.replayExistingCommitLog();
 
         // Rough sanity check -> should be files there now.
         Assert.assertTrue("Expected non-zero number of files in CDC folder after restart.",
@@ -419,6 +425,4 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
             return fileName.equals(cid.fileName) && offset == cid.offset;
         }
     }
-
-
 }

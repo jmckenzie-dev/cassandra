@@ -19,16 +19,28 @@
 package org.apache.cassandra.db.commitlog;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Objects;
 import java.util.Random;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
+import com.google.common.collect.Sets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.junit.Assert;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.Mutation;
+import org.apache.cassandra.db.rows.SerializationHelper;
+import org.apache.cassandra.io.util.DataInputBuffer;
+import org.apache.cassandra.io.util.RebufferingInputStream;
 
+/**
+ * Collection of some helper methods and classes for use in our various CommitLog Unit Tests
+ */
 class CommitLogTestUtils
 {
     private static final Logger logger = LoggerFactory.getLogger(CommitLogTestUtils.class);
@@ -62,7 +74,11 @@ class CommitLogTestUtils
         return ((CommitLogSegmentAllocatorCDC)segmentManager.segmentAllocator).updateCDCTotalSize();
     }
 
-    static File getFilledCommitLogFile()
+    /**
+     * Pulls the back of the commit log files list and bails out if that is == our current allocating. Goal is to get a filled
+     * and usable commit log segment for testing work.
+     */
+    static File getFilledCommitLogFile() throws NullPointerException
     {
         File result = new File(DatabaseDescriptor.getCommitLogLocation()).listFiles()[0];
         Assert.assertNotEquals(result.toString(), CommitLog.instance.segmentManager.getActiveSegment().logFile);
@@ -85,6 +101,9 @@ class CommitLogTestUtils
     {
     }
 
+    /**
+     * Debug method to allow printing of a message when sanity checking commit log state while writing tests
+     */
     static void listCommitLogFiles(String message)
     {
         StringBuilder result = new StringBuilder();
@@ -107,5 +126,129 @@ class CommitLogTestUtils
                      System.lineSeparator() +
                      "***************************************************\n\n" +
                      System.lineSeparator());
+    }
+
+    /**
+     * Utility class that flags the replayer as having seen a CDC mutation and calculates offset but doesn't apply mutations
+     */
+    static class CDCMutationCountingReplayer extends CommitLogReplayer
+    {
+        final Set<MutationIdentifier> seenMutations = Sets.newConcurrentHashSet();
+        final ConcurrentHashMap<MutationIdentifier, Integer> duplicateMutations = new ConcurrentHashMap<>();
+
+        CDCMutationCountingReplayer() throws IOException
+        {
+            super(CommitLog.instance, CommitLogPosition.NONE, null, ReplayFilter.create());
+            CommitLog.instance.sync(true);
+            commitLogReader = new CDCCountingReader();
+        }
+
+        /**
+         * Takes existing files in the commit log location and forces a replay on them. Only really meaningful if you're
+         * intercepting either the mutation read handler on replay or the mutation initiation object.
+         */
+        void replayExistingCommitLog() throws IOException
+        {
+            replayFiles(new File(DatabaseDescriptor.getCommitLogLocation()).listFiles());
+        }
+
+        void replaySingleFile(File f) throws IOException
+        {
+            replayFiles(new File[] { f });
+        }
+
+        boolean hasSeenMutation(MutationIdentifier id)
+        {
+            return seenMutations.contains(id);
+        }
+
+        int duplicateMutationCount(MutationIdentifier id)
+        {
+            Integer result = duplicateMutations.get(id);
+            return result == null ? 0 : result;
+        }
+
+        boolean hasSeenDuplicateMutations()
+        {
+            return duplicateMutations.size() > 0;
+        }
+
+        private class CDCCountingReader extends CommitLogReader
+        {
+            @Override
+            protected void readMutation(CommitLogReadHandler handler,
+                                        byte[] inputBuffer,
+                                        int size,
+                                        CommitLogPosition minPosition,
+                                        final int entryLocation,
+                                        final CommitLogDescriptor desc)
+            {
+                MutationIdentifier id = new MutationIdentifier(minPosition.segmentId, size, entryLocation);
+
+                RebufferingInputStream bufIn = new DataInputBuffer(inputBuffer, 0, size);
+                Mutation mutation;
+                try
+                {
+                    mutation = Mutation.serializer.deserialize(bufIn, desc.getMessagingVersion(), SerializationHelper.Flag.LOCAL);
+
+                    if (mutation.trackedByCDC())
+                    {
+                        sawCDCMutation = true;
+                        if (seenMutations.contains(id))
+                        {
+                            Integer pv = duplicateMutations.get(id);
+                            if (pv == null)
+                                pv = 0;
+                            duplicateMutations.put(id, pv + 1);
+                        }
+                        seenMutations.add(id);
+                    }
+                }
+                catch (IOException e)
+                {
+                    // Test fails.
+                    throw new AssertionError(e);
+                }
+            }
+        }
+
+        /**
+         * Helper class that allows us to uniquely identify a mutation at least within a single instance of a running node.
+         */
+        private static class MutationIdentifier
+        {
+            final long segmentId;
+            final int size;
+            final int location;
+
+            MutationIdentifier(long segmentId, int size, int location)
+            {
+                this.segmentId = segmentId;
+                this.size = size;
+                this.location = location;
+            }
+
+            @Override
+            public boolean equals(Object o)
+            {
+                if (o == this)
+                    return true;
+
+                if (!(o instanceof MutationIdentifier))
+                    return false;
+
+                MutationIdentifier other = (MutationIdentifier) o;
+
+                return other.size == this.size &&
+                       other.location == this.location &&
+                       other.segmentId == this.segmentId;
+            }
+
+            @Override
+            public int hashCode()
+            {
+                return Objects.hash(size, location, segmentId);
+            }
+        }
     }
 }

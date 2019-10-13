@@ -18,6 +18,7 @@
 package org.apache.cassandra.db.commitlog;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.io.util.RandomAccessReader;
 
 /**
  * A CommitLogReader that allows both a) indicating how much of the CommitLog the user would like to read, and b) the ability
@@ -32,11 +33,16 @@ import org.apache.cassandra.config.DatabaseDescriptor;
  */
 public class ResumableCommitLogReader
 {
-    public ResumableCommitLogReader()
+    public final CommitLogDescriptor descriptor;
+    public final RandomAccessReader reader;
+
+    public ResumableCommitLogReader(CommitLogDescriptor descriptor, RandomAccessReader reader)
     {
         if (!DatabaseDescriptor.isCDCEnabled())
         {
             throw new RuntimeException("Cannot use a ResumableCommitLogReader if CDC is not enabled.");
         }
+        this.descriptor = descriptor;
+        this.reader = reader;
     }
 }
