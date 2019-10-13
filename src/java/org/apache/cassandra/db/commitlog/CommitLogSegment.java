@@ -32,6 +32,9 @@ import java.util.zip.CRC32;
 import com.google.common.annotations.VisibleForTesting;
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.codahale.metrics.Timer;
 import org.apache.cassandra.config.*;
 import org.apache.cassandra.db.Mutation;
@@ -56,6 +59,8 @@ import static org.apache.cassandra.utils.FBUtilities.updateChecksumInt;
  */
 public abstract class CommitLogSegment
 {
+    static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentManager.class);
+
     private final static long idBase;
 
     private CDCState cdcState = CDCState.PERMITTED;
@@ -121,6 +126,7 @@ public abstract class CommitLogSegment
 
     public final long id;
 
+    /** The CommitLogSegment log file on disk */
     final File logFile;
     final FileChannel channel;
     final int fd;
@@ -312,6 +318,8 @@ public abstract class CommitLogSegment
      * Update the chained markers in the commit log buffer and possibly force a disk flush for this segment file.
      *
      * @param flush true if the segment should flush to disk; else, false for just updating the chained markers.
+     *                           Named such to disambiguate whether we're looking to flush associated memtables to disk
+     *                           or just this CL segment.
      */
     synchronized void sync(boolean flush)
     {
@@ -364,7 +372,6 @@ public abstract class CommitLogSegment
             nextMarker = lastMarkerOffset;
             sectionEnd = nextMarker;
         }
-
 
         if (flush || close)
         {

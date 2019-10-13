@@ -107,9 +107,9 @@ public class SegmentReaderTest
         fos.getChannel().write(compBuffer);
         fos.close();
 
-        try (RandomAccessReader reader = RandomAccessReader.open(compressedFile))
+        try (ResumableCommitLogReader rr = new ResumableCommitLogReader(compressedFile, new CommitLogTestUtils.NoopMutationHandler()))
         {
-            CompressedSegmenter segmenter = new CompressedSegmenter(compressor, reader);
+            CompressedSegmenter segmenter = new CompressedSegmenter(compressor, rr);
             int fileLength = (int) compressedFile.length();
             SyncSegment syncSegment = segmenter.nextSegment(0, fileLength);
             FileDataInput fileDataInput = syncSegment.input;
@@ -195,11 +195,11 @@ public class SegmentReaderTest
         EncryptionUtils.encryptAndWrite(compressedBuffer, channel, true, cipher);
         channel.close();
 
-        try (RandomAccessReader reader = RandomAccessReader.open(encryptedFile))
+        try (ResumableCommitLogReader rr = new ResumableCommitLogReader(encryptedFile, new CommitLogTestUtils.NoopMutationHandler()))
         {
             context = EncryptionContextGenerator.createContext(cipher.getIV(), true);
-            EncryptedSegmenter segmenter = new EncryptedSegmenter(reader, context);
-            SyncSegment syncSegment = segmenter.nextSegment(0, (int) reader.length());
+            EncryptedSegmenter segmenter = new EncryptedSegmenter(rr, context);
+            SyncSegment syncSegment = segmenter.nextSegment(0, (int) rr.rawReader.length());
 
             // EncryptedSegmenter includes the Sync header length in the syncSegment.endPosition (value)
             Assert.assertEquals(plainTextLength, syncSegment.endPosition - CommitLogSegment.SYNC_MARKER_SIZE);

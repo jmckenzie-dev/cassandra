@@ -328,7 +328,7 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
             CommitLog.instance.start();
             CommitLog.instance.segmentManager.awaitManagementTasksCompletion();
         }
-        CommitLogTestUtils.CDCMutationCountingReplayer replayer = new CommitLogTestUtils.CDCMutationCountingReplayer();
+        CommitLogTestUtils.MutationCountingReplayer replayer = new CommitLogTestUtils.MutationCountingReplayer();
         replayer.replayExistingCommitLog();
 
         // Rough sanity check -> should be files there now.

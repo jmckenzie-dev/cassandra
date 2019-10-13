@@ -21,63 +21,64 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Iterator;
 import java.util.zip.CRC32;
+import javax.annotation.concurrent.NotThreadSafe;
 import javax.crypto.Cipher;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.AbstractIterator;
 
+import org.apache.cassandra.db.commitlog.CommitLogReadHandler.CommitLogReadErrorReason;
+import org.apache.cassandra.db.commitlog.CommitLogReadHandler.CommitLogReadException;
 import org.apache.cassandra.db.commitlog.EncryptedFileSegmentInputStream.ChunkProvider;
-import org.apache.cassandra.db.commitlog.CommitLogReadHandler.*;
 import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.compress.ICompressor;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.FileSegmentInputStream;
 import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.schema.CompressionParams;
-import org.apache.cassandra.security.EncryptionUtils;
 import org.apache.cassandra.security.EncryptionContext;
+import org.apache.cassandra.security.EncryptionUtils;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 import static org.apache.cassandra.db.commitlog.CommitLogSegment.SYNC_MARKER_SIZE;
 import static org.apache.cassandra.utils.FBUtilities.updateChecksumInt;
 
 /**
- * Read each sync section of a commit log, iteratively.
+ * Read each sync section of a commit log, iteratively. Can be run in either one-shot or resumable mode. In resumable,
+ * we snapshot the start position of any successful SyncSegment deserialization with the expectation that some reads will
+ * land in partially written segments and need to be rolled back to the start of that segment and repeated on further
+ * mutation serialization (specifically in encrypted or compressed contexts).
  */
+@NotThreadSafe
 public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.SyncSegment>
 {
-    private final CommitLogReadHandler handler;
-    private final CommitLogDescriptor descriptor;
-    private final RandomAccessReader reader;
+    private final ResumableCommitLogReader parent;
     private final Segmenter segmenter;
-    private final boolean tolerateTruncation;
 
-    /**
-     * Ending position of the current sync section.
-     */
+    /** A special SyncSegment we use to indicate / keep our iterators open on a read we intend to resume */
+    static final SyncSegment RESUMABLE_SENTINEL = new SyncSegment(null, -1, -1, -1, false);
+
+    /** Ending position of the current sync section. */
     protected int end;
 
     /**
      * Rather than relying on a formal Builder, this constructs the appropriate type of segment reader (memmap, encrypted,
      * compressed) based on the type stored in the descriptor.
+     *
+     * Note: If ever using this object directly in a test, ensure you set the {@link ResumableCommitLogReader#offsetLimit}
+     * before attempting to use this reader or iteration will never advance.
      */
-    CommitLogSegmentReader(CommitLogReadHandler handler,
-                                     CommitLogDescriptor descriptor,
-                                     RandomAccessReader reader,
-                                     boolean tolerateTruncation)
+    CommitLogSegmentReader(ResumableCommitLogReader parent)
     {
-        this.handler = handler;
-        this.descriptor = descriptor;
-        this.reader = reader;
-        this.tolerateTruncation = tolerateTruncation;
+        this.parent = parent;
 
-        end = (int) reader.getFilePointer();
-        if (descriptor.getEncryptionContext().isEnabled())
-            segmenter = new EncryptedSegmenter(descriptor, reader);
-        else if (descriptor.compression != null)
-            segmenter = new CompressedSegmenter(descriptor, reader);
+        end = (int) parent.rawReader.getFilePointer();
+        if (parent.descriptor.getEncryptionContext().isEnabled())
+            segmenter = new EncryptedSegmenter(parent.descriptor, parent);
+        else if (parent.descriptor.compression != null)
+            segmenter = new CompressedSegmenter(parent.descriptor, parent);
         else
-            segmenter = new NoOpSegmenter(reader);
+            segmenter = new NoOpSegmenter(parent.rawReader);
     }
 
     public Iterator<SyncSegment> iterator()
@@ -85,36 +86,75 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
         return new SegmentIterator();
     }
 
+    /** Will return endOfData() or our resumable sentinel depending on what mode the iterator is being used in */
     protected class SegmentIterator extends AbstractIterator<CommitLogSegmentReader.SyncSegment>
     {
         protected SyncSegment computeNext()
         {
+            // A couple sanity checks that we're in a good state
+            if (parent.offsetLimit == Integer.MIN_VALUE)
+                throw new RuntimeException("Attempted to use a CommitLogSegmentReader with an uninitialized ResumableCommitLogReader parent.");
+
+            // Since this could be mis-used by client app parsing code, keep it RTE instead of assertion.
+            if (parent.isClosed)
+                throw new RuntimeException("Attempted to use a closed ResumableCommitLogReader.");
+
             while (true)
             {
                 try
                 {
                     final int currentStart = end;
-                    end = readSyncMarker(descriptor, currentStart, reader);
-                    if (end == -1)
+
+                    // Segmenters need to know our original state to appropriately roll back on snapshot restore
+                    segmenter.stageSnapshot();
+                    end = readSyncMarker(parent.descriptor, currentStart, parent.rawReader);
+
+                    if (parent.isPartial())
                     {
-                        return endOfData();
+                        // Revert our SegmentIterator's state to beginning of last completed SyncSegment read on a partial read.
+                        if (end == -1 || end > parent.offsetLimit)
+                        {
+                            segmenter.revertToSnapshot();
+                            end = (int)parent.rawReader.getFilePointer();
+                            return RESUMABLE_SENTINEL;
+                        }
+                        // Flag our RR's data as exhausted if we've hit the end of our reader but think this is partial.
+                        else if (end >= parent.rawReader.length())
+                        {
+                            parent.readToExhaustion = true;
+                        }
                     }
-                    if (end > reader.length())
+                    // Iterate on a non-resumable read.
+                    else
                     {
-                        // the CRC was good (meaning it was good when it was written and still looks legit), but the file is truncated now.
-                        // try to grab and use as much of the file as possible, which might be nothing if the end of the file truly is corrupt
-                        end = (int) reader.length();
+                        if (end == -1)
+                        {
+                            // We only transition to endOfData if we're doing a non-resumable (i.e. read to end) read,
+                            // since it leaves this iterator in a non-reusable state.
+                            return endOfData();
+                        }
+                        else if (end > parent.rawReader.length())
+                        {
+                            // the CRC was good (meaning it was good when it was written and still looks legit), but the file is truncated now.
+                            // try to grab and use as much of the file as possible, which might be nothing if the end of the file truly is corrupt
+                            end = (int) parent.rawReader.length();
+                        }
                     }
+
+                    // Retain the starting point of this SyncSegment in case we need to roll back a future read to this point.
+                    segmenter.takeSnapshot();
+
+                    // Passed the gauntlet. The next segment is cleanly ready for read.
                     return segmenter.nextSegment(currentStart + SYNC_MARKER_SIZE, end);
                 }
                 catch(CommitLogSegmentReader.SegmentReadException e)
                 {
                     try
                     {
-                        handler.handleUnrecoverableError(new CommitLogReadException(
-                                                    e.getMessage(),
-                                                    CommitLogReadErrorReason.UNRECOVERABLE_DESCRIPTOR_ERROR,
-                                                    !e.invalidCrc && tolerateTruncation));
+                        parent.readHandler.handleUnrecoverableError(new CommitLogReadException(
+                                                                    e.getMessage(),
+                                                                    CommitLogReadErrorReason.UNRECOVERABLE_DESCRIPTOR_ERROR,
+                                                                    !e.invalidCrc && parent.tolerateTruncation));
                     }
                     catch (IOException ioe)
                     {
@@ -125,12 +165,12 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
                 {
                     try
                     {
-                        boolean tolerateErrorsInSection = tolerateTruncation & segmenter.tolerateSegmentErrors(end, reader.length());
+                        boolean tolerateErrorsInSection = parent.tolerateTruncation & segmenter.tolerateSegmentErrors(end, parent.rawReader.length());
                         // if no exception is thrown, the while loop will continue
-                        handler.handleUnrecoverableError(new CommitLogReadException(
-                                                    e.getMessage(),
-                                                    CommitLogReadErrorReason.UNRECOVERABLE_DESCRIPTOR_ERROR,
-                                                    tolerateErrorsInSection));
+                        parent.readHandler.handleUnrecoverableError(new CommitLogReadException(
+                                                                    e.getMessage(),
+                                                                    CommitLogReadErrorReason.UNRECOVERABLE_DESCRIPTOR_ERROR,
+                                                                    tolerateErrorsInSection));
                     }
                     catch (IOException ioe)
                     {
@@ -141,13 +181,13 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
         }
     }
 
+    /**
+     * @return length of this sync segment, -1 if at or beyond the end of file.
+     */
     private int readSyncMarker(CommitLogDescriptor descriptor, int offset, RandomAccessReader reader) throws IOException
     {
         if (offset > reader.length() - SYNC_MARKER_SIZE)
-        {
-            // There was no room in the segment to write a final header. No data could be present here.
             return -1;
-        }
         reader.seek(offset);
         CRC32 crc = new CRC32();
         updateChecksumInt(crc, (int) (descriptor.id & 0xFFFFFFFFL));
@@ -184,9 +224,7 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
         }
     }
 
-    /**
-     * The logical unit of data we sync across and read across in CommitLogs.
-     */
+    /** The logical unit of data we sync across and read across in CommitLogs. */
     public static class SyncSegment
     {
         /** the 'buffer' to replay commit log data from */
@@ -215,6 +253,8 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
 
     /**
      * Derives the next section of the commit log to be replayed. Section boundaries are derived from the commit log sync markers.
+     * Allows snapshot and resume from snapshot functionality to revert to a "last known good segment" in the event of
+     * a partial read on an a file being actively written.
      */
     interface Segmenter
     {
@@ -235,11 +275,27 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
         {
             return segmentEndPosition >= fileLength || segmentEndPosition < 0;
         }
+
+        /** Holds snapshot data in temporary variables to be finalized when we determine a SyncSegment is fully written */
+        void stageSnapshot();
+
+        /** Finalizes snapshot staged in stageSnapshot */
+        void takeSnapshot();
+
+        /** Reverts the segmenter to the previously held position. Allows for resumable reads to rollback when they occur
+         * in the middle of a SyncSegment. This can be called repeatedly if we have multiple attempts to partially read
+         * on an incomplete SyncSegment. */
+        void revertToSnapshot();
+
+        /** Visible for debugging only */
+        long getSnapshot();
     }
 
     static class NoOpSegmenter implements Segmenter
     {
         private final RandomAccessReader reader;
+        private long snapshotPosition = Long.MIN_VALUE;
+        private long stagedSnapshot = Long.MIN_VALUE;
 
         NoOpSegmenter(RandomAccessReader reader)
         {
@@ -256,54 +312,114 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
         {
             return true;
         }
+
+        public void stageSnapshot()
+        {
+            stagedSnapshot = reader.getFilePointer();
+            // Deal with edge case of initial read attempt being before SyncSegment completion
+            if (snapshotPosition == Long.MIN_VALUE)
+                takeSnapshot();
+        }
+
+        public void takeSnapshot()
+        {
+            snapshotPosition = stagedSnapshot;
+        }
+
+        public void revertToSnapshot()
+        {
+            reader.seek(snapshotPosition);
+        }
+
+        public long getSnapshot()
+        {
+            return snapshotPosition;
+        }
     }
 
     static class CompressedSegmenter implements Segmenter
     {
         private final ICompressor compressor;
-        private final RandomAccessReader reader;
+        /** We store a reference to a ResumableReader in the event it needs to re-init and swap out the underlying reader */
+        private final ResumableCommitLogReader parent;
         private byte[] compressedBuffer;
         private byte[] uncompressedBuffer;
         private long nextLogicalStart;
 
-        CompressedSegmenter(CommitLogDescriptor desc, RandomAccessReader reader)
+        private long stagedLogicalStart = Long.MIN_VALUE;
+        private long stagedReaderLocation = Long.MIN_VALUE;
+        private long snapshotLogicalStart = Long.MIN_VALUE;
+        private long snapshotReaderLocation = Long.MIN_VALUE;
+
+        CompressedSegmenter(CommitLogDescriptor desc, ResumableCommitLogReader parent)
         {
-            this(CompressionParams.createCompressor(desc.compression), reader);
+            this(CompressionParams.createCompressor(desc.compression), parent);
         }
 
-        CompressedSegmenter(ICompressor compressor, RandomAccessReader reader)
+        CompressedSegmenter(ICompressor compressor, ResumableCommitLogReader parent)
         {
             this.compressor = compressor;
-            this.reader = reader;
+            this.parent = parent;
             compressedBuffer = new byte[0];
             uncompressedBuffer = new byte[0];
-            nextLogicalStart = reader.getFilePointer();
+            nextLogicalStart = parent.rawReader.getFilePointer();
         }
 
         @SuppressWarnings("resource")
         public SyncSegment nextSegment(final int startPosition, final int nextSectionStartPosition) throws IOException
         {
-            reader.seek(startPosition);
-            int uncompressedLength = reader.readInt();
+            parent.rawReader.seek(startPosition);
+            int uncompressedLength = parent.rawReader.readInt();
 
-            int compressedLength = nextSectionStartPosition - (int)reader.getPosition();
+            int compressedLength = nextSectionStartPosition - (int)parent.rawReader.getPosition();
             if (compressedLength > compressedBuffer.length)
                 compressedBuffer = new byte[(int) (1.2 * compressedLength)];
-            reader.readFully(compressedBuffer, 0, compressedLength);
+            parent.rawReader.readFully(compressedBuffer, 0, compressedLength);
 
             if (uncompressedLength > uncompressedBuffer.length)
                uncompressedBuffer = new byte[(int) (1.2 * uncompressedLength)];
             int count = compressor.uncompress(compressedBuffer, 0, compressedLength, uncompressedBuffer, 0);
             nextLogicalStart += SYNC_MARKER_SIZE;
-            FileDataInput input = new FileSegmentInputStream(ByteBuffer.wrap(uncompressedBuffer, 0, count), reader.getPath(), nextLogicalStart);
+            FileDataInput input = new FileSegmentInputStream(ByteBuffer.wrap(uncompressedBuffer, 0, count), parent.rawReader.getPath(), nextLogicalStart);
             nextLogicalStart += uncompressedLength;
-            return new SyncSegment(input, startPosition, nextSectionStartPosition, (int)nextLogicalStart, tolerateSegmentErrors(nextSectionStartPosition, reader.length()));
+            return new SyncSegment(input, startPosition, nextSectionStartPosition, (int)nextLogicalStart, tolerateSegmentErrors(nextSectionStartPosition, parent.rawReader.length()));
+        }
+
+        public void stageSnapshot()
+        {
+            stagedLogicalStart = nextLogicalStart;
+            stagedReaderLocation = parent.rawReader.getFilePointer();
+
+            // In our default 0 case on a segment w/out anything yet to read, we want to stage the first valid location
+            // we've seen, else a resume will kick us to a bad value
+            if (snapshotLogicalStart == Long.MIN_VALUE)
+                takeSnapshot();
+        }
+
+        /** Since {@link #nextLogicalStart} is mutated during decompression but relied upon for decompression, we need
+         * to both snapshot and revert that along with the reader's position. */
+        public void takeSnapshot()
+        {
+            snapshotLogicalStart = stagedLogicalStart;
+            snapshotReaderLocation = stagedReaderLocation;
+        }
+
+        public void revertToSnapshot()
+        {
+            nextLogicalStart = snapshotLogicalStart;
+            parent.rawReader.seek(snapshotReaderLocation);
+        }
+
+        public long getSnapshot()
+        {
+            return snapshotReaderLocation;
         }
     }
 
     static class EncryptedSegmenter implements Segmenter
     {
-        private final RandomAccessReader reader;
+        /** We store a reference to a ResumableReader in the event it needs to re-init and swap out the underlying reader */
+        private final ResumableCommitLogReader parent;
         private final ICompressor compressor;
         private final Cipher cipher;
 
@@ -322,18 +438,21 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
         private long currentSegmentEndPosition;
         private long nextLogicalStart;
 
-        EncryptedSegmenter(CommitLogDescriptor descriptor, RandomAccessReader reader)
+        private long stagedSnapshotPosition;
+        private long snapshotPosition;
+
+        EncryptedSegmenter(CommitLogDescriptor descriptor, ResumableCommitLogReader parent)
         {
-            this(reader, descriptor.getEncryptionContext());
+            this(parent, descriptor.getEncryptionContext());
         }
 
         @VisibleForTesting
-        EncryptedSegmenter(final RandomAccessReader reader, EncryptionContext encryptionContext)
+        EncryptedSegmenter(final ResumableCommitLogReader parent, EncryptionContext encryptionContext)
         {
-            this.reader = reader;
+            this.parent = parent;
             decryptedBuffer = ByteBuffer.allocate(0);
             compressor = encryptionContext.getCompressor();
-            nextLogicalStart = reader.getFilePointer();
+            nextLogicalStart = parent.rawReader.getFilePointer();
 
             try
             {
@@ -341,21 +460,21 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
             }
             catch (IOException ioe)
             {
-                throw new FSReadError(ioe, reader.getPath());
+                throw new FSReadError(ioe, parent.rawReader.getPath());
             }
 
             chunkProvider = () -> {
-                if (reader.getFilePointer() >= currentSegmentEndPosition)
+                if (parent.rawReader.getFilePointer() >= currentSegmentEndPosition)
                     return ByteBufferUtil.EMPTY_BYTE_BUFFER;
                 try
                 {
-                    decryptedBuffer = EncryptionUtils.decrypt(reader, decryptedBuffer, true, cipher);
+                    decryptedBuffer = EncryptionUtils.decrypt(parent.rawReader, decryptedBuffer, true, cipher);
                     uncompressedBuffer = EncryptionUtils.uncompress(decryptedBuffer, uncompressedBuffer, true, compressor);
                     return uncompressedBuffer;
                 }
                 catch (IOException e)
                 {
-                    throw new FSReadError(e, reader.getPath());
+                    throw new FSReadError(e, parent.rawReader.getPath());
                 }
             };
         }
@@ -363,13 +482,35 @@ public class CommitLogSegmentReader implements Iterable<CommitLogSegmentReader.S
         @SuppressWarnings("resource")
         public SyncSegment nextSegment(int startPosition, int nextSectionStartPosition) throws IOException
         {
-            int totalPlainTextLength = reader.readInt();
+            int totalPlainTextLength = parent.rawReader.readInt();
             currentSegmentEndPosition = nextSectionStartPosition - 1;
 
             nextLogicalStart += SYNC_MARKER_SIZE;
-            FileDataInput input = new EncryptedFileSegmentInputStream(reader.getPath(), nextLogicalStart, 0, totalPlainTextLength, chunkProvider);
+            FileDataInput input = new EncryptedFileSegmentInputStream(parent.rawReader.getPath(), nextLogicalStart, 0, totalPlainTextLength, chunkProvider);
             nextLogicalStart += totalPlainTextLength;
-            return new SyncSegment(input, startPosition, nextSectionStartPosition, (int)nextLogicalStart, tolerateSegmentErrors(nextSectionStartPosition, reader.length()));
+            return new SyncSegment(input, startPosition, nextSectionStartPosition, (int)nextLogicalStart, tolerateSegmentErrors(nextSectionStartPosition, parent.rawReader.length()));
+        }
+
+        public void stageSnapshot()
+        {
+            stagedSnapshotPosition = parent.rawReader.getFilePointer();
+            if (snapshotPosition == Long.MIN_VALUE)
+                takeSnapshot();
+        }
+
+        public void takeSnapshot()
+        {
+            snapshotPosition = stagedSnapshotPosition;
+        }
+
+        public void revertToSnapshot()
+        {
+            parent.rawReader.seek(snapshotPosition);
+        }
+
+        public long getSnapshot()
+        {
+            return snapshotPosition;
         }
     }
 }

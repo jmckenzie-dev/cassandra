@@ -1703,7 +1703,6 @@ public abstract class CQLTester
      */
     protected void populateReferenceData(boolean withCDC) throws Throwable
     {
-        Random random = new Random();
 
         String createString = "CREATE TABLE %s (a int, b int, c double, d decimal, e smallint, f tinyint, g blob, primary key (a, b))";
         if (withCDC)
@@ -1712,25 +1711,33 @@ public abstract class CQLTester
         // For each test, we start with the assumption of a populated set of a few files we can pull from.
         createTable(createString);
 
-        byte[] bBlob = new byte[1024 * 1024];
+        byte[] buffer = new byte[1024 * 256];
         CommitLog.instance.sync(true);
 
         // Populate some CommitLog segments on disk
-        for (int i = 0; i < 20; i++)
-        {
-            random.nextBytes(bBlob);
-
-            logger.debug(String.format("Executing insert for index: [%d]", i));
-            execute("INSERT INTO %s (a, b, c, d, e, f, g) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    random.nextInt(),
-                    random.nextInt(),
-                    random.nextDouble(),
-                    random.nextLong(),
-                    (short)random.nextInt(),
-                    (byte)random.nextInt(),
-                    ByteBuffer.wrap(bBlob));
-        }
+        writeReferenceLines(80, buffer);
         CommitLog.instance.sync(true);
+    }
+
+    protected void writeReferenceLines(int num, byte[] buffer) throws Throwable
+    {
+        for (int i = 0; i < num; i++)
+            writeReferenceDataLine(buffer);
+    }
+
+    /** Broken out for access from tests that need to write incrementally more ref. data */
+    protected void writeReferenceDataLine(byte[] buffer) throws Throwable
+    {
+        Random random = new Random();
+        random.nextBytes(buffer);
+        execute("INSERT INTO %s (a, b, c, d, e, f, g) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                random.nextInt(),
+                random.nextInt(),
+                random.nextDouble(),
+                random.nextLong(),
+                (short)random.nextInt(),
+                (byte)random.nextInt(),
+                ByteBuffer.wrap(buffer));
     }
 
     // Attempt to find an AbstracType from a value (for serialization/printing sake).

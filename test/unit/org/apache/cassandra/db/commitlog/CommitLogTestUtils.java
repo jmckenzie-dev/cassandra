@@ -21,22 +21,20 @@ package org.apache.cassandra.db.commitlog;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
 import java.util.Objects;
 import java.util.Random;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
-import com.google.common.collect.Sets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.junit.Assert;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Mutation;
-import org.apache.cassandra.db.rows.SerializationHelper;
-import org.apache.cassandra.io.util.DataInputBuffer;
-import org.apache.cassandra.io.util.RebufferingInputStream;
 
 /**
  * Collection of some helper methods and classes for use in our various CommitLog Unit Tests
@@ -74,36 +72,7 @@ class CommitLogTestUtils
         return ((CommitLogSegmentAllocatorCDC)segmentManager.segmentAllocator).updateCDCTotalSize();
     }
 
-    /**
-     * Pulls the back of the commit log files list and bails out if that is == our current allocating. Goal is to get a filled
-     * and usable commit log segment for testing work.
-     */
-    static File getFilledCommitLogFile() throws NullPointerException
-    {
-        File result = new File(DatabaseDescriptor.getCommitLogLocation()).listFiles()[0];
-        Assert.assertNotEquals(result.toString(), CommitLog.instance.segmentManager.getActiveSegment().logFile);
-        return result;
-    }
-
-    /**
-     * There's some possible raciness here, but for purposes of unit tests this should be deterministic enough not to cause
-     * test failures, assuming we're doing deterministic writes when using this method.
-     */
-    static int getCommitLogCountOnDisk()
-    {
-        return CommitLog.instance.segmentManager.getSegmentsForUnflushedTables().size();
-    }
-
-    /**
-     * For a given input file, writes randomized garbage from offset to end of file to "corrupt" it
-     */
-    static void corruptFileAtOffset(File f, int offset)
-    {
-    }
-
-    /**
-     * Debug method to allow printing of a message when sanity checking commit log state while writing tests
-     */
+    /** Debug method to show written files; useful when debugging specific tests. */
     static void listCommitLogFiles(String message)
     {
         StringBuilder result = new StringBuilder();
@@ -116,9 +85,7 @@ class CommitLogTestUtils
         debugLog(result.toString());
     }
 
-    /**
-     * Used during test debug to differentiate output visually
-     */
+    /** Used during test debug to differentiate output visually */
     static void debugLog(String input)
     {
         logger.debug("\n\n****************   [TEST DEBUG]   *****************\n" +
@@ -129,32 +96,32 @@ class CommitLogTestUtils
     }
 
     /**
-     * Utility class that flags the replayer as having seen a CDC mutation and calculates offset but doesn't apply mutations
+     * Utility class that flags the replayer as having seen a CDC mutation and calculates offset but doesn't apply mutations.
      */
-    static class CDCMutationCountingReplayer extends CommitLogReplayer
+    static class MutationCountingReplayer extends CommitLogReplayer
     {
-        final Set<MutationIdentifier> seenMutations = Sets.newConcurrentHashSet();
-        final ConcurrentHashMap<MutationIdentifier, Integer> duplicateMutations = new ConcurrentHashMap<>();
+        final ConcurrentLinkedQueue<MutationIdentifier> seenMutations = new ConcurrentLinkedQueue<>();
 
-        CDCMutationCountingReplayer() throws IOException
+        final ConcurrentHashMap<MutationIdentifier, Integer> duplicateMutations = new ConcurrentHashMap<>();
+        final MutationCountingHandler mutationHandler = new MutationCountingHandler();
+
+        MutationCountingReplayer() throws IOException
         {
             super(CommitLog.instance, CommitLogPosition.NONE, null, ReplayFilter.create());
             CommitLog.instance.sync(true);
-            commitLogReader = new CDCCountingReader();
         }
 
-        /**
-         * Takes existing files in the commit log location and forces a replay on them. Only really meaningful if you're
-         * intercepting either the mutation read handler on replay or the mutation initiation object.
-         */
         void replayExistingCommitLog() throws IOException
         {
-            replayFiles(new File(DatabaseDescriptor.getCommitLogLocation()).listFiles());
+            for (File f: new File(DatabaseDescriptor.getCommitLogLocation()).listFiles())
+            {
+                commitLogReader.readCommitLogSegment(mutationHandler, f, true);
+            }
         }
 
         void replaySingleFile(File f) throws IOException
         {
-            replayFiles(new File[] { f });
+            commitLogReader.readCommitLogSegment(mutationHandler, f, true);
         }
 
         boolean hasSeenMutation(MutationIdentifier id)
@@ -173,56 +140,61 @@ class CommitLogTestUtils
             return duplicateMutations.size() > 0;
         }
 
-        private class CDCCountingReader extends CommitLogReader
+        private class MutationCountingHandler implements CommitLogReadHandler
         {
-            @Override
-            protected void readMutation(CommitLogReadHandler handler,
-                                        byte[] inputBuffer,
-                                        int size,
-                                        CommitLogPosition minPosition,
-                                        final int entryLocation,
-                                        final CommitLogDescriptor desc)
+            public boolean shouldSkipSegmentOnError(CommitLogReadException exception)
             {
-                MutationIdentifier id = new MutationIdentifier(minPosition.segmentId, size, entryLocation);
+                return false;
+            }
 
-                RebufferingInputStream bufIn = new DataInputBuffer(inputBuffer, 0, size);
-                Mutation mutation;
-                try
+            public void handleUnrecoverableError(CommitLogReadException exception)
+            {
+                Assert.fail(MessageFormat.format("Got unrecoverable error during test: {0}", exception.getMessage()));
+            }
+
+            public void handleMutation(Mutation m, int size, int entryLocation, CommitLogDescriptor desc)
+            {
+                MutationIdentifier id = new MutationIdentifier(m.getKeyspaceName(), m.key(), desc.id, size, entryLocation);
+
+                if (m.trackedByCDC())
+                    sawCDCMutation = true;
+
+                if (seenMutations.contains(id))
                 {
-                    mutation = Mutation.serializer.deserialize(bufIn, desc.getMessagingVersion(), SerializationHelper.Flag.LOCAL);
-
-                    if (mutation.trackedByCDC())
-                    {
-                        sawCDCMutation = true;
-                        if (seenMutations.contains(id))
-                        {
-                            Integer pv = duplicateMutations.get(id);
-                            if (pv == null)
-                                pv = 0;
-                            duplicateMutations.put(id, pv + 1);
-                        }
-                        seenMutations.add(id);
-                    }
+                    Integer pv = duplicateMutations.get(id);
+                    if (pv == null)
+                        pv = 0;
+                    duplicateMutations.put(id, pv + 1);
                 }
-                catch (IOException e)
+                else
                 {
-                    // Test fails.
-                    throw new AssertionError(e);
+                    seenMutations.add(id);
                 }
             }
+        }
+
+        public void reset()
+        {
+            seenMutations.clear();
+            duplicateMutations.clear();
+            sawCDCMutation = false;
         }
 
         /**
          * Helper class that allows us to uniquely identify a mutation at least within a single instance of a running node.
          */
-        private static class MutationIdentifier
+        static class MutationIdentifier
         {
             final long segmentId;
             final int size;
             final int location;
+            final String keyspaceName;
+            final DecoratedKey decoratedKey;
 
-            MutationIdentifier(long segmentId, int size, int location)
+            MutationIdentifier(String keyspaceName, DecoratedKey key, long segmentId, int size, int location)
             {
+                this.keyspaceName = keyspaceName;
+                this.decoratedKey = key;
                 this.segmentId = segmentId;
                 this.size = size;
                 this.location = location;
@@ -241,14 +213,42 @@ class CommitLogTestUtils
 
                 return other.size == this.size &&
                        other.location == this.location &&
-                       other.segmentId == this.segmentId;
+                       other.segmentId == this.segmentId &&
+                       other.keyspaceName.equals(this.keyspaceName) &&
+                       other.decoratedKey.equals(this.decoratedKey);
             }
 
             @Override
             public int hashCode()
             {
-                return Objects.hash(size, location, segmentId);
+                return Objects.hash(size, location, segmentId, keyspaceName, decoratedKey);
+            }
+
+            @Override
+            public String toString()
+            {
+                return new StringBuilder()
+                    .append("sId: ").append(segmentId).append(", ")
+                    .append(" size: ").append(size).append(", ")
+                    .append(" loc: ").append(location).append(", ")
+                    .append(" ks: ").append(keyspaceName).append(", ")
+                    .append(" dk: ").append(decoratedKey)
+                    .toString();
             }
         }
+    }
+
+    static class NoopMutationHandler implements CommitLogReadHandler
+    {
+        public boolean shouldSkipSegmentOnError(CommitLogReadException exception) throws IOException
+        {
+            return false;
+        }
+
+        public void handleUnrecoverableError(CommitLogReadException exception) throws IOException
+        { }
+
+        public void handleMutation(Mutation m, int size, int entryLocation, CommitLogDescriptor desc)
+        { }
     }
 }

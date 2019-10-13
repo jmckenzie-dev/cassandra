@@ -195,15 +195,15 @@ public class CommitLogSegmentAllocatorCDC implements CommitLogSegmentAllocator
      * data in them and all segments archived into cdc_raw.
      *
      * Allows atomic increment/decrement of unflushed size, however only allows increment on flushed and requires a full
-     * directory walk to determine any potential deletions by CDC consumer.
+     * directory walk to determine any potential deletions by an external CDC consumer.
      */
     private static class CDCSizeTracker extends DirectorySizeCalculator
     {
         private final RateLimiter rateLimiter = RateLimiter.create(1000.0 / DatabaseDescriptor.getCDCDiskCheckInterval());
         private ExecutorService cdcSizeCalculationExecutor;
-        private CommitLogSegmentManager segmentManager;
+        private final CommitLogSegmentManager segmentManager;
 
-        // Used instead of size during walk to remove chance of over-allocation
+        /** Used only in context of file tree walking thread; not read nor mutated outside this context */
         private volatile long sizeInProgress = 0;
 
         CDCSizeTracker(CommitLogSegmentManager segmentManager, File path)
@@ -311,14 +311,14 @@ public class CommitLogSegmentAllocatorCDC implements CommitLogSegmentAllocator
         {
             try
             {
-                // The Arrays.stream approach is considerably slower on Windows than linux
+                // The Arrays.stream approach is considerably slower
                 sizeInProgress = 0;
                 Files.walkFileTree(path.toPath(), this);
                 size = sizeInProgress;
             }
             catch (IOException ie)
             {
-                CommitLog.instance.handleCommitError("Failed CDC Size Calculation", ie);
+                CommitLog.handleCommitError("Failed CDC Size Calculation", ie);
             }
         }
 

@@ -65,11 +65,7 @@ public class CommitLogSegmentManager
      */
     private final ConcurrentLinkedQueue<CommitLogSegment> unflushedSegments = new ConcurrentLinkedQueue<>();
 
-    /**
-     * The segment we are currently allocating commit log records to.
-     *
-     * Written by switchToNewSegment which synchronizes on 'this'. Volatile to ensure reads get current value.
-     */
+    /** The segment we are currently allocating commit log records to. */
     private volatile CommitLogSegment activeSegment = null;
 
     final String storageDirectory;
