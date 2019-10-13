@@ -65,7 +65,7 @@ public abstract class CommitLogSegment
         FORBIDDEN,
         CONTAINS
     }
-    Object cdcStateLock = new Object();
+    final Object cdcStateLock = new Object();
 
     private final static AtomicInteger nextId = new AtomicInteger(1);
     private static long replayLimitId;
@@ -81,7 +81,7 @@ public abstract class CommitLogSegment
     }
 
     // The commit log entry overhead in bytes (int: length + int: head checksum + int: tail checksum)
-    public static final int ENTRY_OVERHEAD_SIZE = 4 + 4 + 4;
+    static final int ENTRY_OVERHEAD_SIZE = 4 + 4 + 4;
 
     // The commit log (chained) sync marker/header size in bytes (int: length + int: checksum [segmentId, position])
     static final int SYNC_MARKER_SIZE = 4 + 4;
@@ -123,14 +123,14 @@ public abstract class CommitLogSegment
     final FileChannel channel;
     final int fd;
 
-    protected final AbstractCommitLogSegmentManager manager;
+    protected final CommitLogSegmentManager manager;
 
     ByteBuffer buffer;
     private volatile boolean headerWritten;
 
     public final CommitLogDescriptor descriptor;
 
-    static CommitLogSegment createSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    static CommitLogSegment createSegment(CommitLog commitLog, CommitLogSegmentManager manager)
     {
         Configuration config = commitLog.configuration;
         CommitLogSegment segment = config.useEncryption() ? new EncryptedSegment(commitLog, manager)
@@ -160,7 +160,7 @@ public abstract class CommitLogSegment
     /**
      * Constructs a new segment file.
      */
-    CommitLogSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    CommitLogSegment(CommitLog commitLog, CommitLogSegmentManager manager)
     {
         this.manager = manager;
 
@@ -265,10 +265,10 @@ public abstract class CommitLogSegment
         }
     }
 
-    // ensures no more of this segment is writeable, by allocating any unused section at the end and marking it discarded
+    // Ensures no more of this segment is writeable, by allocating any unused section at the end and marking it discarded.
     void discardUnusedTail()
     {
-        // We guard this with the OpOrdering instead of synchronised due to potential dead-lock with ACLSM.advanceAllocatingFrom()
+        // We guard this with the OpOrdering instead of synchronised due to potential dead-lock with CLSM.switchToNewSegment()
         // Ensures endOfBuffer update is reflected in the buffer end position picked up by sync().
         // This actually isn't strictly necessary, as currently all calls to discardUnusedTail are executed either by the thread
         // running sync or within a mutation already protected by this OpOrdering, but to prevent future potential mistakes,
@@ -383,7 +383,7 @@ public abstract class CommitLogSegment
      * in shared / memory-mapped buffers reflects un-synced data so we need an external sentinel for clients to read to
      * determine actual durable data persisted.
      */
-    public static void writeCDCIndexFile(CommitLogDescriptor desc, int offset, boolean complete)
+    static void writeCDCIndexFile(CommitLogDescriptor desc, int offset, boolean complete)
     {
         try(FileWriter writer = new FileWriter(new File(DatabaseDescriptor.getCDCLogLocation(), desc.cdcIndexFileName())))
         {
@@ -425,7 +425,7 @@ public abstract class CommitLogSegment
 
     abstract void flush(int startMarker, int nextMarker);
 
-    public boolean isStillAllocating()
+    boolean hasRoom()
     {
         return allocatePosition.get() < endOfBuffer;
     }
@@ -445,7 +445,7 @@ public abstract class CommitLogSegment
     /**
      * @return the current CommitLogPosition for this log segment
      */
-    public CommitLogPosition getCurrentCommitLogPosition()
+    CommitLogPosition getCurrentCommitLogPosition()
     {
         return new CommitLogPosition(id, allocatePosition.get());
     }
@@ -469,7 +469,7 @@ public abstract class CommitLogSegment
     /**
      * @return a File object representing the CDC directory and this file name for hard-linking
      */
-    public File getCDCFile()
+    File getCDCFile()
     {
         return new File(DatabaseDescriptor.getCDCLogLocation(), logFile.getName());
     }
@@ -477,7 +477,7 @@ public abstract class CommitLogSegment
     /**
      * @return a File object representing the CDC Index file holding the offset and completion status of this segment
      */
-    public File getCDCIndexFile()
+    File getCDCIndexFile()
     {
         return new File(DatabaseDescriptor.getCDCLogLocation(), descriptor.cdcIndexFileName());
     }
@@ -539,7 +539,7 @@ public abstract class CommitLogSegment
         }
     }
 
-    public static<K> void coverInMap(ConcurrentMap<K, IntegerInterval> map, K key, int value)
+    private static<K> void coverInMap(ConcurrentMap<K, IntegerInterval> map, K key, int value)
     {
         IntegerInterval i = map.get(key);
         if (i == null)
@@ -561,7 +561,7 @@ public abstract class CommitLogSegment
      * @param startPosition  the start of the range that is clean
      * @param endPosition    the end of the range that is clean
      */
-    public synchronized void markClean(TableId tableId, CommitLogPosition startPosition, CommitLogPosition endPosition)
+    synchronized void markClean(TableId tableId, CommitLogPosition startPosition, CommitLogPosition endPosition)
     {
         if (startPosition.segmentId > id || endPosition.segmentId < id)
             return;
@@ -576,7 +576,7 @@ public abstract class CommitLogSegment
     private void removeCleanFromDirty()
     {
         // if we're still allocating from this segment, don't touch anything since it can't be done thread-safely
-        if (isStillAllocating())
+        if (hasRoom())
             return;
 
         Iterator<Map.Entry<TableId, IntegerInterval.Set>> iter = tableClean.entrySet().iterator();
@@ -619,9 +619,9 @@ public abstract class CommitLogSegment
      */
     public synchronized boolean isUnused()
     {
-        // if room to allocate, we're still in use as the active allocatingFrom,
+        // if room to allocate, we're still in use as the active segment,
         // so we don't want to race with updates to tableClean with removeCleanFromDirty
-        if (isStillAllocating())
+        if (hasRoom())
             return false;
 
         removeCleanFromDirty();
@@ -640,7 +640,7 @@ public abstract class CommitLogSegment
     }
 
     // For debugging, not fast
-    public String dirtyString()
+    String dirtyString()
     {
         StringBuilder sb = new StringBuilder();
         for (TableId tableId : getDirtyTableIds())
@@ -656,7 +656,7 @@ public abstract class CommitLogSegment
 
     abstract public long onDiskSize();
 
-    public long contentSize()
+    long contentSize()
     {
         return lastSyncedOffset;
     }
@@ -677,7 +677,7 @@ public abstract class CommitLogSegment
         }
     }
 
-    public CDCState getCDCState()
+    CDCState getCDCState()
     {
         return cdcState;
     }
@@ -686,7 +686,7 @@ public abstract class CommitLogSegment
      * Change the current cdcState on this CommitLogSegment. There are some restrictions on state transitions and this
      * method is idempotent.
      */
-    public void setCDCState(CDCState newState)
+    void setCDCState(CDCState newState)
     {
         if (newState == cdcState)
             return;
@@ -748,7 +748,7 @@ public abstract class CommitLogSegment
         /**
          * Returns the position in the CommitLogSegment at the end of this allocation.
          */
-        public CommitLogPosition getCommitLogPosition()
+        CommitLogPosition getCommitLogPosition()
         {
             return new CommitLogPosition(segment.id, buffer.limit());
         }

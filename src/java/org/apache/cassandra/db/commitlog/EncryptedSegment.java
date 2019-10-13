@@ -64,7 +64,7 @@ public class EncryptedSegment extends FileDirectSegment
     private final EncryptionContext encryptionContext;
     private final Cipher cipher;
 
-    public EncryptedSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    public EncryptedSegment(CommitLog commitLog, CommitLogSegmentManager manager)
     {
         super(commitLog, manager);
         this.encryptionContext = commitLog.configuration.getEncryptionContext();
@@ -101,7 +101,7 @@ public class EncryptedSegment extends FileDirectSegment
         int contentStart = startMarker + SYNC_MARKER_SIZE;
         final int length = nextMarker - contentStart;
         // The length may be 0 when the segment is being closed.
-        assert length > 0 || length == 0 && !isStillAllocating();
+        assert length > 0 || length == 0 && !hasRoom();
 
         final ICompressor compressor = encryptionContext.getCompressor();
         final int blockSize = encryptionContext.getChunkLength();
