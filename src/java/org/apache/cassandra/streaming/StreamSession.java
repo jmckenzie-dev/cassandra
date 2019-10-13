@@ -780,7 +780,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     {
         List<Future<?>> flushes = new ArrayList<>();
         for (ColumnFamilyStore cfs : stores)
-            flushes.add(cfs.forceFlush());
+            flushes.add(cfs.forceFlushToSSTable());
         FBUtilities.waitOnFutures(flushes);
     }
 

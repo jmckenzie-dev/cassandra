@@ -156,7 +156,7 @@ public class CompactionsTest
 
         long timestamp = populate(KEYSPACE1, CF_DENSE1, 0, 9, 3); //ttl=3s
 
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         assertEquals(1, store.getLiveSSTables().size());
         long originalSize = store.getLiveSSTables().iterator().next().uncompressedLength();
 
@@ -196,11 +196,11 @@ public class CompactionsTest
             .clustering(ByteBufferUtil.bytes("cols"))
             .add("val", "val1")
             .build().applyUnsafe();
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         // shadow the subcolumn with a supercolumn tombstone
         RowUpdateBuilder.deleteRow(table, FBUtilities.timestampMicros(), key.getKey(), ByteBufferUtil.bytes("cols")).applyUnsafe();
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         CompactionManager.instance.performMaximal(cfs, false);
         assertEquals(1, cfs.getLiveSSTables().size());
@@ -236,11 +236,11 @@ public class CompactionsTest
 
         //Populate sstable1 with with keys [0..9]
         populate(KEYSPACE1, CF_STANDARD1, 0, 9, 3); //ttl=3s
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
 
         //Populate sstable2 with with keys [10..19] (keys do not overlap with SSTable1)
         long timestamp2 = populate(KEYSPACE1, CF_STANDARD1, 10, 19, 3); //ttl=3s
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
 
         assertEquals(2, store.getLiveSSTables().size());
 
@@ -330,7 +330,7 @@ public class CompactionsTest
             .add("val", "val1")
             .build().applyUnsafe();
         }
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
         Collection<SSTableReader> sstables = cfs.getLiveSSTables();
 
         assertEquals(1, sstables.size());
@@ -365,7 +365,7 @@ public class CompactionsTest
             notYetDeletedRowUpdateBuilder.clustering("02").add("val", "a"); //Range tombstone doesn't cover this (timestamp 3 > 2)
             notYetDeletedRowUpdateBuilder.build().applyUnsafe();
         }
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
     }
 
     @Test
@@ -450,7 +450,7 @@ public class CompactionsTest
         rowUpdateBuilder.clustering("c").add("val", "a");
         rowUpdateBuilder.build().applyUnsafe();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         Collection<SSTableReader> sstablesBefore = cfs.getLiveSSTables();
 
@@ -468,7 +468,7 @@ public class CompactionsTest
         // Sleep one second so that the removal is indeed purgeable even with gcgrace == 0
         Thread.sleep(1000);
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         Collection<SSTableReader> sstablesAfter = cfs.getLiveSSTables();
         Collection<SSTableReader> toCompact = new ArrayList<SSTableReader>();
@@ -550,7 +550,7 @@ public class CompactionsTest
             insertRowWithKey(i + 100);
             insertRowWithKey(i + 200);
         }
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
 
         assertEquals(1, store.getLiveSSTables().size());
         SSTableReader sstable = store.getLiveSSTables().iterator().next();

@@ -543,7 +543,7 @@ public class KeyCacheCqlTest extends CQLTester
 
             if (i % 10 == 9)
             {
-                Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).forceFlush().get();
+                Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).forceFlushToSSTable().get();
                 if (index != null)
                     triggerBlockingFlush(Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).indexManager.getIndexByName(index));
             }
@@ -553,7 +553,7 @@ public class KeyCacheCqlTest extends CQLTester
     private static void prepareTable(String table) throws IOException, InterruptedException, java.util.concurrent.ExecutionException
     {
         StorageService.instance.disableAutoCompaction(KEYSPACE_PER_TEST, table);
-        Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).forceFlush().get();
+        Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).forceFlushToSSTable().get();
         Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).truncateBlocking();
     }
 

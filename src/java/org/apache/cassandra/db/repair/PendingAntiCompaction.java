@@ -349,7 +349,7 @@ public class PendingAntiCompaction
         List<ListenableFutureTask<AcquireResult>> tasks = new ArrayList<>(tables.size());
         for (ColumnFamilyStore cfs : tables)
         {
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
             ListenableFutureTask<AcquireResult> task = ListenableFutureTask.create(getAcquisitionCallable(cfs, tokenRanges.ranges(), prsId, acquireRetrySeconds, acquireSleepMillis));
             executor.submit(task);
             tasks.add(task);

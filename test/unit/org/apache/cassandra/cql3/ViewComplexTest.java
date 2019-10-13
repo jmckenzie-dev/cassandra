@@ -844,8 +844,8 @@ public class ViewComplexTest extends CQLTester
         }
         if (flush)
         {
-            ks.getColumnFamilyStore("mv1").forceBlockingFlush();
-            ks.getColumnFamilyStore("mv2").forceBlockingFlush();
+            ks.getColumnFamilyStore("mv1").forceBlockingFlushToSSTable();
+            ks.getColumnFamilyStore("mv2").forceBlockingFlushToSSTable();
         }
 
         for (String view : Arrays.asList("mv1", "mv2"))

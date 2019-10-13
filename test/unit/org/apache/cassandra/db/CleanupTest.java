@@ -272,7 +272,7 @@ public class CleanupTest
             .add("val", VALUE)
             .build()
             .applyUnsafe();
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
         }
 
         Set<SSTableReader> beforeFirstCleanup = Sets.newHashSet(cfs.getLiveSSTables());
@@ -407,7 +407,7 @@ public class CleanupTest
                     .applyUnsafe();
         }
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
     }
 
     protected List<Long> getMaxTimestampList(ColumnFamilyStore cfs)

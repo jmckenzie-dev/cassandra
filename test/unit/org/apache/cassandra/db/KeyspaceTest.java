@@ -83,7 +83,7 @@ public class KeyspaceTest extends CQLTester
             Util.assertEmpty(Util.cmd(cfs, "0").columns("c").includeRow(1).build());
 
             if (round == 0)
-                cfs.forceBlockingFlush();
+                cfs.forceBlockingFlushToSSTable();
         }
     }
 
@@ -118,7 +118,7 @@ public class KeyspaceTest extends CQLTester
             }
 
             if (round == 0)
-                cfs.forceBlockingFlush();
+                cfs.forceBlockingFlushToSSTable();
         }
     }
 
@@ -135,7 +135,7 @@ public class KeyspaceTest extends CQLTester
         for (String key : new String[]{"0", "2"})
             Util.assertEmpty(Util.cmd(cfs, key).build());
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         for (String key : new String[]{"0", "2"})
             Util.assertEmpty(Util.cmd(cfs, key).build());
@@ -207,7 +207,7 @@ public class KeyspaceTest extends CQLTester
             assertRowsInSlice(cfs, "0", 288, 299, 12, true, prefix);
 
             if (round == 0)
-                cfs.forceBlockingFlush();
+                cfs.forceBlockingFlushToSSTable();
         }
     }
 
@@ -220,7 +220,7 @@ public class KeyspaceTest extends CQLTester
         for (int i = 0; i < 10; i++)
             execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", "0", i, i);
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         for (int i = 10; i < 20; i++)
         {
@@ -334,7 +334,7 @@ public class KeyspaceTest extends CQLTester
             assertRowsInResult(cfs, command);
 
             if (round == 0)
-                cfs.forceBlockingFlush();
+                cfs.forceBlockingFlushToSSTable();
         }
     }
 
@@ -357,7 +357,7 @@ public class KeyspaceTest extends CQLTester
             assertRowsInResult(cfs, command, 1);
 
             if (round == 0)
-                cfs.forceBlockingFlush();
+                cfs.forceBlockingFlushToSSTable();
         }
     }
 
@@ -370,7 +370,7 @@ public class KeyspaceTest extends CQLTester
         for (int i = 1; i < 7; i++)
             execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", "0", i, i);
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         // overwrite three rows with -1
         for (int i = 1; i < 4; i++)
@@ -382,7 +382,7 @@ public class KeyspaceTest extends CQLTester
             assertRowsInResult(cfs, command, -1, -1, 4);
 
             if (round == 0)
-                cfs.forceBlockingFlush();
+                cfs.forceBlockingFlushToSSTable();
         }
     }
 
@@ -395,7 +395,7 @@ public class KeyspaceTest extends CQLTester
         for (int i = 1000; i < 2000; i++)
             execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", "0", i, i);
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         validateSliceLarge(cfs);
 
@@ -423,7 +423,7 @@ public class KeyspaceTest extends CQLTester
             for (int i = 1000 + (j*100); i < 1000 + ((j+1)*100); i++)
                 execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?) USING TIMESTAMP ?", "0", i, i, (long)i);
 
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
         }
 
         ((ClearableHistogram)cfs.metric.sstablesPerReadHistogram.cf).clear();

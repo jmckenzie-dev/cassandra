@@ -24,7 +24,6 @@ import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.cache.ChunkCache;
 import org.apache.cassandra.UpdateBuilder;
-import org.apache.cassandra.db.compaction.AbstractCompactionStrategy;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.Verifier;
 import org.apache.cassandra.db.marshal.UUIDType;
@@ -35,7 +34,6 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.io.FSWriteError;
-import org.apache.cassandra.io.compress.CorruptBlockException;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
@@ -52,7 +50,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.*;
-import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -702,7 +699,7 @@ public class VerifyTest
                          .apply();
         }
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
     }
 
     protected void fillCounterCF(ColumnFamilyStore cfs, int partitionsPerSSTable) throws WriteTimeoutException
@@ -714,7 +711,7 @@ public class VerifyTest
                          .apply();
         }
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
     }
 
     protected long simpleFullChecksum(String filename) throws IOException

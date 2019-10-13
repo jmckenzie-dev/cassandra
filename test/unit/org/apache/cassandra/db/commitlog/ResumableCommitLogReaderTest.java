@@ -77,7 +77,7 @@ public class ResumableCommitLogReaderTest extends CQLTester
         CommitLog.instance.sync(true);
 
         // Should have well more than 3 segments to work with on subsequent tests.
-        Assert.assertTrue(CommitLog.instance.segmentManager.getUnflushedSegments().size() > 3);
+        Assert.assertTrue(CommitLog.instance.segmentManager.getSegmentsForUnflushedTables().size() > 3);
     }
 
     /**

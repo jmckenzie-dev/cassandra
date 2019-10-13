@@ -188,7 +188,7 @@ public class Util
             rm.applyUnsafe();
 
         ColumnFamilyStore store = Keyspace.open(keyspaceName).getColumnFamilyStore(tableId);
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         return store;
     }
 

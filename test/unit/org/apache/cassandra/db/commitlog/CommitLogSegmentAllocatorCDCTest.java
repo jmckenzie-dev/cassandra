@@ -91,7 +91,7 @@ public class CommitLogSegmentAllocatorCDCTest extends CQLTester
             execute("INSERT INTO %s (idx, data) VALUES (1, '1');");
 
             // Confirm that, on flush+recyle, we see files show up in cdc_raw
-            Keyspace.open(keyspace()).getColumnFamilyStore(currentTable()).forceBlockingFlush();
+            Keyspace.open(keyspace()).getColumnFamilyStore(currentTable()).forceBlockingFlushToSSTable();
             CommitLog.instance.forceRecycleAllSegments();
             cdcMgr.awaitManagementTasksCompletion();
             Assert.assertTrue("Expected files to be moved to overflow.", CommitLogTestUtils.getCDCRawCount() > 0);

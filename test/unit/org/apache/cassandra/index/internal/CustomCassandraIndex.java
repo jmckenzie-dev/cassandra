@@ -135,7 +135,7 @@ public class CustomCassandraIndex implements Index
     public Callable<Void> getBlockingFlushTask()
     {
         return () -> {
-            indexCfs.forceBlockingFlush();
+            indexCfs.forceBlockingFlushToSSTable();
             return null;
         };
     }
@@ -597,7 +597,7 @@ public class CustomCassandraIndex implements Index
         CompactionManager.instance.interruptCompactionForCFs(cfss, (sstable) -> true, true);
         CompactionManager.instance.waitForCessation(cfss, (sstable) -> true);
         indexCfs.keyspace.writeOrder.awaitNewBarrier();
-        indexCfs.forceBlockingFlush();
+        indexCfs.forceBlockingFlushToSSTable();
         indexCfs.readOrdering.awaitNewBarrier();
         indexCfs.invalidate();
     }
@@ -622,7 +622,7 @@ public class CustomCassandraIndex implements Index
 
     private void buildBlocking()
     {
-        baseCfs.forceBlockingFlush();
+        baseCfs.forceBlockingFlushToSSTable();
 
         try (ColumnFamilyStore.RefViewFragment viewFragment = baseCfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL));
              Refs<SSTableReader> sstables = viewFragment.refs)
@@ -646,7 +646,7 @@ public class CustomCassandraIndex implements Index
                                                                          ImmutableSet.copyOf(sstables));
             Future<?> future = CompactionManager.instance.submitIndexBuild(builder);
             FBUtilities.waitOnFuture(future);
-            indexCfs.forceBlockingFlush();
+            indexCfs.forceBlockingFlushToSSTable();
         }
         logger.info("Index build of {} complete", metadata.name);
     }

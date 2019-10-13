@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.EnumSet;
 import java.util.Map;
-import java.util.Set;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -60,10 +59,10 @@ public class RepairDigestTrackingTest extends DistributedTestBase implements Ser
             }
 
             cluster.get(1).runOnInstance(() ->
-               Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").forceBlockingFlush()
+               Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").forceBlockingFlushToSSTable()
             );
             cluster.get(2).runOnInstance(() ->
-               Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").forceBlockingFlush()
+               Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").forceBlockingFlushToSSTable()
             );
 
             for (int i = 10; i < 20; i++)
@@ -74,10 +73,10 @@ public class RepairDigestTrackingTest extends DistributedTestBase implements Ser
             }
 
             cluster.get(1).runOnInstance(() ->
-                                         Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").forceBlockingFlush()
+                                         Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").forceBlockingFlushToSSTable()
             );
             cluster.get(2).runOnInstance(() ->
-                                         Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").forceBlockingFlush()
+                                         Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").forceBlockingFlushToSSTable()
             );
 
             cluster.get(1).runOnInstance(() ->

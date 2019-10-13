@@ -116,7 +116,7 @@ public class BigTableZeroCopyWriterTest
             .applyUnsafe();
             expectedRowCount++;
         }
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
 
         sstable = store.getLiveSSTables().iterator().next();
     }

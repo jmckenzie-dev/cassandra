@@ -788,7 +788,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         {
             indexes.forEach(index ->
                             index.getBackingTable()
-                                 .map(cfs -> wait.add(cfs.forceFlush()))
+                                 .map(cfs -> wait.add(cfs.forceFlushToSSTable()))
                                  .orElseGet(() -> nonCfsIndexes.add(index)));
         }
 

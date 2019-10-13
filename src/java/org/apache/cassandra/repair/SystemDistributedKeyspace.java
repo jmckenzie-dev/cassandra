@@ -352,7 +352,7 @@ public final class SystemDistributedKeyspace
     public static void forceBlockingFlush(String table)
     {
         if (!DatabaseDescriptor.isUnsafeSystem())
-            FBUtilities.waitOnFuture(Keyspace.open(SchemaConstants.DISTRIBUTED_KEYSPACE_NAME).getColumnFamilyStore(table).forceFlush());
+            FBUtilities.waitOnFuture(Keyspace.open(SchemaConstants.DISTRIBUTED_KEYSPACE_NAME).getColumnFamilyStore(table).forceFlushToSSTable());
     }
 
     private enum RepairState

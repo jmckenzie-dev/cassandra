@@ -175,7 +175,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         new RowUpdateBuilder(cfs.metadata(), 0, ByteBufferUtil.bytes("key2"))
                 .clustering("Column1")
@@ -203,7 +203,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         new RowUpdateBuilder(cfs.metadata(), 0, ByteBufferUtil.bytes("key"))
                 .clustering("dd")
@@ -234,7 +234,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         new RowUpdateBuilder(cfs.metadata(), 0, ByteBufferUtil.bytes("key"))
                 .clustering("dd")
@@ -313,7 +313,7 @@ public class ReadCommandTest
                 commands.add(SinglePartitionReadCommand.create(cfs.metadata(), nowInSeconds, columnFilter, rowFilter, DataLimits.NONE, Util.dk(data[1]), sliceFilter));
             }
 
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
 
             ReadQuery query = new SinglePartitionReadCommand.Group(commands, DataLimits.NONE);
 
@@ -483,7 +483,7 @@ public class ReadCommandTest
                         DataLimits.NONE, Util.dk(data[1]), sliceFilter));
             }
 
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
 
             ReadQuery query = new SinglePartitionReadCommand.Group(commands, DataLimits.NONE);
 
@@ -559,7 +559,7 @@ public class ReadCommandTest
                         DataLimits.NONE, Util.dk(data[1]), sliceFilter));
             }
 
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
 
             ReadQuery query = new SinglePartitionReadCommand.Group(commands, DataLimits.NONE);
 
@@ -618,7 +618,7 @@ public class ReadCommandTest
             .build()
             .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         new RowUpdateBuilder(cfs.metadata(), 1, ByteBufferUtil.bytes("key"))
             .clustering("dd")
@@ -626,7 +626,7 @@ public class ReadCommandTest
             .build()
             .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
         List<SSTableReader> sstables = new ArrayList<>(cfs.getLiveSSTables());
         assertEquals(2, sstables.size());
         Collections.sort(sstables, SSTableReader.maxTimestampDescending);
@@ -666,7 +666,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         ReadCommand readCommand = Util.cmd(cfs, Util.dk("key")).build();
         assertTrue(cfs.isRowCacheEnabled());
@@ -739,7 +739,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         new RowUpdateBuilder(cfs.metadata(), 1, ByteBufferUtil.bytes("key"))
                 .clustering("dd")
@@ -747,7 +747,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
         List<SSTableReader> sstables = new ArrayList<>(cfs.getLiveSSTables());
         assertEquals(2, sstables.size());
         sstables.forEach(sstable -> assertFalse(sstable.isRepaired() || sstable.isPendingRepair()));
@@ -804,7 +804,7 @@ public class ReadCommandTest
             assertEquals(ByteBufferUtil.EMPTY_BYTE_BUFFER, digest);
 
             // now flush so we have an unrepaired table with the deletion and repeat the check
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
             digest = performReadAndVerifyRepairedInfo(readCommand, 0, rowsPerPartition, false);
             assertEquals(ByteBufferUtil.EMPTY_BYTE_BUFFER, digest);
         }

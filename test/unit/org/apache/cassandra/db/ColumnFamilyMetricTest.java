@@ -61,7 +61,7 @@ public class ColumnFamilyMetricTest
                     .build()
                     .applyUnsafe();
         }
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
         Collection<SSTableReader> sstables = cfs.getLiveSSTables();
         long size = 0;
         for (SSTableReader reader : sstables)

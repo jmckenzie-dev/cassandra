@@ -93,7 +93,7 @@ public class SSTableMetadataTest
             .applyUnsafe();
 
 
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         assertEquals(1, store.getLiveSSTables().size());
         int ttltimestamp = (int)(System.currentTimeMillis()/1000);
         int firstDelTime = 0;
@@ -112,7 +112,7 @@ public class SSTableMetadataTest
 
 
         ttltimestamp = (int) (System.currentTimeMillis()/1000);
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         assertEquals(2, store.getLiveSSTables().size());
         List<SSTableReader> sstables = new ArrayList<>(store.getLiveSSTables());
         if(sstables.get(0).getSSTableMetadata().maxLocalDeletionTime < sstables.get(1).getSSTableMetadata().maxLocalDeletionTime)
@@ -166,7 +166,7 @@ public class SSTableMetadataTest
         .build()
         .applyUnsafe();
 
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         assertEquals(1,store.getLiveSSTables().size());
         int ttltimestamp = (int) (System.currentTimeMillis()/1000);
         int firstMaxDelTime = 0;
@@ -178,7 +178,7 @@ public class SSTableMetadataTest
 
         RowUpdateBuilder.deleteRow(store.metadata(), timestamp + 1, "deletetest", "todelete").applyUnsafe();
 
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         assertEquals(2,store.getLiveSSTables().size());
         boolean foundDelete = false;
         for(SSTableReader sstable : store.getLiveSSTables())
@@ -215,7 +215,7 @@ public class SSTableMetadataTest
                     .applyUnsafe();
             }
         }
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         assertEquals(1, store.getLiveSSTables().size());
         for (SSTableReader sstable : store.getLiveSSTables())
         {
@@ -233,7 +233,7 @@ public class SSTableMetadataTest
             .applyUnsafe();
         }
 
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         store.forceMajorCompaction();
         assertEquals(1, store.getLiveSSTables().size());
         for (SSTableReader sstable : store.getLiveSSTables())

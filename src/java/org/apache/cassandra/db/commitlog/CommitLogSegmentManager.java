@@ -133,8 +133,8 @@ public class CommitLogSegmentManager
                             continue;
 
                         // Writing threads are not waiting for new segments, we can spend time on other tasks.
-                        // flush old Cfs if we're full
-                        maybeFlushToReclaim();
+                        // Flush old Cfs if we're full.
+                        flushIfOverLimit();
                     }
                     catch (Throwable t)
                     {
@@ -167,10 +167,13 @@ public class CommitLogSegmentManager
         return CommitLogSegment.usesBufferPool(commitLog) && bufferPool.atLimit();
     }
 
-    private void maybeFlushToReclaim()
+    /**
+     * In the event we've overallocated (i.e. size on disk > limit in config), we want to trigger a flush of the number
+     * of required memtables to sstables in order to be able to reclaim some CL space on disk.
+     */
+    private void flushIfOverLimit()
     {
-        long unused = unusedCapacity();
-        if (unused < 0)
+        if (overConfigDiskCapacity(0))
         {
             long flushingSize = 0;
             List<CommitLogSegment> segmentsToRecycle = new ArrayList<>();
@@ -180,10 +183,10 @@ public class CommitLogSegmentManager
                     break;
                 flushingSize += segment.onDiskSize();
                 segmentsToRecycle.add(segment);
-                if (flushingSize + unused >= 0)
+                if (!overConfigDiskCapacity((flushingSize)))
                     break;
             }
-            flushDataFrom(segmentsToRecycle, false);
+            flushTablesForSegments(segmentsToRecycle, false);
         }
     }
 
@@ -272,7 +275,7 @@ public class CommitLogSegmentManager
         Keyspace.writeOrder.awaitNewBarrier();
 
         // flush and wait for all CFs that are dirty in segments up-to and including 'last'
-        Future<?> future = flushDataFrom(segmentsToRecycle, true);
+        Future<?> future = flushTablesForSegments(segmentsToRecycle, true);
         try
         {
             future.get();
@@ -343,12 +346,16 @@ public class CommitLogSegmentManager
         return size.get();
     }
 
-    private long unusedCapacity()
+    /**
+     * We offset by the amount we've planned to flush with to allow for selective calculation up front of how much to flush
+     */
+    private boolean overConfigDiskCapacity(long toBeFlushed)
     {
         long total = DatabaseDescriptor.getTotalCommitlogSpaceInMB() * 1024 * 1024;
-        long currentSize = size.get();
+        long currentSize = size.get() + toBeFlushed;
         logger.trace("Total active commitlog segment space used is {} out of {}", currentSize, total);
-        return total - currentSize;
+        // TODO: Consider whether to do >=. Original logic strictly equated with > from CASSANDRA-9095
+        return currentSize > total;
     }
 
     /**
@@ -356,7 +363,7 @@ public class CommitLogSegmentManager
      *
      * @return a Future that will finish when all the flushes are complete.
      */
-    private Future<?> flushDataFrom(List<CommitLogSegment> segments, boolean force)
+    private Future<?> flushTablesForSegments(List<CommitLogSegment> segments, boolean force)
     {
         if (segments.isEmpty())
             return Futures.immediateFuture(null);
@@ -382,7 +389,7 @@ public class CommitLogSegmentManager
                     final ColumnFamilyStore cfs = Keyspace.open(metadata.keyspace).getColumnFamilyStore(dirtyTableId);
                     // can safely call forceFlush here as we will only ever block (briefly) for other attempts to flush,
                     // no deadlock possibility since switchLock removal
-                    flushes.put(dirtyTableId, force ? cfs.forceFlush() : cfs.forceFlush(maxCommitLogPosition));
+                    flushes.put(dirtyTableId, force ? cfs.forceFlushToSSTable() : cfs.forceFlushToSSTable(maxCommitLogPosition));
                 }
             }
         }
@@ -486,10 +493,12 @@ public class CommitLogSegmentManager
     }
 
     /**
-     * @return a read-only collection of all active and unflushed segments in the system
+     * @return a read-only collection of all active and unflushed segments in the system. In this context, "Flushed" is
+     * referring to "memtable / CF flushed to sstables", not whether or not the CommitLogSegment itself is flushed via
+     * fsync.
      */
     @VisibleForTesting
-    public Collection<CommitLogSegment> getUnflushedSegments()
+    public Collection<CommitLogSegment> getSegmentsForUnflushedTables()
     {
         return Collections.unmodifiableCollection(unflushedSegments);
     }
@@ -510,7 +519,7 @@ public class CommitLogSegmentManager
     public void sync(boolean flush) throws IOException
     {
         CommitLogSegment current = activeSegment;
-        for (CommitLogSegment segment : getUnflushedSegments())
+        for (CommitLogSegment segment : getSegmentsForUnflushedTables())
         {
             // Do not sync segments that became active after sync started.
             if (segment.id > current.id)

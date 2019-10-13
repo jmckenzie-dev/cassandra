@@ -76,7 +76,7 @@ public class SnapshotDeletingTest
 
         // Compact the cf and confirm that the executor's after hook calls rescheduleDeletion
         populate(20000);
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         store.forceMajorCompaction();
 
         long start = System.currentTimeMillis();

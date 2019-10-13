@@ -31,11 +31,11 @@ public class CommitLogCQLTest extends CQLTester
 
         execute("INSERT INTO %s (idx, data) VALUES (?, ?)", 15, Integer.toString(17));
 
-        Collection<CommitLogSegment> active = new ArrayList<>(CommitLog.instance.segmentManager.getUnflushedSegments());
+        Collection<CommitLogSegment> active = new ArrayList<>(CommitLog.instance.segmentManager.getSegmentsForUnflushedTables());
         CommitLog.instance.forceRecycleAllSegments();
 
         // If one of the previous segments remains, it wasn't clean.
-        active.retainAll(CommitLog.instance.segmentManager.getUnflushedSegments());
+        active.retainAll(CommitLog.instance.segmentManager.getSegmentsForUnflushedTables());
         assert active.isEmpty();
     }
 }

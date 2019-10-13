@@ -285,7 +285,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                             else
                             {
                                 // we'll be rescheduled by the constructor of the Memtable.
-                                forceFlush();
+                                forceFlushToSSTable();
                             }
                         }
                     }
@@ -858,7 +858,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @return a Future yielding the commit log position that can be guaranteed to have been successfully written
      *         to sstables for this table once the future completes
      */
-    public ListenableFuture<CommitLogPosition> forceFlush()
+    public ListenableFuture<CommitLogPosition> forceFlushToSSTable()
     {
         synchronized (data)
         {
@@ -877,7 +877,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @return a Future yielding the commit log position that can be guaranteed to have been successfully written
      *         to sstables for this table once the future completes
      */
-    public ListenableFuture<?> forceFlush(CommitLogPosition flushIfDirtyBefore)
+    public ListenableFuture<?> forceFlushToSSTable(CommitLogPosition flushIfDirtyBefore)
     {
         // we don't loop through the remaining memtables since here we only care about commit log dirtiness
         // and this does not vary between a table and its table-backed indexes
@@ -904,9 +904,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return task;
     }
 
-    public CommitLogPosition forceBlockingFlush()
+    public CommitLogPosition forceBlockingFlushToSSTable()
     {
-        return FBUtilities.waitOnFuture(forceFlush());
+        return FBUtilities.waitOnFuture(forceFlushToSSTable());
     }
 
     /**
@@ -1886,7 +1886,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         if (!skipFlush)
         {
-            forceBlockingFlush();
+            forceBlockingFlushToSSTable();
         }
         return snapshotWithoutFlush(snapshotName, predicate, ephemeral);
     }
@@ -2110,7 +2110,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         if (keyspace.getMetadata().params.durableWrites || DatabaseDescriptor.isAutoSnapshot())
         {
-            replayAfter = forceBlockingFlush();
+            replayAfter = forceBlockingFlushToSSTable();
             viewManager.forceBlockingFlush();
         }
         else

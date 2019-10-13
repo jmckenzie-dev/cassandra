@@ -22,19 +22,15 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
-import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Test;
 
 import org.apache.cassandra.Util;
 import org.apache.cassandra.UpdateBuilder;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
@@ -56,8 +52,6 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.metrics.StorageMetrics;
-import org.apache.cassandra.streaming.PreviewKind;
-import org.apache.cassandra.streaming.StreamSession;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDGen;
@@ -81,7 +75,7 @@ public class SSTableRewriterTest extends SSTableWriterTestBase
                 .build()
                 .apply();
         }
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = new HashSet<>(cfs.getLiveSSTables());
         assertEquals(1, sstables.size());
         assertEquals(sstables.iterator().next().bytesOnDisk(), cfs.metric.liveDiskSpaceUsed.getCount());
@@ -698,7 +692,7 @@ public class SSTableRewriterTest extends SSTableWriterTestBase
                     .build()
                     .apply();
         }
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
         cfs.forceMajorCompaction();
         validateKeys(keyspace);
 

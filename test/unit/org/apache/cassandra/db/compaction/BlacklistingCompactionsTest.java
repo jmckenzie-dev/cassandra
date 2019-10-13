@@ -158,7 +158,7 @@ public class BlacklistingCompactionsTest
                 maxTimestampExpected = Math.max(timestamp, maxTimestampExpected);
                 inserted.add(key);
             }
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
             CompactionsTest.assertMaxTimestamp(cfs, maxTimestampExpected);
             assertEquals(inserted.toString(), inserted.size(), Util.getAll(Util.cmd(cfs).build()).size());
         }

@@ -416,7 +416,7 @@ public class LocalSessions
     {
         TableId tid = Schema.instance.getTableMetadata(keyspace, table).id;
         ColumnFamilyStore cfm = Schema.instance.getColumnFamilyStoreInstance(tid);
-        cfm.forceBlockingFlush();
+        cfm.forceBlockingFlushToSSTable();
     }
 
     /**

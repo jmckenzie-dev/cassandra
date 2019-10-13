@@ -174,7 +174,7 @@ public class StreamingTransferTest
         long timestamp = 1234;
         for (int i = 1; i <= 3; i++)
             mutator.mutate("key" + i, "col" + i, timestamp);
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
         Util.compactAll(cfs, Integer.MAX_VALUE).get();
         assertEquals(1, cfs.getLiveSSTables().size());
 
@@ -362,7 +362,7 @@ public class StreamingTransferTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         SSTableReader sstable = cfs.getLiveSSTables().iterator().next();
         cfs.clearUnsafe();

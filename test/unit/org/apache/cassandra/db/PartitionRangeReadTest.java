@@ -99,14 +99,14 @@ public class PartitionRangeReadTest
                 .add("val", "val1")
                 .build()
                 .applyUnsafe();
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         new RowUpdateBuilder(cfs.metadata(), 1, "k1")
                 .clustering(new BigInteger(new byte[]{0, 0, 1}))
                 .add("val", "val2")
                 .build()
                 .applyUnsafe();
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         // fetch by the first column name; we should get the second version of the column value
         Row row = Util.getOnlyRow(Util.cmd(cfs, "k1").includeRow(new BigInteger(new byte[]{1})).build());
@@ -158,7 +158,7 @@ public class PartitionRangeReadTest
             builder.build().applyUnsafe();
         }
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         ColumnMetadata cDef = cfs.metadata().getColumn(ByteBufferUtil.bytes("val"));
 

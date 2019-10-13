@@ -217,7 +217,7 @@ public class CommitLogReplayer implements CommitLogReadHandler
 
         // also flush batchlog incase of any MV updates
         if (!flushingSystem)
-            futures.add(Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME).getColumnFamilyStore(SystemKeyspace.BATCHES).forceFlush());
+            futures.add(Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME).getColumnFamilyStore(SystemKeyspace.BATCHES).forceFlushToSSTable());
 
         FBUtilities.waitOnFutures(futures);
 

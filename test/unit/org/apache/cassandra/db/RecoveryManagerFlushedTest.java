@@ -115,7 +115,7 @@ public class RecoveryManagerFlushedTest
         Keyspace keyspace1 = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = keyspace1.getColumnFamilyStore("Standard1");
         logger.debug("forcing flush");
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         logger.debug("begin manual replay");
         // replay the commit log (nothing on Standard1 should be replayed since everything was flushed, so only the row on Standard2

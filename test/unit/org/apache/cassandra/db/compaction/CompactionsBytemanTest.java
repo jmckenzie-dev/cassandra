@@ -128,7 +128,7 @@ public class CompactionsBytemanTest extends CQLTester
 
         execute("INSERT INTO %s (k, c, v) VALUES (?, ?, ?)", 0, 1, 1);
         assertEquals(0, CompactionManager.instance.compactingCF.count(cfs));
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(cfs));
         assertEquals(0, CompactionManager.instance.compactingCF.count(cfs));
@@ -145,7 +145,7 @@ public class CompactionsBytemanTest extends CQLTester
         {
             execute("INSERT INTO %s (id, val) values (2, 'immortal')");
         }
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
     }
 
     private void createLowGCGraceTable(){
@@ -192,7 +192,7 @@ public class CompactionsBytemanTest extends CQLTester
             {
                 execute("insert into %s (k, c, v) values (?, ?, ?)", i, j, i*j);
             }
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
         }
         cfs.getCompactionStrategyManager().mutateRepaired(cfs.getLiveSSTables(), System.currentTimeMillis(), null, false);
         for (int i = 0; i < 5; i++)
@@ -201,7 +201,7 @@ public class CompactionsBytemanTest extends CQLTester
             {
                 execute("insert into %s (k, c, v) values (?, ?, ?)", i, j, i*j);
             }
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
         }
 
         assertTrue(cfs.getTracker().getCompacting().isEmpty());

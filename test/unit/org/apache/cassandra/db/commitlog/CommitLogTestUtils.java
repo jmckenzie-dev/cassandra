@@ -75,7 +75,7 @@ class CommitLogTestUtils
      */
     static int getCommitLogCountOnDisk()
     {
-        return CommitLog.instance.segmentManager.getUnflushedSegments().size();
+        return CommitLog.instance.segmentManager.getSegmentsForUnflushedTables().size();
     }
 
     /**

@@ -398,7 +398,7 @@ public class Keyspace
     // disassociate a cfs from this keyspace instance.
     private void unloadCf(ColumnFamilyStore cfs)
     {
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
         cfs.invalidate();
     }
 
@@ -674,7 +674,7 @@ public class Keyspace
     {
         List<Future<?>> futures = new ArrayList<>(columnFamilyStores.size());
         for (ColumnFamilyStore cfs : columnFamilyStores.values())
-            futures.add(cfs.forceFlush());
+            futures.add(cfs.forceFlushToSSTable());
         return futures;
     }
 
