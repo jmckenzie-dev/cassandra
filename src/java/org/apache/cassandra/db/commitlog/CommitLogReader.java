@@ -46,6 +46,10 @@ import org.apache.cassandra.utils.JVMStabilityInspector;
 
 import static org.apache.cassandra.utils.FBUtilities.updateChecksumInt;
 
+/**
+ * A CommitLogReader is used to traverse a flat CommitLog file and provide deserialized Mutation objects to an accepting
+ * CommitLogReadHandler.
+ */
 public class CommitLogReader
 {
     private static final Logger logger = LoggerFactory.getLogger(CommitLogReader.class);
@@ -53,7 +57,7 @@ public class CommitLogReader
     private static final int LEGACY_END_OF_SEGMENT_MARKER = 0;
 
     @VisibleForTesting
-    public static final int ALL_MUTATIONS = -1;
+    static final int ALL_MUTATIONS = -1;
     private final CRC32 checksum;
     private final Map<TableId, AtomicInteger> invalidMutations;
 
@@ -66,7 +70,7 @@ public class CommitLogReader
         buffer = new byte[4096];
     }
 
-    public Set<Map.Entry<TableId, AtomicInteger>> getInvalidMutations()
+    Set<Map.Entry<TableId, AtomicInteger>> getInvalidMutations()
     {
         return invalidMutations.entrySet();
     }
@@ -74,7 +78,7 @@ public class CommitLogReader
     /**
      * Reads all passed in files with no minimum, no start, and no mutation limit.
      */
-    public void readAllFiles(CommitLogReadHandler handler, File[] files) throws IOException
+    void readAllFiles(CommitLogReadHandler handler, File[] files) throws IOException
     {
         readAllFiles(handler, files, CommitLogPosition.NONE);
     }
@@ -119,7 +123,7 @@ public class CommitLogReader
     /**
      * Reads all passed in files with minPosition, no start, and no mutation limit.
      */
-    public void readAllFiles(CommitLogReadHandler handler, File[] files, CommitLogPosition minPosition) throws IOException
+    private void readAllFiles(CommitLogReadHandler handler, File[] files, CommitLogPosition minPosition) throws IOException
     {
         List<File> filteredLogs = filterCommitLogFiles(files);
         int i = 0;
@@ -141,7 +145,7 @@ public class CommitLogReader
     /**
      * Reads all mutations from passed in file from minPosition
      */
-    public void readCommitLogSegment(CommitLogReadHandler handler, File file, CommitLogPosition minPosition, boolean tolerateTruncation) throws IOException
+    void readCommitLogSegment(CommitLogReadHandler handler, File file, CommitLogPosition minPosition, boolean tolerateTruncation) throws IOException
     {
         readCommitLogSegment(handler, file, minPosition, ALL_MUTATIONS, tolerateTruncation);
     }
@@ -150,7 +154,7 @@ public class CommitLogReader
      * Reads passed in file fully, up to mutationLimit count
      */
     @VisibleForTesting
-    public void readCommitLogSegment(CommitLogReadHandler handler, File file, int mutationLimit, boolean tolerateTruncation) throws IOException
+    void readCommitLogSegment(CommitLogReadHandler handler, File file, int mutationLimit, boolean tolerateTruncation) throws IOException
     {
         readCommitLogSegment(handler, file, CommitLogPosition.NONE, mutationLimit, tolerateTruncation);
     }
@@ -165,7 +169,7 @@ public class CommitLogReader
      *
      * @throws IOException
      */
-    public void readCommitLogSegment(CommitLogReadHandler handler,
+    void readCommitLogSegment(CommitLogReadHandler handler,
                                      File file,
                                      CommitLogPosition minPosition,
                                      int mutationLimit,
@@ -361,6 +365,9 @@ public class CommitLogReader
                     return;
                 }
 
+                // Overallocate a touch relative to the required size for this mutation, presumably to allow a little
+                // breathing room and not thrash on a need to re-allocate repeatedly for other mutations of slightly larger size.
+                // TODO: Why 1.2x? Why not double? Why not 1.1?
                 if (serializedSize > buffer.length)
                     buffer = new byte[(int) (1.2 * serializedSize)];
                 reader.readFully(buffer, 0, serializedSize);
@@ -479,51 +486,56 @@ public class CommitLogReader
 
     /**
      * Helper methods to deal with changing formats of internals of the CommitLog without polluting deserialization code.
+     * Note: while this has a currently unused variable (commitLogVersion) in the 4.0 line, the idea is to future proof
+     * and allow support for multiple disparate CommitLogFormats at a single time.
      */
     private static class CommitLogFormat
     {
-        public static long calculateClaimedChecksum(FileDataInput input, int commitLogVersion) throws IOException
+        static long calculateClaimedChecksum(FileDataInput input, int commitLogVersion) throws IOException
         {
             return input.readInt() & 0xffffffffL;
         }
 
-        public static void updateChecksum(CRC32 checksum, int serializedSize, int commitLogVersion)
+        static void updateChecksum(CRC32 checksum, int serializedSize, int commitLogVersion)
         {
             updateChecksumInt(checksum, serializedSize);
         }
 
-        public static long calculateClaimedCRC32(FileDataInput input, int commitLogVersion) throws IOException
+        static long calculateClaimedCRC32(FileDataInput input, int commitLogVersion) throws IOException
         {
             return input.readInt() & 0xffffffffL;
         }
     }
 
+    /**
+     * Caches the state needed for decision-making on multiple CommitLog Read operations
+     */
     private static class ReadStatusTracker
     {
         private int mutationsLeft;
-        public String errorContext = "";
-        public boolean tolerateErrorsInSection;
+        String errorContext = "";
+        boolean tolerateErrorsInSection;
         private boolean error;
 
-        public ReadStatusTracker(int mutationLimit, boolean tolerateErrorsInSection)
+        ReadStatusTracker(int mutationLimit, boolean tolerateErrorsInSection)
         {
             this.mutationsLeft = mutationLimit;
             this.tolerateErrorsInSection = tolerateErrorsInSection;
         }
 
-        public void addProcessedMutation()
+        void addProcessedMutation()
         {
             if (mutationsLeft == ALL_MUTATIONS)
                 return;
             --mutationsLeft;
         }
 
-        public boolean shouldContinue()
+        boolean shouldContinue()
         {
             return !error && (mutationsLeft != 0 || mutationsLeft == ALL_MUTATIONS);
         }
 
-        public void requestTermination()
+        void requestTermination()
         {
             error = true;
         }
