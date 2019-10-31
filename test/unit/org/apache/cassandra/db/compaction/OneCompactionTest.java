@@ -71,7 +71,7 @@ public class OneCompactionTest
                 .applyUnsafe();
 
             inserted.add(key);
-            store.forceBlockingFlush();
+            store.forceBlockingFlushToSSTable();
             assertEquals(inserted.size(), Util.getAll(Util.cmd(store).build()).size());
         }
         CompactionManager.instance.performMaximal(store, false);

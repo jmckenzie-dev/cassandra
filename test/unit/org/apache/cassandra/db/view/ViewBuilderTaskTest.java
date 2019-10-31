@@ -85,7 +85,7 @@ public class ViewBuilderTaskTest extends CQLTester
             {
                 // Truncate the materialized view (not the base table)
                 cfs.viewManager.forceBlockingFlush();
-                cfs.viewManager.truncateBlocking(cfs.forceBlockingFlush(), System.currentTimeMillis());
+                cfs.viewManager.truncateBlocking(cfs.forceBlockingFlushToSSTable(), System.currentTimeMillis());
                 assertRowCount(execute("SELECT * FROM " + viewName), 0);
 
                 // Get the tokens from the referenced inserted rows

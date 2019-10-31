@@ -261,7 +261,7 @@ public class CommitLogReaderTest extends CQLTester
         for (int i = midpoint; i < entryCount; i++)
             execute("INSERT INTO %s (idx, data) VALUES (?, ?)", i, Integer.toString(i));
 
-        Keyspace.open(keyspace()).getColumnFamilyStore(currentTable()).forceBlockingFlush();
+        Keyspace.open(keyspace()).getColumnFamilyStore(currentTable()).forceBlockingFlushToSSTable();
         return result;
     }
 }

@@ -22,6 +22,9 @@ import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.util.FileUtils;
@@ -35,12 +38,14 @@ import org.apache.cassandra.utils.SyncUtil;
  */
 public class MemoryMappedSegment extends CommitLogSegment
 {
+    private static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentReader.class);
+
     /**
      * Constructs a new segment file.
      *
      * @param commitLog the commit log it will be used with.
      */
-    MemoryMappedSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    MemoryMappedSegment(CommitLog commitLog, CommitLogSegmentManager manager)
     {
         super(commitLog, manager);
         // mark the initial sync marker as uninitialised

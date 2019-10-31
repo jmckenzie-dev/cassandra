@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileAttribute;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -111,7 +110,7 @@ public class SSTableReaderTest
                 .build()
                 .applyUnsafe();
         }
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         CompactionManager.instance.performMaximal(store, false);
 
         List<Range<Token>> ranges = new ArrayList<Range<Token>>();
@@ -157,7 +156,7 @@ public class SSTableReaderTest
                 .build()
                 .applyUnsafe();
             }
-            store.forceBlockingFlush();
+            store.forceBlockingFlushToSSTable();
             CompactionManager.instance.performMaximal(store, false);
 
             // check that all our keys are found correctly
@@ -199,7 +198,7 @@ public class SSTableReaderTest
             .build()
             .applyUnsafe();
         }
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
 
         clearAndLoad(store);
         assert store.metric.maxPartitionSize.getValue() != 0;
@@ -228,7 +227,7 @@ public class SSTableReaderTest
             .applyUnsafe();
         }
 
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
 
         SSTableReader sstable = store.getLiveSSTables().iterator().next();
         assertEquals(0, sstable.getReadMeter().count());
@@ -261,7 +260,7 @@ public class SSTableReaderTest
             .applyUnsafe();
 
         }
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         CompactionManager.instance.performMaximal(store, false);
 
         SSTableReader sstable = store.getLiveSSTables().iterator().next();
@@ -293,7 +292,7 @@ public class SSTableReaderTest
             .build()
             .applyUnsafe();
 
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
 
         // check if opening and querying works
         assertIndexQueryWorks(store);
@@ -315,7 +314,7 @@ public class SSTableReaderTest
             .build()
             .applyUnsafe();
         }
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         CompactionManager.instance.performMaximal(store, false);
 
         SSTableReader sstable = store.getLiveSSTables().iterator().next();
@@ -363,7 +362,7 @@ public class SSTableReaderTest
                 .build()
                 .applyUnsafe();
         }
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
 
         SSTableReader sstable = store.getLiveSSTables().iterator().next();
         Descriptor desc = sstable.descriptor;
@@ -465,7 +464,7 @@ public class SSTableReaderTest
         .build()
         .applyUnsafe();
 
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
 
         for(ColumnFamilyStore indexCfs : store.indexManager.getAllIndexColumnFamilyStores())
         {
@@ -494,7 +493,7 @@ public class SSTableReaderTest
             .build()
             .applyUnsafe();
 
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         boolean foundScanner = false;
         for (SSTableReader s : store.getLiveSSTables())
         {
@@ -528,7 +527,7 @@ public class SSTableReaderTest
             .applyUnsafe();
 
         }
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         CompactionManager.instance.performMaximal(store, false);
 
         // construct a range which is present in the sstable, but whose
@@ -567,7 +566,7 @@ public class SSTableReaderTest
             .applyUnsafe();
 
         }
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         CompactionManager.instance.performMaximal(store, false);
 
         Collection<SSTableReader> sstables = store.getLiveSSTables();
@@ -646,7 +645,7 @@ public class SSTableReaderTest
             .applyUnsafe();
 
         }
-        store.forceBlockingFlush();
+        store.forceBlockingFlushToSSTable();
         CompactionManager.instance.performMaximal(store, false);
 
         Collection<SSTableReader> sstables = store.getLiveSSTables();
@@ -759,7 +758,7 @@ public class SSTableReaderTest
             .build()
             .applyUnsafe();
         }
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
         return Sets.difference(cfs.getLiveSSTables(), before).iterator().next();
     }
 

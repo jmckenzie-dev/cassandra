@@ -304,7 +304,7 @@ public class ActiveRepairServiceTest
                 .build()
                 .applyUnsafe();
             }
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
         }
     }
 

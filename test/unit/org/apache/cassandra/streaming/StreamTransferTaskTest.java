@@ -76,14 +76,14 @@ public class StreamTransferTaskTest
     public void testScheduleTimeout() throws Exception
     {
         InetAddressAndPort peer = FBUtilities.getBroadcastAddressAndPort();
-        StreamSession session = new StreamSession(StreamOperation.BOOTSTRAP, peer, (connectionId, protocolVersion) -> new EmbeddedChannel(), 0, UUID.randomUUID(), PreviewKind.ALL);
+        StreamSession session = new StreamSession(StreamOperation.BOOTSTRAP, peer, (template, messagingVersion) -> new EmbeddedChannel(), 0, UUID.randomUUID(), PreviewKind.ALL);
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD);
 
         // create two sstables
         for (int i = 0; i < 2; i++)
         {
             SchemaLoader.insertData(KEYSPACE1, CF_STANDARD, i, 1);
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
         }
 
         // create streaming task that streams those two sstables
@@ -132,7 +132,7 @@ public class StreamTransferTaskTest
         for (int i = 0; i < 2; i++)
         {
             SchemaLoader.insertData(KEYSPACE1, CF_STANDARD, i, 1);
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
         }
 
         // create streaming task that streams those two sstables

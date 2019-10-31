@@ -52,10 +52,9 @@ import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.net.IMessageSink;
-import org.apache.cassandra.net.MessageIn;
-import org.apache.cassandra.net.MessageOut;
+import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.repair.messages.SyncRequest;
 import org.apache.cassandra.schema.KeyspaceParams;
@@ -156,7 +155,8 @@ public class RepairJobTest
     public void reset()
     {
         ActiveRepairService.instance.terminateSessions();
-        MessagingService.instance().clearMessageSinks();
+        MessagingService.instance().outboundSink.clear();
+        MessagingService.instance().inboundSink.clear();
         FBUtilities.reset();
     }
 
@@ -167,11 +167,11 @@ public class RepairJobTest
     public void testEndToEndNoDifferences() throws InterruptedException, ExecutionException, TimeoutException
     {
         Map<InetAddressAndPort, MerkleTrees> mockTrees = new HashMap<>();
-        mockTrees.put(FBUtilities.getBroadcastAddressAndPort(), createInitialTree(false));
+        mockTrees.put(addr1, createInitialTree(false));
         mockTrees.put(addr2, createInitialTree(false));
         mockTrees.put(addr3, createInitialTree(false));
 
-        List<MessageOut> observedMessages = new ArrayList<>();
+        List<Message<?>> observedMessages = new ArrayList<>();
         interceptRepairMessages(mockTrees, observedMessages);
 
         job.run();
@@ -182,14 +182,14 @@ public class RepairJobTest
         assertEquals(0, result.stats.size());
 
         // RepairJob should send out SNAPSHOTS -> VALIDATIONS -> done
-        List<RepairMessage.Type> expectedTypes = new ArrayList<>();
+        List<Verb> expectedTypes = new ArrayList<>();
         for (int i = 0; i < 3; i++)
-            expectedTypes.add(RepairMessage.Type.SNAPSHOT);
+            expectedTypes.add(Verb.SNAPSHOT_MSG);
         for (int i = 0; i < 3; i++)
-            expectedTypes.add(RepairMessage.Type.VALIDATION_REQUEST);
+            expectedTypes.add(Verb.VALIDATION_REQ);
 
         assertEquals(expectedTypes, observedMessages.stream()
-                                                    .map(k -> ((RepairMessage) k.payload).messageType)
+                                                    .map(Message::verb)
                                                     .collect(Collectors.toList()));
     }
 
@@ -208,7 +208,7 @@ public class RepairJobTest
         List<TreeResponse> mockTreeResponses = mockTrees.entrySet().stream()
                                                         .map(e -> new TreeResponse(e.getKey(), e.getValue()))
                                                         .collect(Collectors.toList());
-        List<MessageOut> messages = new ArrayList<>();
+        List<Message<?>> messages = new ArrayList<>();
         interceptRepairMessages(mockTrees, messages);
 
         long singleTreeSize = ObjectSizes.measureDeep(mockTrees.get(addr1));
@@ -252,7 +252,7 @@ public class RepairJobTest
         assertTrue(results.stream().allMatch(s -> s.numberOfDifferences == 1));
 
         assertEquals(2, messages.size());
-        assertTrue(messages.stream().allMatch(m -> ((RepairMessage) m.payload).messageType == RepairMessage.Type.SYNC_REQUEST));
+        assertTrue(messages.stream().allMatch(m -> m.verb() == Verb.SYNC_REQ));
     }
 
     @Test
@@ -775,10 +775,6 @@ public class RepairJobTest
         MerkleTrees tree = new MerkleTrees(MURMUR3_PARTITIONER);
         tree.addMerkleTrees((int) Math.pow(2, 15), fullRange);
         tree.init();
-        for (MerkleTree.TreeRange r : tree.invalids())
-        {
-            r.ensureHashInitialised();
-        }
 
         if (invalidate)
         {
@@ -792,49 +788,36 @@ public class RepairJobTest
     }
 
     private void interceptRepairMessages(Map<InetAddressAndPort, MerkleTrees> mockTrees,
-                                         List<MessageOut> messageCapture)
+                                         List<Message<?>> messageCapture)
     {
-        MessagingService.instance().addMessageSink(new IMessageSink()
-        {
-            public boolean allowOutgoingMessage(MessageOut message, int id, InetAddressAndPort to)
-            {
-                if (message == null || !(message.payload instanceof RepairMessage))
-                    return false;
-
-                // So different Thread's messages don't overwrite each other.
-                synchronized (messageLock)
-                {
-                    messageCapture.add(message);
-                }
-
-                RepairMessage rm = (RepairMessage) message.payload;
-                switch (rm.messageType)
-                {
-                    case SNAPSHOT:
-                        MessageIn<?> messageIn = MessageIn.create(to, null,
-                                                                  Collections.emptyMap(),
-                                                                  MessagingService.Verb.REQUEST_RESPONSE,
-                                                                  MessagingService.current_version);
-                        MessagingService.instance().receive(messageIn, id);
-                        break;
-                    case VALIDATION_REQUEST:
-                        session.validationComplete(sessionJobDesc, to, mockTrees.get(to));
-                        break;
-                    case SYNC_REQUEST:
-                        SyncRequest syncRequest = (SyncRequest) rm;
-                        session.syncComplete(sessionJobDesc, new SyncNodePair(syncRequest.src, syncRequest.dst),
-                                             true, Collections.emptyList());
-                        break;
-                    default:
-                        break;
-                }
+        MessagingService.instance().inboundSink.add(message -> message.verb().isResponse());
+        MessagingService.instance().outboundSink.add((message, to) -> {
+            if (message == null || !(message.payload instanceof RepairMessage))
                 return false;
+
+            // So different Thread's messages don't overwrite each other.
+            synchronized (messageLock)
+            {
+                messageCapture.add(message);
             }
 
-            public boolean allowIncomingMessage(MessageIn message, int id)
+            switch (message.verb())
             {
-                return message.verb == MessagingService.Verb.REQUEST_RESPONSE;
+                case SNAPSHOT_MSG:
+                    MessagingService.instance().callbacks.removeAndRespond(message.id(), to, message.emptyResponse());
+                    break;
+                case VALIDATION_REQ:
+                    session.validationComplete(sessionJobDesc, to, mockTrees.get(to));
+                    break;
+                case SYNC_REQ:
+                    SyncRequest syncRequest = (SyncRequest) message.payload;
+                    session.syncComplete(sessionJobDesc, new SyncNodePair(syncRequest.src, syncRequest.dst),
+                                         true, Collections.emptyList());
+                    break;
+                default:
+                    break;
             }
+            return false;
         });
     }
 }

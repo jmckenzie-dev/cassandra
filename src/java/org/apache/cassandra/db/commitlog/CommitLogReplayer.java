@@ -167,8 +167,8 @@ public class CommitLogReplayer implements CommitLogReadHandler
      */
     private void handleCDCReplayCompletion(File f) throws IOException
     {
-        // Can only reach this point if CDC is enabled, thus we have a CDCSegmentManager
-        ((CommitLogSegmentManagerCDC)CommitLog.instance.segmentManager).addCDCSize(f.length());
+        // Can only reach this point if CDC is enabled, thus we have a CDC Allocator
+        ((CommitLogSegmentAllocatorCDC)CommitLog.instance.segmentManager.segmentAllocator).addCDCSize(f.length());
 
         File dest = new File(DatabaseDescriptor.getCDCLogLocation(), f.getName());
 
@@ -217,7 +217,7 @@ public class CommitLogReplayer implements CommitLogReadHandler
 
         // also flush batchlog incase of any MV updates
         if (!flushingSystem)
-            futures.add(Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME).getColumnFamilyStore(SystemKeyspace.BATCHES).forceFlush());
+            futures.add(Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME).getColumnFamilyStore(SystemKeyspace.BATCHES).forceFlushToSSTable());
 
         FBUtilities.waitOnFutures(futures);
 

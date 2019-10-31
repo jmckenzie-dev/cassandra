@@ -125,7 +125,7 @@ public class IndexSummaryRedistributionTest
                 .build()
                 .applyUnsafe();
             }
-            futures.add(cfs.forceFlush());
+            futures.add(cfs.forceFlushToSSTable());
         }
         for (Future future : futures)
         {

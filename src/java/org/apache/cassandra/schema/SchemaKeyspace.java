@@ -164,8 +164,8 @@ public final class SchemaKeyspace
               + "table_name text,"
               + "column_name text,"
               + "dropped_time timestamp,"
-              + "type text,"
               + "kind text,"
+              + "type text,"
               + "PRIMARY KEY ((keyspace_name), table_name, column_name))");
 
     private static final TableMetadata Triggers =
@@ -345,7 +345,7 @@ public final class SchemaKeyspace
     private static void flush()
     {
         if (!DatabaseDescriptor.isUnsafeSystem())
-            ALL.forEach(table -> FBUtilities.waitOnFuture(getSchemaCFS(table).forceFlush()));
+            ALL.forEach(table -> FBUtilities.waitOnFuture(getSchemaCFS(table).forceFlushToSSTable()));
     }
 
     /**

@@ -32,6 +32,9 @@ import java.util.zip.CRC32;
 import com.google.common.annotations.VisibleForTesting;
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.codahale.metrics.Timer;
 import org.apache.cassandra.config.*;
 import org.apache.cassandra.db.Mutation;
@@ -49,13 +52,15 @@ import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 import static org.apache.cassandra.utils.FBUtilities.updateChecksumInt;
 
-/*
+/**
  * A single commit log file on disk. Manages creation of the file and writing mutations to disk,
  * as well as tracking the last mutation position of any "dirty" CFs covered by the segment file. Segment
  * files are initially allocated to a fixed size and can grow to accomidate a larger value if necessary.
  */
 public abstract class CommitLogSegment
 {
+    static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentManager.class);
+
     private final static long idBase;
 
     private CDCState cdcState = CDCState.PERMITTED;
@@ -65,7 +70,7 @@ public abstract class CommitLogSegment
         FORBIDDEN,
         CONTAINS
     }
-    Object cdcStateLock = new Object();
+    final Object cdcStateLock = new Object();
 
     private final static AtomicInteger nextId = new AtomicInteger(1);
     private static long replayLimitId;
@@ -80,20 +85,21 @@ public abstract class CommitLogSegment
         replayLimitId = idBase = Math.max(System.currentTimeMillis(), maxId + 1);
     }
 
-    // The commit log entry overhead in bytes (int: length + int: head checksum + int: tail checksum)
-    public static final int ENTRY_OVERHEAD_SIZE = 4 + 4 + 4;
+    /** The commit log entry overhead in bytes (int: length + int: head checksum + int: tail checksum) */
+    static final int ENTRY_OVERHEAD_SIZE = 4 + 4 + 4;
 
-    // The commit log (chained) sync marker/header size in bytes (int: length + int: checksum [segmentId, position])
+    /** The commit log (chained) sync marker/header size in bytes (int: length + int: checksum [segmentId, position]) */
     static final int SYNC_MARKER_SIZE = 4 + 4;
 
-    // The OpOrder used to order appends wrt sync
+    /** The OpOrder used to order appends wrt sync */
     private final OpOrder appendOrder = new OpOrder();
 
     private final AtomicInteger allocatePosition = new AtomicInteger();
 
-    // Everything before this offset has been synced and written.  The SYNC_MARKER_SIZE bytes after
-    // each sync are reserved, and point forwards to the next such offset.  The final
-    // sync marker in a segment will be zeroed out, or point to a position too close to the EOF to fit a marker.
+    /** Everything before this offset has been synced and written.  The SYNC_MARKER_SIZE bytes after
+     * each sync are reserved, and point forwards to the next such offset.  The final
+     * sync marker in a segment will be zeroed out, or point to a position too close to the EOF to fit a marker.
+     */
     @VisibleForTesting
     volatile int lastSyncedOffset;
 
@@ -103,34 +109,36 @@ public abstract class CommitLogSegment
      */
     private volatile int lastMarkerOffset;
 
-    // The end position of the buffer. Initially set to its capacity and updated to point to the last written position
-    // as the segment is being closed.
-    // No need to be volatile as writes are protected by appendOrder barrier.
+    /** The end position of the buffer. Initially set to its capacity and updated to point to the last written position
+     * as the segment is being closed.
+     * No need to be volatile as writes are protected by appendOrder barrier.
+     */
     private int endOfBuffer;
 
-    // a signal for writers to wait on to confirm the log message they provided has been written to disk
+    /** a signal for writers to wait on to confirm the log message they provided has been written to disk */
     private final WaitQueue syncComplete = new WaitQueue();
 
-    // a map of Cf->dirty interval in this segment; if interval is not covered by the clean set, the log contains unflushed data
+    /** a map of Cf->dirty interval in this segment; if interval is not covered by the clean set, the log contains unflushed data */
     private final NonBlockingHashMap<TableId, IntegerInterval> tableDirty = new NonBlockingHashMap<>(1024);
 
-    // a map of Cf->clean intervals; separate map from above to permit marking Cfs clean whilst the log is still in use
+    /** a map of Cf->clean intervals; separate map from above to permit marking Cfs clean whilst the log is still in use */
     private final ConcurrentHashMap<TableId, IntegerInterval.Set> tableClean = new ConcurrentHashMap<>();
 
     public final long id;
 
+    /** The CommitLogSegment log file on disk */
     final File logFile;
     final FileChannel channel;
     final int fd;
 
-    protected final AbstractCommitLogSegmentManager manager;
+    protected final CommitLogSegmentManager manager;
 
     ByteBuffer buffer;
     private volatile boolean headerWritten;
 
     public final CommitLogDescriptor descriptor;
 
-    static CommitLogSegment createSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    static CommitLogSegment createSegment(CommitLog commitLog, CommitLogSegmentManager manager)
     {
         Configuration config = commitLog.configuration;
         CommitLogSegment segment = config.useEncryption() ? new EncryptedSegment(commitLog, manager)
@@ -160,7 +168,7 @@ public abstract class CommitLogSegment
     /**
      * Constructs a new segment file.
      */
-    CommitLogSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    CommitLogSegment(CommitLog commitLog, CommitLogSegmentManager manager)
     {
         this.manager = manager;
 
@@ -265,10 +273,10 @@ public abstract class CommitLogSegment
         }
     }
 
-    // ensures no more of this segment is writeable, by allocating any unused section at the end and marking it discarded
+    // Ensures no more of this segment is writeable, by allocating any unused section at the end and marking it discarded.
     void discardUnusedTail()
     {
-        // We guard this with the OpOrdering instead of synchronised due to potential dead-lock with ACLSM.advanceAllocatingFrom()
+        // We guard this with the OpOrdering instead of synchronised due to potential dead-lock with CLSM.switchToNewSegment()
         // Ensures endOfBuffer update is reflected in the buffer end position picked up by sync().
         // This actually isn't strictly necessary, as currently all calls to discardUnusedTail are executed either by the thread
         // running sync or within a mutation already protected by this OpOrdering, but to prevent future potential mistakes,
@@ -310,6 +318,8 @@ public abstract class CommitLogSegment
      * Update the chained markers in the commit log buffer and possibly force a disk flush for this segment file.
      *
      * @param flush true if the segment should flush to disk; else, false for just updating the chained markers.
+     *                           Named such to disambiguate whether we're looking to flush associated memtables to disk
+     *                           or just this CL segment.
      */
     synchronized void sync(boolean flush)
     {
@@ -363,7 +373,6 @@ public abstract class CommitLogSegment
             sectionEnd = nextMarker;
         }
 
-
         if (flush || close)
         {
             flush(startMarker, sectionEnd);
@@ -383,7 +392,7 @@ public abstract class CommitLogSegment
      * in shared / memory-mapped buffers reflects un-synced data so we need an external sentinel for clients to read to
      * determine actual durable data persisted.
      */
-    public static void writeCDCIndexFile(CommitLogDescriptor desc, int offset, boolean complete)
+    static void writeCDCIndexFile(CommitLogDescriptor desc, int offset, boolean complete)
     {
         try(FileWriter writer = new FileWriter(new File(DatabaseDescriptor.getCDCLogLocation(), desc.cdcIndexFileName())))
         {
@@ -425,7 +434,7 @@ public abstract class CommitLogSegment
 
     abstract void flush(int startMarker, int nextMarker);
 
-    public boolean isStillAllocating()
+    boolean hasRoom()
     {
         return allocatePosition.get() < endOfBuffer;
     }
@@ -445,7 +454,7 @@ public abstract class CommitLogSegment
     /**
      * @return the current CommitLogPosition for this log segment
      */
-    public CommitLogPosition getCurrentCommitLogPosition()
+    CommitLogPosition getCurrentCommitLogPosition()
     {
         return new CommitLogPosition(id, allocatePosition.get());
     }
@@ -469,7 +478,7 @@ public abstract class CommitLogSegment
     /**
      * @return a File object representing the CDC directory and this file name for hard-linking
      */
-    public File getCDCFile()
+    File getCDCFile()
     {
         return new File(DatabaseDescriptor.getCDCLogLocation(), logFile.getName());
     }
@@ -477,7 +486,7 @@ public abstract class CommitLogSegment
     /**
      * @return a File object representing the CDC Index file holding the offset and completion status of this segment
      */
-    public File getCDCIndexFile()
+    File getCDCIndexFile()
     {
         return new File(DatabaseDescriptor.getCDCLogLocation(), descriptor.cdcIndexFileName());
     }
@@ -539,7 +548,7 @@ public abstract class CommitLogSegment
         }
     }
 
-    public static<K> void coverInMap(ConcurrentMap<K, IntegerInterval> map, K key, int value)
+    private static<K> void coverInMap(ConcurrentMap<K, IntegerInterval> map, K key, int value)
     {
         IntegerInterval i = map.get(key);
         if (i == null)
@@ -561,7 +570,7 @@ public abstract class CommitLogSegment
      * @param startPosition  the start of the range that is clean
      * @param endPosition    the end of the range that is clean
      */
-    public synchronized void markClean(TableId tableId, CommitLogPosition startPosition, CommitLogPosition endPosition)
+    synchronized void markClean(TableId tableId, CommitLogPosition startPosition, CommitLogPosition endPosition)
     {
         if (startPosition.segmentId > id || endPosition.segmentId < id)
             return;
@@ -576,7 +585,7 @@ public abstract class CommitLogSegment
     private void removeCleanFromDirty()
     {
         // if we're still allocating from this segment, don't touch anything since it can't be done thread-safely
-        if (isStillAllocating())
+        if (hasRoom())
             return;
 
         Iterator<Map.Entry<TableId, IntegerInterval.Set>> iter = tableClean.entrySet().iterator();
@@ -619,9 +628,9 @@ public abstract class CommitLogSegment
      */
     public synchronized boolean isUnused()
     {
-        // if room to allocate, we're still in use as the active allocatingFrom,
+        // if room to allocate, we're still in use as the active segment,
         // so we don't want to race with updates to tableClean with removeCleanFromDirty
-        if (isStillAllocating())
+        if (hasRoom())
             return false;
 
         removeCleanFromDirty();
@@ -640,7 +649,7 @@ public abstract class CommitLogSegment
     }
 
     // For debugging, not fast
-    public String dirtyString()
+    String dirtyString()
     {
         StringBuilder sb = new StringBuilder();
         for (TableId tableId : getDirtyTableIds())
@@ -656,7 +665,7 @@ public abstract class CommitLogSegment
 
     abstract public long onDiskSize();
 
-    public long contentSize()
+    long contentSize()
     {
         return lastSyncedOffset;
     }
@@ -677,7 +686,7 @@ public abstract class CommitLogSegment
         }
     }
 
-    public CDCState getCDCState()
+    CDCState getCDCState()
     {
         return cdcState;
     }
@@ -686,7 +695,7 @@ public abstract class CommitLogSegment
      * Change the current cdcState on this CommitLogSegment. There are some restrictions on state transitions and this
      * method is idempotent.
      */
-    public void setCDCState(CDCState newState)
+    void setCDCState(CDCState newState)
     {
         if (newState == cdcState)
             return;
@@ -748,7 +757,7 @@ public abstract class CommitLogSegment
         /**
          * Returns the position in the CommitLogSegment at the end of this allocation.
          */
-        public CommitLogPosition getCommitLogPosition()
+        CommitLogPosition getCommitLogPosition()
         {
             return new CommitLogPosition(segment.id, buffer.limit());
         }

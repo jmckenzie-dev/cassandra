@@ -55,8 +55,9 @@ import org.apache.cassandra.io.util.WrappedDataOutputStreamPlus;
 import org.apache.cassandra.locator.EndpointsForToken;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.ReplicaUtils;
-import org.apache.cassandra.net.MessageOut;
+import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.repair.consistent.LocalSessionAccessor;
 import org.apache.cassandra.schema.CachingParams;
 import org.apache.cassandra.schema.KeyspaceParams;
@@ -174,7 +175,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         new RowUpdateBuilder(cfs.metadata(), 0, ByteBufferUtil.bytes("key2"))
                 .clustering("Column1")
@@ -202,7 +203,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         new RowUpdateBuilder(cfs.metadata(), 0, ByteBufferUtil.bytes("key"))
                 .clustering("dd")
@@ -233,7 +234,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         new RowUpdateBuilder(cfs.metadata(), 0, ByteBufferUtil.bytes("key"))
                 .clustering("dd")
@@ -312,7 +313,7 @@ public class ReadCommandTest
                 commands.add(SinglePartitionReadCommand.create(cfs.metadata(), nowInSeconds, columnFilter, rowFilter, DataLimits.NONE, Util.dk(data[1]), sliceFilter));
             }
 
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
 
             ReadQuery query = new SinglePartitionReadCommand.Group(commands, DataLimits.NONE);
 
@@ -396,9 +397,9 @@ public class ReadCommandTest
         int messagingVersion = MessagingService.current_version;
         FakeOutputStream out = new FakeOutputStream();
         Tracing.instance.newSession(Tracing.TraceType.QUERY);
-        MessageOut<ReadCommand> messageOut = new MessageOut(MessagingService.Verb.READ, readCommand, ReadCommand.serializer);
+        Message<ReadCommand> messageOut = Message.out(Verb.READ_REQ, readCommand);
         long size = messageOut.serializedSize(messagingVersion);
-        messageOut.serialize(new WrappedDataOutputStreamPlus(out), messagingVersion);
+        Message.serializer.serialize(messageOut, new WrappedDataOutputStreamPlus(out), messagingVersion);
         Assert.assertEquals(size, out.count);
     }
 
@@ -482,7 +483,7 @@ public class ReadCommandTest
                         DataLimits.NONE, Util.dk(data[1]), sliceFilter));
             }
 
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
 
             ReadQuery query = new SinglePartitionReadCommand.Group(commands, DataLimits.NONE);
 
@@ -558,7 +559,7 @@ public class ReadCommandTest
                         DataLimits.NONE, Util.dk(data[1]), sliceFilter));
             }
 
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
 
             ReadQuery query = new SinglePartitionReadCommand.Group(commands, DataLimits.NONE);
 
@@ -617,7 +618,7 @@ public class ReadCommandTest
             .build()
             .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         new RowUpdateBuilder(cfs.metadata(), 1, ByteBufferUtil.bytes("key"))
             .clustering("dd")
@@ -625,7 +626,7 @@ public class ReadCommandTest
             .build()
             .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
         List<SSTableReader> sstables = new ArrayList<>(cfs.getLiveSSTables());
         assertEquals(2, sstables.size());
         Collections.sort(sstables, SSTableReader.maxTimestampDescending);
@@ -665,7 +666,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         ReadCommand readCommand = Util.cmd(cfs, Util.dk("key")).build();
         assertTrue(cfs.isRowCacheEnabled());
@@ -738,7 +739,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
 
         new RowUpdateBuilder(cfs.metadata(), 1, ByteBufferUtil.bytes("key"))
                 .clustering("dd")
@@ -746,7 +747,7 @@ public class ReadCommandTest
                 .build()
                 .apply();
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
         List<SSTableReader> sstables = new ArrayList<>(cfs.getLiveSSTables());
         assertEquals(2, sstables.size());
         sstables.forEach(sstable -> assertFalse(sstable.isRepaired() || sstable.isPendingRepair()));
@@ -803,7 +804,7 @@ public class ReadCommandTest
             assertEquals(ByteBufferUtil.EMPTY_BYTE_BUFFER, digest);
 
             // now flush so we have an unrepaired table with the deletion and repeat the check
-            cfs.forceBlockingFlush();
+            cfs.forceBlockingFlushToSSTable();
             digest = performReadAndVerifyRepairedInfo(readCommand, 0, rowsPerPartition, false);
             assertEquals(ByteBufferUtil.EMPTY_BYTE_BUFFER, digest);
         }

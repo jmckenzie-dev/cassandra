@@ -27,10 +27,12 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.collect.Sets;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -67,6 +69,9 @@ public class CleanupTest
     public static final String KEYSPACE2 = "CleanupTestMultiDc";
     public static final String CF_INDEXED2 = "Indexed2";
     public static final String CF_STANDARD2 = "Standard2";
+
+    public static final String KEYSPACE3 = "CleanupSkipSSTables";
+    public static final String CF_STANDARD3 = "Standard3";
 
     public static final ByteBuffer COLUMN = ByteBufferUtil.bytes("birthdate");
     public static final ByteBuffer VALUE = ByteBuffer.allocate(8);
@@ -105,6 +110,9 @@ public class CleanupTest
                                     KeyspaceParams.nts("DC1", 1),
                                     SchemaLoader.standardCFMD(KEYSPACE2, CF_STANDARD2),
                                     SchemaLoader.compositeIndexCFMD(KEYSPACE2, CF_INDEXED2, true));
+        SchemaLoader.createKeyspace(KEYSPACE3,
+                                    KeyspaceParams.nts("DC1", 1),
+                                    SchemaLoader.standardCFMD(KEYSPACE3, CF_STANDARD3));
     }
 
     @Test
@@ -247,6 +255,43 @@ public class CleanupTest
         assertTrue(cfs.getLiveSSTables().isEmpty());
     }
 
+    @Test
+    public void testCleanupSkippingSSTables() throws UnknownHostException, ExecutionException, InterruptedException
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE3);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD3);
+        cfs.disableAutoCompaction();
+        TokenMetadata tmd = StorageService.instance.getTokenMetadata();
+        tmd.clearUnsafe();
+        tmd.updateNormalToken(token(new byte[]{ 50 }), InetAddressAndPort.getByName("127.0.0.1"));
+
+        for (byte i = 0; i < 100; i++)
+        {
+            new RowUpdateBuilder(cfs.metadata(), System.currentTimeMillis(), ByteBuffer.wrap(new byte[]{ i }))
+            .clustering(COLUMN)
+            .add("val", VALUE)
+            .build()
+            .applyUnsafe();
+            cfs.forceBlockingFlushToSSTable();
+        }
+
+        Set<SSTableReader> beforeFirstCleanup = Sets.newHashSet(cfs.getLiveSSTables());
+        // single token - 127.0.0.1 owns everything, cleanup should be noop
+        cfs.forceCleanup(2);
+        assertEquals(beforeFirstCleanup, cfs.getLiveSSTables());
+        tmd.updateNormalToken(token(new byte[]{ 120 }), InetAddressAndPort.getByName("127.0.0.2"));
+
+        cfs.forceCleanup(2);
+        for (SSTableReader sstable : cfs.getLiveSSTables())
+        {
+            assertEquals(sstable.first, sstable.last); // single-token sstables
+            assertTrue(sstable.first.getToken().compareTo(token(new byte[]{ 50 })) <= 0);
+            // with single-token sstables they should all either be skipped or dropped:
+            assertTrue(beforeFirstCleanup.contains(sstable));
+        }
+
+    }
+
 
     @Test
     public void testuserDefinedCleanupWithNewToken() throws ExecutionException, InterruptedException, UnknownHostException
@@ -362,7 +407,7 @@ public class CleanupTest
                     .applyUnsafe();
         }
 
-        cfs.forceBlockingFlush();
+        cfs.forceBlockingFlushToSSTable();
     }
 
     protected List<Long> getMaxTimestampList(ColumnFamilyStore cfs)

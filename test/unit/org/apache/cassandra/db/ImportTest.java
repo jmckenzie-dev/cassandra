@@ -23,18 +23,14 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Random;
 import java.util.Set;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Test;
 
@@ -43,8 +39,6 @@ import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.dht.BootStrapper;
-import org.apache.cassandra.dht.Murmur3Partitioner;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.InetAddressAndPort;
@@ -66,7 +60,7 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int)");
         for (int i = 0; i < 10; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
         getCurrentColumnFamilyStore().clearUnsafe();
 
@@ -87,14 +81,14 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int)");
         for (int i = 0; i < 10; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
         getCurrentColumnFamilyStore().clearUnsafe();
 
         File backupdir = moveToBackupDir(sstables);
         for (int i = 10; i < 20; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         sstables = getCurrentColumnFamilyStore().getLiveSSTables();
         getCurrentColumnFamilyStore().clearUnsafe();
 
@@ -118,7 +112,7 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int)");
         for (int i = 0; i < 10; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
         getCurrentColumnFamilyStore().clearUnsafe();
         sstables.forEach(s -> s.selfRef().release());
@@ -133,7 +127,7 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int)");
         for (int i = 0; i < 10; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
         getCurrentColumnFamilyStore().clearUnsafe();
         for (SSTableReader sstable : sstables)
@@ -170,7 +164,7 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int)");
         for (int i = 0; i < 10; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
         getCurrentColumnFamilyStore().clearUnsafe();
         for (SSTableReader sstable : sstables)
@@ -252,7 +246,7 @@ public class ImportTest extends CQLTester
         for (int i = 0; i < 10; i++)
         {
             execute("insert into %s (id, d) values (?, ?)", i, i);
-            getCurrentColumnFamilyStore().forceBlockingFlush();
+            getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         }
 
         Set<SSTableReader> toMove = getCurrentColumnFamilyStore().getLiveSSTables();
@@ -281,11 +275,11 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int)");
         for (int i = 0; i < 10; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         SSTableReader sstableToCorrupt = getCurrentColumnFamilyStore().getLiveSSTables().iterator().next();
         for (int i = 0; i < 10; i++)
             execute("insert into %s (id, d) values (?, ?)", i + 10, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
 
         getCurrentColumnFamilyStore().clearUnsafe();
@@ -302,7 +296,7 @@ public class ImportTest extends CQLTester
         // now move a correct sstable to another directory to make sure that directory gets properly imported
         for (int i = 100; i < 130; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> correctSSTables = getCurrentColumnFamilyStore().getLiveSSTables();
 
         getCurrentColumnFamilyStore().clearUnsafe();
@@ -359,7 +353,7 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int)");
         for (int i = 0; i < 1000; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
 
         getCurrentColumnFamilyStore().clearUnsafe();
@@ -404,7 +398,7 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int)");
         for (int i = 0; i < 1000; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
 
         getCurrentColumnFamilyStore().clearUnsafe();
@@ -440,7 +434,7 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int) WITH caching = { 'keys': 'NONE', 'rows_per_partition': 'ALL' }");
         for (int i = 0; i < 10; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         CacheService.instance.setRowCacheCapacityInMB(1);
 
         Set<RowCacheKey> keysToInvalidate = new HashSet<>();
@@ -461,7 +455,7 @@ public class ImportTest extends CQLTester
 
         for (int i = 10; i < 20; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
 
         Set<RowCacheKey> allCachedKeys = new HashSet<>();
 
@@ -508,7 +502,7 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int) WITH caching = { 'keys': 'NONE', 'rows_per_partition': 'ALL' }");
         for (int i = 0; i < 10; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
         CacheService.instance.setRowCacheCapacityInMB(1);
         getCurrentColumnFamilyStore().clearUnsafe();
@@ -525,7 +519,7 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int) WITH caching = { 'keys': 'NONE', 'rows_per_partition': 'ALL' }");
         for (int i = 0; i < 10; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
         getCurrentColumnFamilyStore().clearUnsafe();
         sstables.forEach(s -> s.selfRef().release());
@@ -540,10 +534,10 @@ public class ImportTest extends CQLTester
 
         for (int i = 10; i < 20; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         for (int i = 20; i < 30; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
 
         Set<SSTableReader> expectedFiles = new HashSet<>(getCurrentColumnFamilyStore().getLiveSSTables());
 
@@ -589,14 +583,14 @@ public class ImportTest extends CQLTester
         createTable("create table %s (id int primary key, d int)");
         for (int i = 0; i < 10; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
         getCurrentColumnFamilyStore().clearUnsafe();
 
         File backupdir = moveToBackupDir(sstables);
         for (int i = 10; i < 20; i++)
             execute("insert into %s (id, d) values (?, ?)", i, i);
-        getCurrentColumnFamilyStore().forceBlockingFlush();
+        getCurrentColumnFamilyStore().forceBlockingFlushToSSTable();
         sstables = getCurrentColumnFamilyStore().getLiveSSTables();
         getCurrentColumnFamilyStore().clearUnsafe();
 

@@ -67,7 +67,7 @@ public class CommitLog implements CommitLogMBean
     // empty segments when writing large records
     final long MAX_MUTATION_SIZE = DatabaseDescriptor.getMaxMutationSize();
 
-    final public AbstractCommitLogSegmentManager segmentManager;
+    final public CommitLogSegmentManager segmentManager;
 
     public final CommitLogArchiver archiver;
     final CommitLogMetrics metrics;
@@ -108,9 +108,7 @@ public class CommitLog implements CommitLogMBean
                 throw new IllegalArgumentException("Unknown commitlog service type: " + DatabaseDescriptor.getCommitLogSync());
         }
 
-        segmentManager = DatabaseDescriptor.isCDCEnabled()
-                         ? new CommitLogSegmentManagerCDC(this, DatabaseDescriptor.getCommitLogLocation())
-                         : new CommitLogSegmentManagerStandard(this, DatabaseDescriptor.getCommitLogLocation());
+        segmentManager = new CommitLogSegmentManager(this, DatabaseDescriptor.getCommitLogLocation());
 
         // register metrics
         metrics.attach(executor, segmentManager);
@@ -288,7 +286,7 @@ public class CommitLog implements CommitLogMBean
         }
         catch (IOException e)
         {
-            throw new FSWriteError(e, segmentManager.allocatingFrom().getPath());
+            throw new FSWriteError(e, segmentManager.getActiveSegment().getPath());
         }
     }
 
@@ -308,7 +306,7 @@ public class CommitLog implements CommitLogMBean
         // flushed CF as clean, until we reach the segment file containing the CommitLogPosition passed
         // in the arguments. Any segments that become unused after they are marked clean will be
         // recycled or discarded.
-        for (Iterator<CommitLogSegment> iter = segmentManager.getActiveSegments().iterator(); iter.hasNext();)
+        for (Iterator<CommitLogSegment> iter = segmentManager.getSegmentsForUnflushedTables().iterator(); iter.hasNext();)
         {
             CommitLogSegment segment = iter.next();
             segment.markClean(id, lowerBound, upperBound);
@@ -364,7 +362,7 @@ public class CommitLog implements CommitLogMBean
 
     public List<String> getActiveSegmentNames()
     {
-        Collection<CommitLogSegment> segments = segmentManager.getActiveSegments();
+        Collection<CommitLogSegment> segments = segmentManager.getSegmentsForUnflushedTables();
         List<String> segmentNames = new ArrayList<>(segments.size());
         for (CommitLogSegment seg : segments)
             segmentNames.add(seg.getName());
@@ -380,7 +378,7 @@ public class CommitLog implements CommitLogMBean
     public long getActiveContentSize()
     {
         long size = 0;
-        for (CommitLogSegment seg : segmentManager.getActiveSegments())
+        for (CommitLogSegment seg : segmentManager.getSegmentsForUnflushedTables())
             size += seg.contentSize();
         return size;
     }
@@ -395,13 +393,14 @@ public class CommitLog implements CommitLogMBean
     public Map<String, Double> getActiveSegmentCompressionRatios()
     {
         Map<String, Double> segmentRatios = new TreeMap<>();
-        for (CommitLogSegment seg : segmentManager.getActiveSegments())
+        for (CommitLogSegment seg : segmentManager.getSegmentsForUnflushedTables())
             segmentRatios.put(seg.getName(), 1.0 * seg.onDiskSize() / seg.contentSize());
         return segmentRatios;
     }
 
     /**
      * Shuts down the threads used by the commit log, blocking until completion.
+     * TODO this should accept a timeout, and throw TimeoutException
      */
     public void shutdownBlocking() throws InterruptedException
     {
