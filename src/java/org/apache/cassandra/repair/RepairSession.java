@@ -193,7 +193,12 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         ValidationTask task = validating.remove(Pair.create(desc, endpoint));
         if (task == null)
         {
-            assert terminated;
+            assert terminated : "The repair session should be terminated if the validation we're completing no longer exists.";
+
+            // The trees may be off-heap, and will therefore need to be released.
+            if (trees != null)
+                trees.release();
+
             return;
         }
 

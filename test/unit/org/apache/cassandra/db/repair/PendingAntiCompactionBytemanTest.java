@@ -50,9 +50,9 @@ public class PendingAntiCompactionBytemanTest extends AbstractPendingAntiCompact
     @BMRules(rules = { @BMRule(name = "Throw exception anticompaction",
                                targetClass = "Range$OrderedRangeContainmentChecker",
                                targetMethod = "test",
-                               action = "throw new org.apache.cassandra.db.compaction.CompactionInterruptedException(null);")} )
-    @Test
-    public void testExceptionAnticompaction() throws InterruptedException
+                               action = "throw new org.apache.cassandra.db.compaction.CompactionInterruptedException(\"antiCompactionExceptionTest\");")} )
+@Test
+public void testExceptionAnticompaction() throws InterruptedException
     {
         cfs.disableAutoCompaction();
         cfs2.disableAutoCompaction();

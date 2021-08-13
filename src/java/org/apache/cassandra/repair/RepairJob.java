@@ -58,6 +58,9 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
     private final RepairParallelism parallelismDegree;
     private final ListeningExecutorService taskExecutor;
 
+    @VisibleForTesting
+    final List<ValidationTask> validationTasks = new ArrayList<>();
+
     /**
      * Create repair job to run on specific columnfamily
      *
@@ -99,7 +102,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         List<InetAddressAndPort> allEndpoints = new ArrayList<>(session.commonRange.endpoints);
         allEndpoints.add(FBUtilities.getBroadcastAddressAndPort());
 
-        ListenableFuture<List<TreeResponse>> validations;
+        ListenableFuture<List<TreeResponse>> treeResponses;
         // Create a snapshot at all nodes unless we're using pure parallel repairs
         if (parallelismDegree != RepairParallelism.PARALLEL)
         {
@@ -123,7 +126,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             }
 
             // When all snapshot complete, send validation requests
-            validations = Futures.transformAsync(allSnapshotTasks, new AsyncFunction<List<InetAddressAndPort>, List<TreeResponse>>()
+            treeResponses = Futures.transformAsync(allSnapshotTasks, new AsyncFunction<List<InetAddressAndPort>, List<TreeResponse>>()
             {
                 public ListenableFuture<List<TreeResponse>> apply(List<InetAddressAndPort> endpoints)
                 {
@@ -137,11 +140,11 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         else
         {
             // If not sequential, just send validation request to all replica
-            validations = sendValidationRequest(allEndpoints);
+            treeResponses = sendValidationRequest(allEndpoints);
         }
 
         // When all validations complete, submit sync tasks
-        ListenableFuture<List<SyncStat>> syncResults = Futures.transformAsync(validations,
+        ListenableFuture<List<SyncStat>> syncResults = Futures.transformAsync(treeResponses,
                                                                               session.optimiseStreams && !session.pullRepair ? this::optimisedSyncing : this::standardSyncing,
                                                                               taskExecutor);
 
@@ -164,6 +167,9 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
              */
             public void onFailure(Throwable t)
             {
+                // Make sure all validation tasks have cleaned up the off-heap Merkle trees they might contain.
+                validationTasks.forEach(ValidationTask::abort);
+
                 if (!session.previewKind.isPreview())
                 {
                     logger.warn("{} {}.{} sync failed", session.previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
@@ -371,7 +377,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         List<ListenableFuture<TreeResponse>> tasks = new ArrayList<>(endpoints.size());
         for (InetAddressAndPort endpoint : endpoints)
         {
-            ValidationTask task = new ValidationTask(desc, endpoint, nowInSec, session.previewKind);
+            ValidationTask task = newValidationTask(endpoint, nowInSec);
             tasks.add(task);
             session.trackValidationCompletion(Pair.create(desc, endpoint), task);
             taskExecutor.execute(task);
@@ -392,7 +398,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
 
         Queue<InetAddressAndPort> requests = new LinkedList<>(endpoints);
         InetAddressAndPort address = requests.poll();
-        ValidationTask firstTask = new ValidationTask(desc, address, nowInSec, session.previewKind);
+        ValidationTask firstTask = newValidationTask(address, nowInSec);
         logger.info("{} Validating {}", session.previewKind.logPrefix(desc.sessionId), address);
         session.trackValidationCompletion(Pair.create(desc, address), firstTask);
         tasks.add(firstTask);
@@ -400,7 +406,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         while (requests.size() > 0)
         {
             final InetAddressAndPort nextAddress = requests.poll();
-            final ValidationTask nextTask = new ValidationTask(desc, nextAddress, nowInSec, session.previewKind);
+            final ValidationTask nextTask = newValidationTask(nextAddress, nowInSec);
             tasks.add(nextTask);
             Futures.addCallback(currentTask, new FutureCallback<TreeResponse>()
             {
@@ -449,7 +455,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         {
             Queue<InetAddressAndPort> requests = entry.getValue();
             InetAddressAndPort address = requests.poll();
-            ValidationTask firstTask = new ValidationTask(desc, address, nowInSec, session.previewKind);
+            ValidationTask firstTask = newValidationTask(address, nowInSec);
             logger.info("{} Validating {}", session.previewKind.logPrefix(session.getId()), address);
             session.trackValidationCompletion(Pair.create(desc, address), firstTask);
             tasks.add(firstTask);
@@ -457,7 +463,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             while (requests.size() > 0)
             {
                 final InetAddressAndPort nextAddress = requests.poll();
-                final ValidationTask nextTask = new ValidationTask(desc, nextAddress, nowInSec, session.previewKind);
+                final ValidationTask nextTask = newValidationTask(nextAddress, nowInSec);
                 tasks.add(nextTask);
                 Futures.addCallback(currentTask, new FutureCallback<TreeResponse>()
                 {
@@ -477,5 +483,16 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             taskExecutor.execute(firstTask);
         }
         return Futures.allAsList(tasks);
+    }
+
+    /**
+     * Helper function to eliminate a little repetition on ValidationTask creation as well as
+     * appropriately register them with the local list of known tasks
+     */
+    private ValidationTask newValidationTask(InetAddressAndPort endpoint, int nowInSec)
+    {
+        ValidationTask task = new ValidationTask(desc, endpoint, nowInSec, session.previewKind);
+        validationTasks.add(task);
+        return task;
     }
 }

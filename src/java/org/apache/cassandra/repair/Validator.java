@@ -17,19 +17,11 @@
  */
 package org.apache.cassandra.repair;
 
-import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.hash.Funnel;
-import com.google.common.hash.HashCode;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hasher;
-import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,8 +37,8 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.ValidationResponse;
-import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.service.ActiveRepairService;
+import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTree;
@@ -273,7 +265,7 @@ public class Validator implements Runnable
         /*
          * For local initiators, DO NOT send the message to self over loopback. This is a wasted ser/de loop
          * and a ton of garbage. Instead, move the trees off heap and invoke message handler. We could do it
-         * directly, since this method will only be called from {@code Stage.ENTI_ENTROPY}, but we do instead
+         * directly, since this method will only be called from {@code Stage.ANTI_ENTROPY}, but we do instead
          * execute a {@code Runnable} on the stage - in case that assumption ever changes by accident.
          */
         Stage.ANTI_ENTROPY.execute(() ->
