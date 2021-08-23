@@ -3377,6 +3377,20 @@ public class DatabaseDescriptor
         conf.keyspace_count_warn_threshold = value;
     }
 
+    public static boolean getCompactBiggestSTCSBucketInL0()
+    {
+        return conf.compact_biggest_stcs_bucket_l0;
+    }
+
+    public static void setCompactBiggestSTCSBucketInL0(boolean value)
+    {
+        if (value != conf.compact_biggest_stcs_bucket_l0)
+        {
+            logger.info("Setting compact_biggest_stcs_bucket_in_l0 to {}", value);
+            conf.compact_biggest_stcs_bucket_l0 = value;
+        }
+    }
+
     public static int getConsecutiveMessageErrorsThreshold()
     {
         return conf.consecutive_message_errors_threshold;

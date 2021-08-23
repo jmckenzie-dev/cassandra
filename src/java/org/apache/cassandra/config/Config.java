@@ -507,6 +507,19 @@ public class Config
     public volatile int validation_preview_purge_head_start_in_sec = 60 * 60;
 
     /**
+     * STCS in L0 always compacts the 'hottest' bucket (stcs buckets sstables with
+     * similar size) - that is the bucket getting the most reads. This is most likely not
+     * optimal to get the size of L0 down quickly since it might compact smaller numbers
+     * of sstables in each go.
+     *
+     * This option instead always get a large bucket with small sstables - it will consider all
+     * buckets with more than max_threshold sstables and then pick the one with the smallest sstables
+     * (by on-disk size). This should allow us to compact away many sstables in a short amount of time.
+     * If no buckets are > max_threshold, the largest (by sstable count) will get compacted.
+     */
+    public volatile boolean compact_biggest_stcs_bucket_l0 = false;
+
+    /**
      * The intial capacity for creating RangeTombstoneList.
      */
     public volatile int initial_range_tombstone_list_allocation_size = 1;
