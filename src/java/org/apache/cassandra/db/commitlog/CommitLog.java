@@ -20,7 +20,6 @@ package org.apache.cassandra.db.commitlog;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.function.Function;
 import java.util.zip.CRC32;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -61,9 +60,9 @@ public class CommitLog implements CommitLogMBean
 {
     private static final Logger logger = LoggerFactory.getLogger(CommitLog.class);
 
-    public static final CommitLog instance = CommitLog.construct();
+    public static final CommitLog instance = new CommitLog(CommitLogArchiver.construct());
 
-    final public AbstractCommitLogSegmentManager segmentManager;
+    public final CommitLogSegmentManager segmentManager;
 
     public final CommitLogArchiver archiver;
     public final CommitLogMetrics metrics;
@@ -72,23 +71,10 @@ public class CommitLog implements CommitLogMBean
     volatile Configuration configuration;
     private boolean started = false;
 
-    private static CommitLog construct()
-    {
-        CommitLog log = new CommitLog(CommitLogArchiver.construct(), DatabaseDescriptor.getCommitLogSegmentMgrProvider());
-
-        MBeanWrapper.instance.registerMBean(log, "org.apache.cassandra.db:type=Commitlog");
-        return log;
-    }
-
     @VisibleForTesting
     CommitLog(CommitLogArchiver archiver)
     {
-        this(archiver, DatabaseDescriptor.getCommitLogSegmentMgrProvider());
-    }
-
-    @VisibleForTesting
-    CommitLog(CommitLogArchiver archiver, Function<CommitLog, AbstractCommitLogSegmentManager> segmentManagerProvider)
-    {
+        this.segmentManager = new CommitLogSegmentManager(this, DatabaseDescriptor.getCommitLogLocation());
         this.configuration = new Configuration(DatabaseDescriptor.getCommitLogCompression(),
                                                DatabaseDescriptor.getEncryptionContext());
         DatabaseDescriptor.createAllDirectories();
@@ -111,10 +97,9 @@ public class CommitLog implements CommitLogMBean
                 throw new IllegalArgumentException("Unknown commitlog service type: " + DatabaseDescriptor.getCommitLogSync());
         }
 
-        segmentManager = segmentManagerProvider.apply(this);
-
         // register metrics
         metrics.attach(executor, segmentManager);
+        MBeanWrapper.instance.registerMBean(this, "org.apache.cassandra.db:type=Commitlog");
     }
 
     /**
@@ -302,7 +287,7 @@ public class CommitLog implements CommitLogMBean
         }
         catch (IOException e)
         {
-            throw new FSWriteError(e, segmentManager.allocatingFrom().getPath());
+            throw new FSWriteError(e, segmentManager.getActiveSegment().getPath());
         }
     }
 
@@ -508,6 +493,15 @@ public class CommitLog implements CommitLogMBean
             default:
                 throw new AssertionError(DatabaseDescriptor.getCommitFailurePolicy());
         }
+    }
+
+    /**
+     * Only for use in testing to insert mock segment managers
+     */
+    @VisibleForTesting
+    public void setSegmentAllocatorForTest(CommitLogSegmentAllocator newAllocator)
+    {
+        segmentManager.setAllocatorForTest(newAllocator);
     }
 
     public static final class Configuration

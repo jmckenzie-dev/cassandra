@@ -19,6 +19,8 @@
 package org.apache.cassandra.db.commitlog;
 
 
+import java.io.File;
+
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -26,6 +28,7 @@ import org.junit.runner.RunWith;
 import org.apache.cassandra.CassandraIsolatedJunit4ClassRunner;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 
 @RunWith(CassandraIsolatedJunit4ClassRunner.class)
@@ -44,7 +47,7 @@ public class CommitLogInitWithExceptionTest
             DatabaseDescriptor.setDiskFailurePolicy(Config.DiskFailurePolicy.stop);
         }
 
-        DatabaseDescriptor.setCommitLogSegmentMgrProvider(c -> new MockCommitLogSegmentMgr(c, DatabaseDescriptor.getCommitLogLocation()));
+        CommitLog.instance.setSegmentAllocatorForTest(new MockCommitLogAllocator());
 
         JVMStabilityInspector.killerHook = (t) -> {
             Assert.assertEquals("MOCK EXCEPTION: createSegment", t.getMessage());
@@ -93,11 +96,34 @@ public class CommitLogInitWithExceptionTest
         Assert.assertEquals(Thread.State.TERMINATED, CommitLog.instance.segmentManager.managerThread.getState()); // exit successfully
     }
 
-    private static class MockCommitLogSegmentMgr extends CommitLogSegmentManagerStandard {
+    private static class MockCommitLogAllocator implements CommitLogSegmentAllocator {
 
-        public MockCommitLogSegmentMgr(CommitLog commitLog, String storageDirectory)
+        public MockCommitLogAllocator()
         {
-            super(commitLog, storageDirectory);
+        }
+
+        @Override
+        public void start()
+        {
+            // noop
+        }
+
+        @Override
+        public void shutdown()
+        {
+            // noop
+        }
+
+        @Override
+        public void discard(CommitLogSegment segment, boolean delete)
+        {
+            // noop
+        }
+
+        @Override
+        public CommitLogSegment.Allocation allocate(Mutation mutation, int size)
+        {
+            return null;
         }
 
         @Override
@@ -105,6 +131,11 @@ public class CommitLogInitWithExceptionTest
         {
             throw new RuntimeException("MOCK EXCEPTION: createSegment");
         }
-    }
 
+        @Override
+        public void handleReplayedSegment(File file)
+        {
+            // noop
+        }
+    }
 }

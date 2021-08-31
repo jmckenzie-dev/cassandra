@@ -40,6 +40,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.audit.AuditLogOptions;
+import org.apache.cassandra.db.commitlog.CommitLogSegmentManager;
 import org.apache.cassandra.fql.FullQueryLoggerOptions;
 import org.apache.cassandra.auth.AllowAllInternodeAuthenticator;
 import org.apache.cassandra.auth.AuthConfig;
@@ -50,10 +51,7 @@ import org.apache.cassandra.auth.INetworkAuthorizer;
 import org.apache.cassandra.auth.IRoleManager;
 import org.apache.cassandra.config.Config.CommitLogSync;
 import org.apache.cassandra.db.ConsistencyLevel;
-import org.apache.cassandra.db.commitlog.AbstractCommitLogSegmentManager;
 import org.apache.cassandra.db.commitlog.CommitLog;
-import org.apache.cassandra.db.commitlog.CommitLogSegmentManagerCDC;
-import org.apache.cassandra.db.commitlog.CommitLogSegmentManagerStandard;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.FSWriteError;
@@ -152,10 +150,6 @@ public class DatabaseDescriptor
     private static final boolean strictRuntimeChecks = Boolean.getBoolean("cassandra.strict.runtime.checks");
 
     public static volatile boolean allowUnlimitedConcurrentValidations = Boolean.getBoolean("cassandra.allow_unlimited_concurrent_validations");
-
-    private static Function<CommitLog, AbstractCommitLogSegmentManager> commitLogSegmentMgrProvider = c -> DatabaseDescriptor.isCDCEnabled()
-                                       ? new CommitLogSegmentManagerCDC(c, DatabaseDescriptor.getCommitLogLocation())
-                                       : new CommitLogSegmentManagerStandard(c, DatabaseDescriptor.getCommitLogLocation());
 
     public static void daemonInitialization() throws ConfigurationException
     {
@@ -3256,16 +3250,6 @@ public class DatabaseDescriptor
     {
         logger.info("Setting use_offheap_merkle_trees to {}", value);
         conf.use_offheap_merkle_trees = value;
-    }
-
-    public static Function<CommitLog, AbstractCommitLogSegmentManager> getCommitLogSegmentMgrProvider()
-    {
-        return commitLogSegmentMgrProvider;
-    }
-
-    public static void setCommitLogSegmentMgrProvider(Function<CommitLog, AbstractCommitLogSegmentManager> provider)
-    {
-        commitLogSegmentMgrProvider = provider;
     }
 
     /**

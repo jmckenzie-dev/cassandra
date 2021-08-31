@@ -51,7 +51,6 @@ import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadataRef;
-import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.WrappedRunnable;
 
@@ -168,7 +167,7 @@ public class CommitLogReplayer implements CommitLogReadHandler
     private void handleCDCReplayCompletion(File f) throws IOException
     {
         // Can only reach this point if CDC is enabled, thus we have a CDCSegmentManager
-        ((CommitLogSegmentManagerCDC)CommitLog.instance.segmentManager).addCDCSize(f.length());
+        ((CommitLogSegmentAllocatorCDC)CommitLog.instance.segmentManager.segmentAllocator).addCDCSize(f.length());
 
         File dest = new File(DatabaseDescriptor.getCDCLogLocation(), f.getName());
 

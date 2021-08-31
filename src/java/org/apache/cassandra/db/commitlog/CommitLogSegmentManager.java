@@ -42,15 +42,13 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
-import static org.apache.cassandra.db.commitlog.CommitLogSegment.Allocation;
-
 /**
  * Performs eager-creation of commit log segments in a background thread. All the
  * public methods are thread safe.
  */
-public abstract class AbstractCommitLogSegmentManager
+public class CommitLogSegmentManager
 {
-    static final Logger logger = LoggerFactory.getLogger(AbstractCommitLogSegmentManager.class);
+    static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentManager.class);
 
     /**
      * Segment that is ready to be used. The management thread fills this and blocks until consumed.
@@ -72,7 +70,7 @@ public abstract class AbstractCommitLogSegmentManager
      *
      * Written by advanceAllocatingFrom which synchronizes on 'this'. Volatile to ensure reads get current value.
      */
-    private volatile CommitLogSegment allocatingFrom = null;
+    private volatile CommitLogSegment activeSegment = null;
 
     final String storageDirectory;
 
@@ -93,10 +91,19 @@ public abstract class AbstractCommitLogSegmentManager
 
     private volatile SimpleCachedBufferPool bufferPool;
 
-    AbstractCommitLogSegmentManager(final CommitLog commitLog, String storageDirectory)
+    /**
+     * Not final to allow mocking in test
+     * Package visibility to allow replayer to manipulate CDC size tracking
+     */
+    CommitLogSegmentAllocator segmentAllocator;
+
+    public CommitLogSegmentManager(final CommitLog commitLog, String storageDirectory)
     {
         this.commitLog = commitLog;
         this.storageDirectory = storageDirectory;
+        this.segmentAllocator = DatabaseDescriptor.isCDCEnabled() ?
+                                new CommitLogSegmentAllocatorCDC(this) :
+                                new CommitLogSegmentAllocatorStandard(this);
     }
 
     void start()
@@ -112,7 +119,7 @@ public abstract class AbstractCommitLogSegmentManager
                     {
                         assert availableSegment == null;
                         logger.trace("No segments in reserve; creating a fresh one");
-                        availableSegment = createSegment();
+                        availableSegment = segmentAllocator.createSegment();
                         if (shutdown)
                         {
                             // If shutdown() started and finished during segment creation, we are now left with a
@@ -165,7 +172,7 @@ public abstract class AbstractCommitLogSegmentManager
         managerThread.start();
 
         // for simplicity, ensure the first segment is allocated before continuing
-        advanceAllocatingFrom(null);
+        switchToNewSegment(null);
     }
 
     private boolean atSegmentBufferLimit()
@@ -182,7 +189,7 @@ public abstract class AbstractCommitLogSegmentManager
             List<CommitLogSegment> segmentsToRecycle = new ArrayList<>();
             for (CommitLogSegment segment : activeSegments)
             {
-                if (segment == allocatingFrom)
+                if (segment == activeSegment)
                     break;
                 flushingSize += segment.onDiskSize();
                 segmentsToRecycle.add(segment);
@@ -194,40 +201,19 @@ public abstract class AbstractCommitLogSegmentManager
     }
 
     /**
-     * Allocate a segment within this CLSM. Should either succeed or throw.
-     */
-    public abstract Allocation allocate(Mutation mutation, int size);
-
-    /**
-     * Hook to allow segment managers to track state surrounding creation of new segments. Onl perform as task submit
-     * to segment manager so it's performed on segment management thread.
-     */
-    abstract CommitLogSegment createSegment();
-
-    /**
-     * Indicates that a segment file has been flushed and is no longer needed. Only perform as task submit to segment
-     * manager so it's performend on segment management thread, or perform while segment management thread is shutdown
-     * during testing resets.
-     *
-     * @param segment segment to be discarded
-     * @param delete  whether or not the segment is safe to be deleted.
-     */
-    abstract void discard(CommitLogSegment segment, boolean delete);
-
-    /**
      * Advances the allocatingFrom pointer to the next prepared segment, but only if it is currently the segment provided.
      *
      * WARNING: Assumes segment management thread always succeeds in allocating a new segment or kills the JVM.
      */
     @DontInline
-    void advanceAllocatingFrom(CommitLogSegment old)
+    void switchToNewSegment(CommitLogSegment old)
     {
         while (true)
         {
             synchronized (this)
             {
                 // do this in a critical section so we can maintain the order of segment construction when moving to allocatingFrom/activeSegments
-                if (allocatingFrom != old)
+                if (activeSegment != old)
                     return;
 
                 // If a segment is ready, take it now, otherwise wait for the management thread to construct it.
@@ -235,7 +221,7 @@ public abstract class AbstractCommitLogSegmentManager
                 {
                     // Success! Change allocatingFrom and activeSegments (which must be kept in order) before leaving
                     // the critical section.
-                    activeSegments.add(allocatingFrom = availableSegment);
+                    activeSegments.add(activeSegment = availableSegment);
                     availableSegment = null;
                     break;
                 }
@@ -266,12 +252,12 @@ public abstract class AbstractCommitLogSegmentManager
         do
         {
             WaitQueue.Signal prepared = segmentPrepared.register(commitLog.metrics.waitingOnSegmentAllocation.time());
-            if (availableSegment == null && allocatingFrom == currentAllocatingFrom)
+            if (availableSegment == null && activeSegment == currentAllocatingFrom)
                 prepared.awaitUninterruptibly();
             else
                 prepared.cancel();
         }
-        while (availableSegment == null && allocatingFrom == currentAllocatingFrom);
+        while (availableSegment == null && activeSegment == currentAllocatingFrom);
     }
 
     /**
@@ -283,7 +269,7 @@ public abstract class AbstractCommitLogSegmentManager
     {
         List<CommitLogSegment> segmentsToRecycle = new ArrayList<>(activeSegments);
         CommitLogSegment last = segmentsToRecycle.get(segmentsToRecycle.size() - 1);
-        advanceAllocatingFrom(last);
+        switchToNewSegment(last);
 
         // wait for the commit log modifications
         last.waitForModifications();
@@ -334,7 +320,7 @@ public abstract class AbstractCommitLogSegmentManager
             return; // already discarded
         // if archiving (command) was not successful then leave the file alone. don't delete or recycle.
         logger.debug("Segment {} is no longer active and will be deleted {}", segment, archiveSuccess ? "now" : "by the archive script");
-        discard(segment, archiveSuccess);
+        segmentAllocator.discard(segment, archiveSuccess);
     }
 
     /**
@@ -448,7 +434,7 @@ public abstract class AbstractCommitLogSegmentManager
     {
         if (availableSegment == null && !atSegmentBufferLimit())
         {
-            awaitAvailableSegment(allocatingFrom);
+            awaitAvailableSegment(activeSegment);
         }
     }
 
@@ -459,7 +445,7 @@ public abstract class AbstractCommitLogSegmentManager
     {
         try
         {
-            discard(segment, delete);
+            segmentAllocator.discard(segment, delete);
         }
         catch (AssertionError ignored)
         {
@@ -525,7 +511,7 @@ public abstract class AbstractCommitLogSegmentManager
      */
     CommitLogPosition getCurrentPosition()
     {
-        return allocatingFrom.getCurrentCommitLogPosition();
+        return activeSegment.getCurrentCommitLogPosition();
     }
 
     /**
@@ -535,7 +521,7 @@ public abstract class AbstractCommitLogSegmentManager
      */
     public void sync(boolean flush) throws IOException
     {
-        CommitLogSegment current = allocatingFrom;
+        CommitLogSegment current = activeSegment;
         for (CommitLogSegment segment : getActiveSegments())
         {
             // Do not sync segments that became active after sync started.
@@ -567,10 +553,23 @@ public abstract class AbstractCommitLogSegmentManager
         wakeManager();
     }
 
-    /** Read-only access to current segment for subclasses. */
-    CommitLogSegment allocatingFrom()
+    /**
+     * Pass-through call to allocator. Allocates a mutation in the active CommitLogSegment.
+     */
+    CommitLogSegment.Allocation allocate(Mutation mutation, int size) {
+        return segmentAllocator.allocate(mutation, size);
+    }
+
+    /** Read-only access to current segment for package usage. */
+    CommitLogSegment getActiveSegment()
     {
-        return allocatingFrom;
+        return activeSegment;
+    }
+
+    /** We allow swapping out the allocator for specific tests */
+    void setAllocatorForTest(CommitLogSegmentAllocator allocator)
+    {
+        segmentAllocator = allocator;
     }
 }
 

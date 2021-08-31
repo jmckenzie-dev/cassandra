@@ -124,19 +124,19 @@ public abstract class CommitLogSegment
     final FileChannel channel;
     final int fd;
 
-    protected final AbstractCommitLogSegmentManager manager;
+    protected final CommitLogSegmentManager manager;
 
     ByteBuffer buffer;
     private volatile boolean headerWritten;
 
     public final CommitLogDescriptor descriptor;
 
-    static CommitLogSegment createSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    static CommitLogSegment createSegment(CommitLogSegmentManager manager)
     {
-        Configuration config = commitLog.configuration;
-        CommitLogSegment segment = config.useEncryption() ? new EncryptedSegment(commitLog, manager)
-                                                          : config.useCompression() ? new CompressedSegment(commitLog, manager)
-                                                                                    : new MemoryMappedSegment(commitLog, manager);
+        Configuration config = manager.commitLog.configuration;
+        CommitLogSegment segment = config.useEncryption() ? new EncryptedSegment(manager.commitLog, manager)
+                                                          : config.useCompression() ? new CompressedSegment(manager.commitLog, manager)
+                                                                                    : new MemoryMappedSegment(manager.commitLog, manager);
         segment.writeLogHeader();
         return segment;
     }
@@ -161,7 +161,7 @@ public abstract class CommitLogSegment
     /**
      * Constructs a new segment file.
      */
-    CommitLogSegment(CommitLog commitLog, AbstractCommitLogSegmentManager manager)
+    CommitLogSegment(CommitLog commitLog, CommitLogSegmentManager manager)
     {
         this.manager = manager;
 

@@ -39,28 +39,27 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.DirectorySizeCalculator;
 import org.apache.cassandra.utils.NoSpamLogger;
 
-public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
+public class CommitLogSegmentAllocatorCDC implements CommitLogSegmentAllocator
 {
-    static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentManagerCDC.class);
+    static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentAllocatorCDC.class);
     private final CDCSizeTracker cdcSizeTracker;
+    private final CommitLogSegmentManager segmentManager;
 
-    public CommitLogSegmentManagerCDC(final CommitLog commitLog, String storageDirectory)
+    public CommitLogSegmentAllocatorCDC(CommitLogSegmentManager segmentManager)
     {
-        super(commitLog, storageDirectory);
-        cdcSizeTracker = new CDCSizeTracker(this, new File(DatabaseDescriptor.getCDCLogLocation()));
+        this.segmentManager = segmentManager;
+        cdcSizeTracker = new CDCSizeTracker(segmentManager, new File(DatabaseDescriptor.getCDCLogLocation()));
     }
 
-    @Override
-    void start()
+    public void start()
     {
         cdcSizeTracker.start();
-        super.start();
     }
 
     public void discard(CommitLogSegment segment, boolean delete)
     {
         segment.close();
-        addSize(-segment.onDiskSize());
+        segmentManager.addSize(-segment.onDiskSize());
 
         cdcSizeTracker.processDiscardedSegment(segment);
 
@@ -87,7 +86,6 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
     public void shutdown()
     {
         cdcSizeTracker.shutdown();
-        super.shutdown();
     }
 
     /**
@@ -102,15 +100,15 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
     @Override
     public CommitLogSegment.Allocation allocate(Mutation mutation, int size) throws CDCWriteException
     {
-        CommitLogSegment segment = allocatingFrom();
+        CommitLogSegment segment = segmentManager.getActiveSegment();
         CommitLogSegment.Allocation alloc;
 
         throwIfForbidden(mutation, segment);
         while ( null == (alloc = segment.allocate(mutation, size)) )
         {
             // Failed to allocate, so move to a new segment with enough room if possible.
-            advanceAllocatingFrom(segment);
-            segment = allocatingFrom();
+            segmentManager.switchToNewSegment(segment);
+            segment = segmentManager.getActiveSegment();
 
             throwIfForbidden(mutation, segment);
         }
@@ -143,7 +141,7 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
      */
     public CommitLogSegment createSegment()
     {
-        CommitLogSegment segment = CommitLogSegment.createSegment(commitLog, this);
+        CommitLogSegment segment = CommitLogSegment.createSegment(segmentManager);
 
         // Hard link file in cdc folder for realtime tracking
         FileUtils.createHardLink(segment.logFile, segment.getCDCFile());
@@ -157,11 +155,8 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
      *
      * @param file segment file that is no longer in use.
      */
-    @Override
-    void handleReplayedSegment(final File file)
+    public void handleReplayedSegment(final File file)
     {
-        super.handleReplayedSegment(file);
-
         // delete untracked cdc segment hard link files if their index files do not exist
         File cdcFile = new File(DatabaseDescriptor.getCDCLogLocation(), file.getName());
         File cdcIndexFile = new File(DatabaseDescriptor.getCDCLogLocation(), CommitLogDescriptor.fromFileName(file.getName()).cdcIndexFileName());
@@ -191,12 +186,12 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
     {
         private final RateLimiter rateLimiter = RateLimiter.create(1000.0 / DatabaseDescriptor.getCDCDiskCheckInterval());
         private ExecutorService cdcSizeCalculationExecutor;
-        private CommitLogSegmentManagerCDC segmentManager;
+        private CommitLogSegmentManager segmentManager;
 
         // Used instead of size during walk to remove chance of over-allocation
         private volatile long sizeInProgress = 0;
 
-        CDCSizeTracker(CommitLogSegmentManagerCDC segmentManager, File path)
+        CDCSizeTracker(CommitLogSegmentManager segmentManager, File path)
         {
             super(path);
             this.segmentManager = segmentManager;
@@ -274,9 +269,9 @@ public class CommitLogSegmentManagerCDC extends AbstractCommitLogSegmentManager
         {
             rateLimiter.acquire();
             calculateSize();
-            CommitLogSegment allocatingFrom = segmentManager.allocatingFrom();
-            if (allocatingFrom.getCDCState() == CDCState.FORBIDDEN)
-                processNewSegment(allocatingFrom);
+            CommitLogSegment activeCommitLogSegment = segmentManager.getActiveSegment();
+            if (activeCommitLogSegment.getCDCState() == CDCState.FORBIDDEN)
+                processNewSegment(activeCommitLogSegment);
         }
 
         private int defaultSegmentSize()

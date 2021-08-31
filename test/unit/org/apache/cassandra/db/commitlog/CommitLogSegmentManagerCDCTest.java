@@ -57,14 +57,14 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
         // Need to clean out any files from previous test runs. Prevents flaky test failures.
         CommitLog.instance.stopUnsafe(true);
         CommitLog.instance.start();
-        ((CommitLogSegmentManagerCDC)CommitLog.instance.segmentManager).updateCDCTotalSize();
+        ((CommitLogSegmentAllocatorCDC)CommitLog.instance.segmentManager.segmentAllocator).updateCDCTotalSize();
     }
 
     @Test
     public void testCDCWriteFailure() throws Throwable
     {
         createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=true;");
-        CommitLogSegmentManagerCDC cdcMgr = (CommitLogSegmentManagerCDC)CommitLog.instance.segmentManager;
+        CommitLogSegmentManager cdcMgr = (CommitLogSegmentAllocatorCDC)CommitLog.instance.segmentManager.segmentAllocator;
         TableMetadata cfm = currentTableMetadata();
 
         // Confirm that logic to check for whether or not we can allocate new CDC segments works
@@ -117,7 +117,7 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
     @Test
     public void testSegmentFlaggingOnCreation() throws Throwable
     {
-        CommitLogSegmentManagerCDC cdcMgr = (CommitLogSegmentManagerCDC)CommitLog.instance.segmentManager;
+        CommitLogSegmentAllocatorCDC cdcMgr = (CommitLogSegmentAllocatorCDC)CommitLog.instance.segmentManager;
         String ct = createTable("CREATE TABLE %s (idx int, data text, primary key(idx)) WITH cdc=true;");
 
         int origSize = DatabaseDescriptor.getCDCSpaceInMB();
@@ -442,7 +442,7 @@ public class CommitLogSegmentManagerCDCTest extends CQLTester
         if (currentState != expectedState)
         {
             logger.error("expectCurrentCDCState violation! Expected state: {}. Found state: {}. Current CDC allocation: {}",
-                         expectedState, currentState, ((CommitLogSegmentManagerCDC)CommitLog.instance.segmentManager).updateCDCTotalSize());
+                         expectedState, currentState, ((CommitLogSegmentAllocatorCDC)CommitLog.instance.segmentManager).updateCDCTotalSize());
             Assert.fail(String.format("Received unexpected CDCState on current allocatingFrom segment. Expected: %s. Received: %s",
                         expectedState, currentState));
         }
