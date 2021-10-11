@@ -484,6 +484,10 @@ public class Config
     public volatile AuditLogOptions audit_logging_options = new AuditLogOptions();
     public volatile FullQueryLoggerOptions full_query_logging_options = new FullQueryLoggerOptions();
 
+    public volatile boolean enable_keyspace_quotas = false;
+    public volatile long default_keyspace_quota_bytes = -1;
+    public int keyspace_quota_refresh_time_in_sec = 120;
+
     public CorruptedTombstoneStrategy corrupted_tombstone_strategy = CorruptedTombstoneStrategy.disabled;
 
     public volatile boolean diagnostic_events_enabled = false;

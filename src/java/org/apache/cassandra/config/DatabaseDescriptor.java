@@ -3435,6 +3435,35 @@ public class DatabaseDescriptor
         return ConsistencyLevel.valueOf(conf.auth_write_consistency_level);
     }
 
+    public static boolean getEnableKeyspaceQuotas()
+    {
+        return conf.enable_keyspace_quotas;
+    }
+
+    public static void setKeyspaceQuotasEnabled(boolean enabled)
+    {
+        conf.enable_keyspace_quotas = enabled;
+    }
+
+    public static long getDefaultKeyspaceQuotaBytes()
+    {
+        return conf.default_keyspace_quota_bytes;
+    }
+
+    public static void setDefaultKeyspaceQuotaBytes(long quotaInBytes)
+    {
+        conf.default_keyspace_quota_bytes = quotaInBytes;
+    }
+
+    public static int getKeyspaceQuotaRefreshTimeInSec()
+    {
+        return conf.keyspace_quota_refresh_time_in_sec;
+    }
+    public static void setKeyspaceQuotaRefreshTimeInSec(int refreshTime)
+    {
+        conf.keyspace_quota_refresh_time_in_sec = refreshTime;
+    }
+
     public static ConsistencyLevel getAuthReadConsistencyLevel()
     {
         return ConsistencyLevel.valueOf(conf.auth_read_consistency_level);

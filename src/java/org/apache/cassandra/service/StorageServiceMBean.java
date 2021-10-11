@@ -909,4 +909,9 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void setRowIndexSizeWarnThresholdKb(int value);
     public int getRowIndexSizeAbortThresholdKb();
     public void setRowIndexSizeAbortThresholdKb(int value);
+
+    public boolean isKeyspaceQuotaEnabled();
+    public void setKeyspaceQuotaEnabled(boolean enabled);
+    public long getDefaultKeyspaceQuotaBytes();
+    public void setDefaultKeyspaceQuotaBytes(long quotaInBytes);
 }

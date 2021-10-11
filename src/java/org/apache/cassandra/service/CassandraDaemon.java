@@ -476,6 +476,8 @@ public class CassandraDaemon
 
         initializeClientTransports();
 
+        KeyspaceQuota.scheduleQuotaCheck();
+
         completeSetup();
     }
 

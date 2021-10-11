@@ -81,14 +81,17 @@ public final class SystemDistributedKeyspace
      * gen 3: gc_grace_seconds raised from 0 to 10 days in CASSANDRA-12954 in 3.11.0
      * gen 4: compression chunk length reduced to 16KiB, memtable_flush_period_in_ms now unset on all tables in 4.0
      * gen 5: add ttl and TWCS to repair_history tables
+     * gen 7: add keyspace quotas (TODO: REFACTOR AFTER DENYLIST ADDS GEN 6)
      */
-    public static final long GENERATION = 5;
+    public static final long GENERATION = 7;
 
     public static final String REPAIR_HISTORY = "repair_history";
 
     public static final String PARENT_REPAIR_HISTORY = "parent_repair_history";
 
     public static final String VIEW_BUILD_STATUS = "view_build_status";
+
+    public static final String KS_QUOTA = "keyspace_quotas";
 
     private static final TableMetadata RepairHistory =
         parse(REPAIR_HISTORY,
@@ -145,6 +148,14 @@ public final class SystemDistributedKeyspace
                      + "status text,"
                      + "PRIMARY KEY ((keyspace_name, view_name), host_id))").build();
 
+    public static final TableMetadata KeyspaceQuotaTable =
+    parse(KS_QUOTA,
+          "Table containing keyspace quotas",
+          "CREATE TABLE %s ("
+          + "keyspace_name text PRIMARY KEY,"
+          + "max_ks_size_mb int)")
+    .build();
+
     private static TableMetadata.Builder parse(String table, String description, String cql)
     {
         return CreateTableStatement.parse(format(cql, table), SchemaConstants.DISTRIBUTED_KEYSPACE_NAME)
@@ -154,7 +165,7 @@ public final class SystemDistributedKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(SchemaConstants.DISTRIBUTED_KEYSPACE_NAME, KeyspaceParams.simple(3), Tables.of(RepairHistory, ParentRepairHistory, ViewBuildStatus));
+        return KeyspaceMetadata.create(SchemaConstants.DISTRIBUTED_KEYSPACE_NAME, KeyspaceParams.simple(3), Tables.of(RepairHistory, ParentRepairHistory, ViewBuildStatus, KeyspaceQuotaTable));
     }
 
     public static void startParentRepair(UUID parent_id, String keyspaceName, String[] cfnames, RepairOption options)
