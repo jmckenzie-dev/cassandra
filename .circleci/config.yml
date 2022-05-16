@@ -112,7 +112,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -287,7 +287,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -396,7 +396,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -505,7 +505,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -628,7 +628,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -723,7 +723,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -818,7 +818,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -914,7 +914,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -1010,7 +1010,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -1120,7 +1120,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -1216,7 +1216,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -1360,7 +1360,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -1483,7 +1483,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -1581,7 +1581,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -1658,7 +1658,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -1734,7 +1734,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -1797,7 +1797,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -1906,7 +1906,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -2015,7 +2015,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -2114,7 +2114,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -2169,7 +2169,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -2345,7 +2345,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -2422,7 +2422,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -2517,7 +2517,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -2627,7 +2627,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -2725,7 +2725,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -2820,7 +2820,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -2915,7 +2915,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -2978,7 +2978,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -3087,7 +3087,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -3141,7 +3141,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -3204,7 +3204,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -3302,7 +3302,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -3412,7 +3412,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -3587,7 +3587,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
@@ -3682,7 +3682,7 @@ jobs:
     - REPEATED_UTEST_TARGET: testsome
     - REPEATED_UTEST_CLASS: org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocatorTest
     - REPEATED_UTEST_METHODS: testTokenGenerator_single_rack_or_single_rf
-    - REPEATED_UTEST_COUNT: 100
+    - REPEATED_UTEST_COUNT: 500
     - REPEATED_UTEST_STOP_ON_FAILURE: true
     - REPEATED_DTEST_NAME: null
     - REPEATED_DTEST_VNODES: false
