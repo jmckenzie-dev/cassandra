@@ -137,21 +137,25 @@ public class OfflineTokenAllocatorTest
     {
         int numTokens = 16;
         // Simple cases, single rack or single replication.
+        logger.warn("GREP: Running first test with 1 node, 1 token");
         assertTokensAndNodeCount(numTokens, 1, allocate(1,
                                                         numTokens,
                                                         new int[]{1},
                                                         FAIL_ON_WARN_OUTPUT,
                                                         Murmur3Partitioner.instance));
+        logger.warn("GREP: Running second test with 2 node, 2 token");
         assertTokensAndNodeCount(numTokens, 2, allocate(1,
                                                         numTokens,
                                                         new int[]{1, 1},
                                                         FAIL_ON_WARN_OUTPUT,
                                                         Murmur3Partitioner.instance));
+        logger.warn("GREP: Running third test with 2 node, 1 token");
         assertTokensAndNodeCount(numTokens, 2, allocate(1,
                                                         numTokens,
                                                         new int[]{2},
                                                         FAIL_ON_WARN_OUTPUT,
                                                         Murmur3Partitioner.instance));
+        logger.warn("GREP: Test complete; tidying up");
     }
 
     @Test
