@@ -43,6 +43,7 @@
  * Remove expired snapshots of dropped tables after restart (CASSANDRA-17619)
 Merged from 4.0:
 4.0.7
+ * Better handle null state in Gossip schema migration to avoid NPE (CASSANDRA-17864)
  * Avoid getting hanging repairs due to repair message timeouts (CASSANDRA-17613)
 
 
