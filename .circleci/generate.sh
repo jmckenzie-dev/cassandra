@@ -18,6 +18,7 @@
 #
 
 BASEDIR=`dirname $0`
+BASE_BRANCH=trunk
 
 die ()
 {
@@ -38,16 +39,21 @@ print_help()
   echo "   -e <key=value> Environment variables to be used in the generated config.yml, e.g.:"
   echo "                   -e DTEST_BRANCH=CASSANDRA-8272"
   echo "                   -e DTEST_REPO=https://github.com/adelapena/cassandra-dtest.git"
-  echo "                   -e REPEATED_UTEST_TARGET=testsome"
-  echo "                   -e REPEATED_UTEST_CLASS=org.apache.cassandra.cql3.ViewTest"
-  echo "                   -e REPEATED_UTEST_METHODS=testCompoundPartitionKey,testStaticTable"
-  echo "                   -e REPEATED_UTEST_VNODES=false"
-  echo "                   -e REPEATED_UTEST_COUNT=100"
-  echo "                   -e REPEATED_UTEST_STOP_ON_FAILURE=false"
-  echo "                   -e REPEATED_DTEST_NAME=cqlsh_tests/test_cqlsh.py::TestCqlshSmoke"
-  echo "                   -e REPEATED_DTEST_VNODES=false"
-  echo "                   -e REPEATED_DTEST_COUNT=100"
-  echo "                   -e REPEATED_DTEST_STOP_ON_FAILURE=false"
+  echo "                   -e REPEATED_TESTS_COUNT=500"
+  echo "                   -e REPEATED_TESTS_STOP_ON_FAILURE=false"
+  echo "                   -e REPEATED_UTESTS=org.apache.cassandra.cql3.ViewTest#testCountersTable"
+  echo "                   -e REPEATED_UTESTS_FQLTOOL=org.apache.cassandra.fqltool.FQLCompareTest"
+  echo "                   -e REPEATED_UTESTS_LONG=org.apache.cassandra.db.commitlog.CommitLogStressTest"
+  echo "                   -e REPEATED_UTESTS_STRESS=org.apache.cassandra.stress.generate.DistributionGaussianTest"
+  echo "                   -e REPEATED_SIMULATOR_DTESTS=org.apache.cassandra.simulator.test.TrivialSimulationTest"
+  echo "                   -e REPEATED_JVM_DTESTS=org.apache.cassandra.distributed.test.PagingTest"
+  echo "                   -e REPEATED_JVM_UPGRADE_DTESTS=org.apache.cassandra.distributed.upgrade.GroupByTest"
+  echo "                   -e REPEATED_DTESTS=cdc_test.py cqlsh_tests/test_cqlsh.py::TestCqlshSmoke"
+  echo "                   -e REPEATED_UPGRADE_DTESTS=upgrade_tests/cql_tests.py upgrade_tests/paging_test.py"
+  echo "                   -e REPEATED_ANT_TEST_TARGET=testsome"
+  echo "                   -e REPEATED_ANT_TEST_CLASS=org.apache.cassandra.cql3.ViewTest"
+  echo "                   -e REPEATED_ANT_TEST_METHODS=testCompoundPartitionKey,testStaticTable"
+  echo "                   -e REPEATED_ANT_TEST_VNODES=false"
   echo "                  For the complete list of environment variables, please check the"
   echo "                  list of examples in config-2_1.yml and/or the documentation."
   echo "                  If you want to specify multiple environment variables simply add"
@@ -96,23 +102,41 @@ if $has_env_vars && $check_env_vars; then
     key=$(echo $entry | tr "=" "\n" | head -n 1)
     if [ "$key" != "DTEST_REPO" ] &&
        [ "$key" != "DTEST_BRANCH" ] &&
-       [ "$key" != "REPEATED_UTEST_TARGET" ] &&
-       [ "$key" != "REPEATED_UTEST_CLASS" ] &&
-       [ "$key" != "REPEATED_UTEST_METHODS" ] &&
-       [ "$key" != "REPEATED_UTEST_VNODES" ] &&
-       [ "$key" != "REPEATED_UTEST_COUNT" ] &&
-       [ "$key" != "REPEATED_UTEST_STOP_ON_FAILURE" ] &&
-       [ "$key" != "REPEATED_DTEST_NAME" ] &&
-       [ "$key" != "REPEATED_DTEST_VNODES" ] &&
-       [ "$key" != "REPEATED_DTEST_COUNT" ] &&
-       [ "$key" != "REPEATED_DTEST_STOP_ON_FAILURE" ] &&
-       [ "$key" != "REPEATED_UPGRADE_DTEST_NAME" ] &&
-       [ "$key" != "REPEATED_UPGRADE_DTEST_COUNT" ] &&
-       [ "$key" != "REPEATED_UPGRADE_DTEST_STOP_ON_FAILURE" ] &&
-       [ "$key" != "REPEATED_JVM_UPGRADE_DTEST_CLASS" ] &&
-       [ "$key" != "REPEATED_JVM_UPGRADE_DTEST_METHODS" ] &&
-       [ "$key" != "REPEATED_JVM_UPGRADE_DTEST_COUNT" ] &&
-       [ "$key" != "REPEATED_JVM_UPGRADE_DTEST_STOP_ON_FAILURE" ]; then
+       [ "$key" != "REPEATED_TESTS_COUNT" ] &&
+       [ "$key" != "REPEATED_TESTS_STOP_ON_FAILURE" ] &&
+       [ "$key" != "REPEATED_UTESTS" ] &&
+       [ "$key" != "REPEATED_UTESTS_COUNT" ] &&
+       [ "$key" != "REPEATED_UTESTS_STOP_ON_FAILURE" ] &&
+       [ "$key" != "REPEATED_UTESTS_FQLTOOL" ] &&
+       [ "$key" != "REPEATED_UTESTS_FQLTOOL_COUNT" ] &&
+       [ "$key" != "REPEATED_UTESTS_FQLTOOL_STOP_ON_FAILURE" ] &&
+       [ "$key" != "REPEATED_UTESTS_LONG" ] &&
+       [ "$key" != "REPEATED_UTESTS_LONG_COUNT" ] &&
+       [ "$key" != "REPEATED_UTESTS_LONG_STOP_ON_FAILURE" ] &&
+       [ "$key" != "REPEATED_UTESTS_STRESS" ] &&
+       [ "$key" != "REPEATED_UTESTS_STRESS_COUNT" ] &&
+       [ "$key" != "REPEATED_UTESTS_STRESS_STOP_ON_FAILURE" ] &&
+       [ "$key" != "REPEATED_SIMULATOR_DTESTS" ] &&
+       [ "$key" != "REPEATED_SIMULATOR_DTESTS_COUNT" ] &&
+       [ "$key" != "REPEATED_SIMULATOR_DTESTS_STOP_ON_FAILURE" ] &&
+       [ "$key" != "REPEATED_JVM_DTESTS" ] &&
+       [ "$key" != "REPEATED_JVM_DTESTS_COUNT" ] &&
+       [ "$key" != "REPEATED_JVM_DTESTS_STOP_ON_FAILURE" ] &&
+       [ "$key" != "REPEATED_JVM_UPGRADE_DTESTS" ]  &&
+       [ "$key" != "REPEATED_JVM_UPGRADE_DTESTS_COUNT" ]  &&
+       [ "$key" != "REPEATED_JVM_UPGRADE_DTESTS_STOP_ON_FAILURE" ]  &&
+       [ "$key" != "REPEATED_DTESTS" ] &&
+       [ "$key" != "REPEATED_DTESTS_COUNT" ] &&
+       [ "$key" != "REPEATED_DTESTS_STOP_ON_FAILURE" ] &&
+       [ "$key" != "REPEATED_UPGRADE_DTESTS" ] &&
+       [ "$key" != "REPEATED_UPGRADE_DTESTS_COUNT" ] &&
+       [ "$key" != "REPEATED_UPGRADE_DTESTS_STOP_ON_FAILURE" ] &&
+       [ "$key" != "REPEATED_ANT_TEST_TARGET" ] &&
+       [ "$key" != "REPEATED_ANT_TEST_CLASS" ] &&
+       [ "$key" != "REPEATED_ANT_TEST_METHODS" ] &&
+       [ "$key" != "REPEATED_ANT_TEST_VNODES" ] &&
+       [ "$key" != "REPEATED_ANT_TEST_COUNT" ] &&
+       [ "$key" != "REPEATED_ANT_TEST_STOP_ON_FAILURE" ]; then
       die "Unrecognised environment variable name: $key"
     fi
   done
@@ -169,16 +193,132 @@ elif (!($has_env_vars)); then
   print_help
 fi
 
+# add new or modified tests to the sets of tests to be repeated
+if (!($all)); then
+  add_diff_tests ()
+  {
+    dir="${BASEDIR}/../${2}"
+    diff=$(git --no-pager diff --name-only --diff-filter=AMR ${BASE_BRANCH}...HEAD ${dir})
+    tests=$( echo "$diff" \
+           | grep "Test\\.java" \
+           | sed -e "s/\\.java//" \
+           | sed -e "s,^${2},," \
+           | tr  '/' '.' \
+           | grep ${3} )
+    for test in $tests; do
+      echo "  $test"
+      has_env_vars=true
+      if grep -q "${1}" <<< "$env_vars"; then
+        env_vars=$(sed -e "s/${1}=/${1}=${test},/" <<< $env_vars)
+      elif [[ $env_vars == "" ]]; then
+        env_vars="${1}=${test}"
+      else
+        env_vars="$env_vars|${1}=${test}"
+      fi
+    done
+  }
+
+  echo
+  echo "Detecting new or modified tests with git diff --diff-filter=AMR ${BASE_BRANCH}...HEAD:"
+  add_diff_tests "REPEATED_UTESTS" "test/unit/" "org.apache.cassandra"
+  add_diff_tests "REPEATED_UTESTS_LONG" "test/long/" "org.apache.cassandra"
+  add_diff_tests "REPEATED_UTESTS_STRESS" "tools/stress/test/unit/" "org.apache.cassandra.stress"
+  add_diff_tests "REPEATED_UTESTS_FQLTOOL" "tools/fqltool/test/unit/" "org.apache.cassandra.fqltool"
+  add_diff_tests "REPEATED_SIMULATOR_DTESTS" "test/simulator/test/" "org.apache.cassandra.simulator.test"
+  add_diff_tests "REPEATED_JVM_DTESTS" "test/distributed/" "org.apache.cassandra.distributed.test"
+  add_diff_tests "REPEATED_JVM_UPGRADE_DTESTS" "test/distributed/" "org.apache.cassandra.distributed.upgrade"
+fi
+
 # replace environment variables
 if $has_env_vars; then
+  echo
+  echo "Setting environment variables:"
   IFS='='
   echo "$env_vars" | tr '|' '\n' | while read entry; do
     set -- $entry
     key=$1
     val=$2
-    echo "Setting environment variable $key: $val"
+    echo "  $key: $val"
     sed -i.bak "s|- $key:.*|- $key: $val|" $BASEDIR/config.yml
   done
   unset IFS
 fi
 
+# prepare the version of $sed, making sure we have a version that supports the -z flag
+sed=sed
+echo "a" | sed -z "s/a//" > /dev/null 2>&1 || { sed=gsed; }
+echo "a" | $sed -z "s/a//" > /dev/null 2>&1 || { "Need a version of sed or gsed that supports -z"; exit 1; }
+
+# removed unneeded repeated tasks
+if [[ $env_vars != *"REPEATED_UTESTS="* ]]; then
+  $sed  -i.bak '/- start_j8_unit_tests_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- start_j11_unit_tests_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- start_utests_compression_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- start_utests_system_keyspace_directory_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- j8_unit_tests_repeat:/,/- j8_build/d' .circleci/config.yml
+  $sed  -i.bak '/- utests_compression_repeat:/,/- j8_build/d' .circleci/config.yml
+  $sed  -i.bak '/- utests_system_keyspace_directory_repeat:/,/- j8_build/d' .circleci/config.yml
+  $sed -zi.bak "s/    - j11_unit_tests_repeat:\n        requires:\n        - j8_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_unit_tests_repeat:\n        requires:\n        - j11_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_unit_tests_repeat:\n        requires:\n        - start_j11_unit_tests_repeat\n        - j8_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_unit_tests_repeat:\n        requires:\n        - start_j11_unit_tests_repeat\n        - j11_build\n//" .circleci/config.yml
+fi
+if [[ $env_vars != *"REPEATED_UTESTS_LONG="* ]]; then
+  $sed  -i.bak '/- start_utests_long_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- utests_long_repeat:/,/- j8_build/d' .circleci/config.yml
+fi
+if [[ $env_vars != *"REPEATED_UTESTS_STRESS="* ]]; then
+  $sed  -i.bak '/- start_utests_stress_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- utests_stress_repeat:/,/- j8_build/d' .circleci/config.yml
+fi
+if [[ $env_vars != *"REPEATED_UTESTS_FQLTOOL="* ]]; then
+  $sed  -i.bak '/- start_utests_fqltool_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- utests_fqltool_repeat:/,/- j8_build/d' .circleci/config.yml
+fi
+if [[ $env_vars != *"REPEATED_SIMULATOR_DTESTS="* ]]; then
+  $sed  -i.bak '/- start_j8_simulator_dtests_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- j8_simulator_dtests_repeat:/,/- j8_build/d' .circleci/config.yml
+fi
+if [[ $env_vars != *"REPEATED_JVM_DTESTS="* ]]; then
+  $sed  -i.bak '/- start_j8_jvm_dtests_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- start_j8_jvm_dtests_vnode_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- start_j11_jvm_dtests_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- start_j11_jvm_dtests_vnode_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- j8_jvm_dtests_repeat:/,/- j8_build/d' .circleci/config.yml
+  $sed  -i.bak '/- j8_jvm_dtests_vnode_repeat:/,/- j8_build/d' .circleci/config.yml
+  $sed  -i.bak '/- j11_jvm_dtests_repeat:/,/- j11_build/d' .circleci/config.yml
+  $sed  -i.bak '/- j11_jvm_dtests_vnode_repeat:/,/- j11_build/d' .circleci/config.yml
+fi
+if [[ $env_vars != *"REPEATED_JVM_UPGRADE_DTESTS="* ]]; then
+  $sed  -i.bak '/- start_jvm_upgrade_dtests_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- j8_jvm_upgrade_dtests_repeat:/,/- j8_dtest_jars_build/d' .circleci/config.yml
+fi
+if [[ $env_vars != *"REPEATED_DTESTS="* ]]; then
+  $sed  -i.bak '/- start_j8_dtests_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- start_j8_dtests_vnode_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- start_j11_dtests_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- start_j11_dtests_vnode_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- j8_dtests_repeat:/,/- j8_build/d' .circleci/config.yml
+  $sed  -i.bak '/- j8_dtests_vnode_repeat:/,/- j8_build/d' .circleci/config.yml
+  $sed -zi.bak "s/    - j11_dtests_repeat:\n        requires:\n        - j8_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_dtests_repeat:\n        requires:\n        - j11_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_dtests_repeat:\n        requires:\n        - start_j11_dtests_repeat\n        - j8_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_dtests_repeat:\n        requires:\n        - start_j11_dtests_repeat\n        - j11_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_dtests_vnode_repeat:\n        requires:\n        - j8_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_dtests_vnode_repeat:\n        requires:\n        - j11_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_dtests_vnode_repeat:\n        requires:\n        - start_j11_dtests_vnode_repeat\n        - j8_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_dtests_vnode_repeat:\n        requires:\n        - start_j11_dtests_vnode_repeat\n        - j11_build\n//" .circleci/config.yml
+fi
+if [[ $env_vars != *"REPEATED_UPGRADE_DTESTS="* ]]; then
+  $sed  -i.bak '/- start_j8_upgrade_dtests_repeat:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- j8_upgrade_dtests_repeat:/,/- j8_build/d' .circleci/config.yml
+fi
+if [[ $env_vars != *"REPEATED_ANT_TEST_CLASS="* ]]; then
+  $sed  -i.bak '/- start_j8_repeated_ant_test:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- start_j11_repeated_ant_test:/,/approval/d' .circleci/config.yml
+  $sed  -i.bak '/- j8_repeated_ant_test:/,/- j8_build/d' .circleci/config.yml
+  $sed -zi.bak "s/    - j11_repeated_ant_test:\n        requires:\n        - j8_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_repeated_ant_test:\n        requires:\n        - j11_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_repeated_ant_test:\n        requires:\n        - start_j11_repeated_ant_test\n        - j8_build\n//" .circleci/config.yml
+  $sed -zi.bak "s/    - j11_repeated_ant_test:\n        requires:\n        - start_j11_repeated_ant_test\n        - j11_build\n//" .circleci/config.yml
+fi
