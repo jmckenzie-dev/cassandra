@@ -244,81 +244,57 @@ if $has_env_vars; then
   unset IFS
 fi
 
-# prepare the version of $sed, making sure we have a version that supports the -z flag
-sed=sed
-echo "a" | sed -z "s/a//" > /dev/null 2>&1 || { sed=gsed; }
-echo "a" | $sed -z "s/a//" > /dev/null 2>&1 || { "Need a version of sed or gsed that supports -z"; exit 1; }
+# define function to remove unneeded jobs
+delete_job()
+{
+  delete_yaml_block()
+  {
+    sed -Ei.bak "/    - ${1}/,/^    - |^  [^[:space:]]+/{//!d;}" .circleci/config.yml
+    sed -Ei.bak "/    - ${1}/d" .circleci/config.yml
+  }
+  delete_yaml_block "${1}"
+  delete_yaml_block "start_${1}"
+}
 
 # removed unneeded repeated tasks
 if [[ $env_vars != *"REPEATED_UTESTS="* ]]; then
-  $sed  -i.bak '/- start_j8_unit_tests_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- start_j11_unit_tests_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- start_utests_compression_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- start_utests_system_keyspace_directory_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- j8_unit_tests_repeat:/,/- j8_build/d' .circleci/config.yml
-  $sed  -i.bak '/- utests_compression_repeat:/,/- j8_build/d' .circleci/config.yml
-  $sed  -i.bak '/- utests_system_keyspace_directory_repeat:/,/- j8_build/d' .circleci/config.yml
-  $sed -zi.bak "s/    - j11_unit_tests_repeat:\n        requires:\n        - j8_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_unit_tests_repeat:\n        requires:\n        - j11_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_unit_tests_repeat:\n        requires:\n        - start_j11_unit_tests_repeat\n        - j8_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_unit_tests_repeat:\n        requires:\n        - start_j11_unit_tests_repeat\n        - j11_build\n//" .circleci/config.yml
+  delete_job "j8_unit_tests_repeat"
+  delete_job "j11_unit_tests_repeat"
+  delete_job "utests_compression_repeat"
+  delete_job "utests_system_keyspace_directory_repeat"
 fi
 if [[ $env_vars != *"REPEATED_UTESTS_LONG="* ]]; then
-  $sed  -i.bak '/- start_utests_long_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- utests_long_repeat:/,/- j8_build/d' .circleci/config.yml
+  delete_job "utests_long_repeat"
 fi
 if [[ $env_vars != *"REPEATED_UTESTS_STRESS="* ]]; then
-  $sed  -i.bak '/- start_utests_stress_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- utests_stress_repeat:/,/- j8_build/d' .circleci/config.yml
+  delete_job "utests_stress_repeat"
 fi
 if [[ $env_vars != *"REPEATED_UTESTS_FQLTOOL="* ]]; then
-  $sed  -i.bak '/- start_utests_fqltool_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- utests_fqltool_repeat:/,/- j8_build/d' .circleci/config.yml
+  delete_job "utests_fqltool_repeat"
 fi
 if [[ $env_vars != *"REPEATED_SIMULATOR_DTESTS="* ]]; then
-  $sed  -i.bak '/- start_j8_simulator_dtests_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- j8_simulator_dtests_repeat:/,/- j8_build/d' .circleci/config.yml
+  delete_job "j8_simulator_dtests_repeat"
 fi
 if [[ $env_vars != *"REPEATED_JVM_DTESTS="* ]]; then
-  $sed  -i.bak '/- start_j8_jvm_dtests_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- start_j8_jvm_dtests_vnode_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- start_j11_jvm_dtests_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- start_j11_jvm_dtests_vnode_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- j8_jvm_dtests_repeat:/,/- j8_build/d' .circleci/config.yml
-  $sed  -i.bak '/- j8_jvm_dtests_vnode_repeat:/,/- j8_build/d' .circleci/config.yml
-  $sed  -i.bak '/- j11_jvm_dtests_repeat:/,/- j11_build/d' .circleci/config.yml
-  $sed  -i.bak '/- j11_jvm_dtests_vnode_repeat:/,/- j11_build/d' .circleci/config.yml
+  delete_job "j8_jvm_dtests_repeat"
+  delete_job "j8_jvm_dtests_vnode_repeat"
+  delete_job "j11_jvm_dtests_repeat"
+  delete_job "j11_jvm_dtests_vnode_repeat"
 fi
 if [[ $env_vars != *"REPEATED_JVM_UPGRADE_DTESTS="* ]]; then
-  $sed  -i.bak '/- start_jvm_upgrade_dtests_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- j8_jvm_upgrade_dtests_repeat:/,/- j8_dtest_jars_build/d' .circleci/config.yml
+  delete_job "start_jvm_upgrade_dtests_repeat"
+  delete_job "j8_jvm_upgrade_dtests_repeat"
 fi
 if [[ $env_vars != *"REPEATED_DTESTS="* ]]; then
-  $sed  -i.bak '/- start_j8_dtests_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- start_j8_dtests_vnode_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- start_j11_dtests_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- start_j11_dtests_vnode_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- j8_dtests_repeat:/,/- j8_build/d' .circleci/config.yml
-  $sed  -i.bak '/- j8_dtests_vnode_repeat:/,/- j8_build/d' .circleci/config.yml
-  $sed -zi.bak "s/    - j11_dtests_repeat:\n        requires:\n        - j8_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_dtests_repeat:\n        requires:\n        - j11_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_dtests_repeat:\n        requires:\n        - start_j11_dtests_repeat\n        - j8_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_dtests_repeat:\n        requires:\n        - start_j11_dtests_repeat\n        - j11_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_dtests_vnode_repeat:\n        requires:\n        - j8_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_dtests_vnode_repeat:\n        requires:\n        - j11_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_dtests_vnode_repeat:\n        requires:\n        - start_j11_dtests_vnode_repeat\n        - j8_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_dtests_vnode_repeat:\n        requires:\n        - start_j11_dtests_vnode_repeat\n        - j11_build\n//" .circleci/config.yml
+  delete_job "j8_dtests_repeat"
+  delete_job "j8_dtests_vnode_repeat"
+  delete_job "j11_dtests_repeat"
+  delete_job "j11_dtests_vnode_repeat"
 fi
 if [[ $env_vars != *"REPEATED_UPGRADE_DTESTS="* ]]; then
-  $sed  -i.bak '/- start_j8_upgrade_dtests_repeat:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- j8_upgrade_dtests_repeat:/,/- j8_build/d' .circleci/config.yml
+  delete_job "j8_upgrade_dtests_repeat"
 fi
 if [[ $env_vars != *"REPEATED_ANT_TEST_CLASS="* ]]; then
-  $sed  -i.bak '/- start_j8_repeated_ant_test:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- start_j11_repeated_ant_test:/,/approval/d' .circleci/config.yml
-  $sed  -i.bak '/- j8_repeated_ant_test:/,/- j8_build/d' .circleci/config.yml
-  $sed -zi.bak "s/    - j11_repeated_ant_test:\n        requires:\n        - j8_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_repeated_ant_test:\n        requires:\n        - j11_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_repeated_ant_test:\n        requires:\n        - start_j11_repeated_ant_test\n        - j8_build\n//" .circleci/config.yml
-  $sed -zi.bak "s/    - j11_repeated_ant_test:\n        requires:\n        - start_j11_repeated_ant_test\n        - j11_build\n//" .circleci/config.yml
+  delete_job "j8_repeated_ant_test"
+  delete_job "j11_repeated_ant_test"
 fi

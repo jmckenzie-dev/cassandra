@@ -6185,7 +6185,6 @@ workflows:
         requires:
         - j8_build
         - start_upgrade_dtests
-        - start_upgrade_dtests
     - j8_cqlsh_dtests_py3:
         requires:
         - j8_build
