@@ -249,14 +249,14 @@ delete_job()
 {
   delete_yaml_block()
   {
-    sed -Ei.bak "/    - ${1}/,/^    - |^  [^[:space:]]+/{//!d;}" .circleci/config.yml
-    sed -Ei.bak "/    - ${1}/d" .circleci/config.yml
+    sed -Ei.bak "/    - ${1}/,/^    - |^  [^[:space:]]+/{//!d;}" $BASEDIR/config.yml
+    sed -Ei.bak "/    - ${1}/d" $BASEDIR/config.yml
   }
   delete_yaml_block "${1}"
   delete_yaml_block "start_${1}"
 }
 
-# removed unneeded repeated tasks
+# removed unneeded repeated jobs
 if [[ $env_vars != *"REPEATED_UTESTS="* ]]; then
   delete_job "j8_unit_tests_repeat"
   delete_job "j11_unit_tests_repeat"
