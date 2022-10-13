@@ -208,7 +208,7 @@ if (!($all)); then
     for test in $tests; do
       echo "  $test"
       has_env_vars=true
-      if grep -q "${1}" <<< "$env_vars"; then
+      if grep -q "${1}=" <<< "$env_vars"; then
         env_vars=$(sed -e "s/${1}=/${1}=${test},/" <<< $env_vars)
       elif [[ $env_vars == "" ]]; then
         env_vars="${1}=${test}"
