@@ -249,8 +249,8 @@ delete_job()
 {
   delete_yaml_block()
   {
-    sed -Ei.bak "/    - ${1}/,/^    - |^  [^[:space:]]+/{//!d;}" $BASEDIR/config.yml
-    sed -Ei.bak "/    - ${1}/d" $BASEDIR/config.yml
+    sed -Ei.bak "/^    - ${1}/,/^    [^[:space:]]+|^  [^[:space:]]+/{//!d;}" $BASEDIR/config.yml
+    sed -Ei.bak "/^    - ${1}/d" $BASEDIR/config.yml
   }
   delete_yaml_block "${1}"
   delete_yaml_block "start_${1}"
