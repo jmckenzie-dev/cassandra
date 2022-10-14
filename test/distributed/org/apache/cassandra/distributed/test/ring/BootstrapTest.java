@@ -104,6 +104,7 @@ public class BootstrapTest extends TestBaseImpl
     @Test
     public void readWriteDuringBootstrapTest() throws Throwable
     {
+        System.out.println("test diff");
         int originalNodeCount = 2;
         int expandedNodeCount = originalNodeCount + 1;
 

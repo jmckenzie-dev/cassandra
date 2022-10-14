@@ -113,6 +113,7 @@ public class CASMultiDCTest
             Assert.assertTrue(String.format("numCommitted: %s < 3", numCommitted), numCommitted >= 3);
         else
             Assert.assertEquals(2, numCommitted);
+        System.out.println("test diff");
     }
 
     @Test

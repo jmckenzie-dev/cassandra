@@ -222,6 +222,7 @@ public abstract class CommitLogTest
     @Test
     public void testHeaderOnlyFileFiltering() throws Exception
     {
+        System.out.println("test diff");
         Assume.assumeTrue(!DatabaseDescriptor.getEncryptionContext().isEnabled());
 
         File directory = new File(Files.createTempDir());
