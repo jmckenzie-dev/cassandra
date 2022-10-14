@@ -44,8 +44,6 @@ default_env_vars: &default_env_vars
     CCM_MAX_HEAP_SIZE: 1024M
     CCM_HEAP_NEWSIZE: 256M
 
-    # The default number of times that repeated tests be run.
-    REPEATED_TESTS_COUNT: 500
     # Whether the repeated test iterations should stop on the first failure by default.
     REPEATED_TESTS_STOP_ON_FAILURE: false
 
@@ -56,9 +54,7 @@ default_env_vars: &default_env_vars
     # REPEATED_UTESTS: org.apache.cassandra.cql3.ViewTest,org.apache.cassandra.cql3.functions.TimeFctsTest
     REPEATED_UTESTS:
     # The number of times that new, modified or manually specified unit tests should be run.
-    REPEATED_UTESTS_COUNT: REPEATED_TESTS_COUNT
-    # Whether the iteration of new, modified or manually specified unit tests should stop on the first failure.
-    REPEATED_UTESTS_STOP_ON_FAILURE: REPEATED_TESTS_STOP_ON_FAILURE
+    REPEATED_UTESTS_COUNT: 500
 
     # Comma-separated list of tests that should be included in the repeated run for fqltool unit tests,
     # in addition to automatically detected new and modified tests. For example:
@@ -67,9 +63,7 @@ default_env_vars: &default_env_vars
     # REPEATED_UTESTS_FQLTOOL: org.apache.cassandra.fqltool.FQLCompareTest,org.apache.cassandra.fqltool.FQLReplayTest
     REPEATED_UTESTS_FQLTOOL:
     # The number of times that new, modified or manually specified fqltool unit tests should be run.
-    REPEATED_UTESTS_FQLTOOL_COUNT: REPEATED_TESTS_COUNT
-    # Whether the iteration of new, modified or manually specified fqltool unit tests should stop on the first failure.
-    REPEATED_UTESTS_FQLTOOL_STOP_ON_FAILURE: REPEATED_TESTS_STOP_ON_FAILURE
+    REPEATED_UTESTS_FQLTOOL_COUNT: 500
 
     # Comma-separated list of tests that should be included in the repeated run for long unit tests,
     # in addition to automatically detected new and modified tests. For example:
@@ -77,9 +71,7 @@ default_env_vars: &default_env_vars
     # REPEATED_UTESTS_LONG: org.apache.cassandra.db.commitlog.CommitLogStressTest#testRandomSize
     REPEATED_UTESTS_LONG:
     # The number of times that new, modified or manually specified long unit tests should be run.
-    REPEATED_UTESTS_LONG_COUNT: REPEATED_TESTS_COUNT
-    # Whether the iteration of new, modified or manually specified long unit tests should stop on the first failure.
-    REPEATED_UTESTS_LONG_STOP_ON_FAILURE: REPEATED_TESTS_STOP_ON_FAILURE
+    REPEATED_UTESTS_LONG_COUNT: 100
 
     # Comma-separated list of tests that should be included in the repeated run for stress unit tests,
     # in addition to automatically detected new and modified tests. For example:
@@ -87,9 +79,7 @@ default_env_vars: &default_env_vars
     # REPEATED_UTESTS_STRESS: org.apache.cassandra.stress.generate.DistributionGaussianTest#simpleGaussian
     REPEATED_UTESTS_STRESS:
     # The number of times that new, modified or manually specified stress unit tests should be run.
-    REPEATED_UTESTS_STRESS_COUNT: REPEATED_TESTS_COUNT
-    # Whether the iteration of new, modified or manually specified stress unit tests should stop on the first failure.
-    REPEATED_UTESTS_STRESS_STOP_ON_FAILURE: REPEATED_TESTS_STOP_ON_FAILURE
+    REPEATED_UTESTS_STRESS_COUNT: 500
 
     # Comma-separated list of tests that should be included in the repeated run for simulator dtests,
     # in addition to automatically detected new and modified tests. For example:
@@ -97,9 +87,7 @@ default_env_vars: &default_env_vars
     # REPEATED_SIMULATOR_DTESTS: org.apache.cassandra.simulator.test.TrivialSimulationTest#trivialTest
     REPEATED_SIMULATOR_DTESTS:
     # The number of times that new, modified or manually specified simulator dtests should be run.
-    REPEATED_SIMULATOR_DTESTS_COUNT: REPEATED_TESTS_COUNT
-    # Whether the iteration of new, modified or manually specified simulator dtests should stop on the first failure.
-    REPEATED_SIMULATOR_DTESTS_STOP_ON_FAILURE: REPEATED_TESTS_STOP_ON_FAILURE
+    REPEATED_SIMULATOR_DTESTS_COUNT: 500
 
     # Comma-separated list of tests that should be included in the repeated run for JVM dtests,
     # in addition to automatically detected new and modified tests. For example:
@@ -107,9 +95,7 @@ default_env_vars: &default_env_vars
     # REPEATED_JVM_DTESTS: org.apache.cassandra.distributed.test.PagingTest#testPaging
     REPEATED_JVM_DTESTS:
     # The number of times that new, modified or manually specified JVM dtests should be run.
-    REPEATED_JVM_DTESTS_COUNT: REPEATED_TESTS_COUNT
-    # Whether the iteration of new, modified or manually specified JVM dtests should stop on the first failure.
-    REPEATED_JVM_DTESTS_STOP_ON_FAILURE: REPEATED_TESTS_STOP_ON_FAILURE
+    REPEATED_JVM_DTESTS_COUNT: 500
 
     # Comma-separated list of tests that should be included in the repeated run for JVM upgrade dtests,
     # in addition to automatically detected new and modified tests. For example:
@@ -117,9 +103,7 @@ default_env_vars: &default_env_vars
     # REPEATED_JVM_UPGRADE_DTESTS: org.apache.cassandra.distributed.upgrade.GroupByTest#testReads
     REPEATED_JVM_UPGRADE_DTESTS:
     # The number of times that new, modified or manually specified JVM upgrade dtests should be run.
-    REPEATED_JVM_UPGRADE_DTESTS_COUNT: REPEATED_TESTS_COUNT
-    # Whether the iteration of new, modified or manually specified JVM upgrade dtests should stop on the first failure.
-    REPEATED_JVM_UPGRADE_DTESTS_STOP_ON_FAILURE: REPEATED_TESTS_STOP_ON_FAILURE
+    REPEATED_JVM_UPGRADE_DTESTS_COUNT: 500
 
     # Comma-separated list of Python dtests that should be repeatedly run, for example:
     # REPEATED_DTESTS: cqlsh_tests/test_cqlsh.py
@@ -128,9 +112,7 @@ default_env_vars: &default_env_vars
     # REPEATED_DTESTS: cqlsh_tests/test_cqlsh.py,consistency_test.py
     REPEATED_DTESTS:
     # The number of times that the manually specified Python dtests should be run.
-    REPEATED_DTESTS_COUNT: REPEATED_TESTS_COUNT
-    # Whether the iteration of manually specified Python dtests should stop on the first failure.
-    REPEATED_DTESTS_STOP_ON_FAILURE: REPEATED_TESTS_STOP_ON_FAILURE
+    REPEATED_DTESTS_COUNT: 500
 
     # Comma-separated list of Python dtests that should be repeatedly run, for example:
     # REPEATED_UPGRADE_DTESTS: upgrade_tests/cql_tests.py
@@ -138,9 +120,7 @@ default_env_vars: &default_env_vars
     # REPEATED_UPGRADE_DTESTS: upgrade_tests/cql_tests.py,upgrade_tests/paging_test.py
     REPEATED_UPGRADE_DTESTS:
     # The number of times that the manually specified Python upgrade dtests should be run.
-    REPEATED_UPGRADE_DTESTS_COUNT: REPEATED_TESTS_COUNT
-    # Whether the iteration of manually specified Python upgrade dtests should stop on the first failure.
-    REPEATED_UPGRADE_DTESTS_STOP_ON_FAILURE: REPEATED_TESTS_STOP_ON_FAILURE
+    REPEATED_UPGRADE_DTESTS_COUNT: 25
 
     # The Ant test target to run, for example:
     # REPEATED_ANT_TEST_TARGET: testsome
@@ -163,9 +143,7 @@ default_env_vars: &default_env_vars
     # in the same way that it's done for *_jvm_dtests_vnode jobs. Ant targets other than JVM dtests will ignore this.
     REPEATED_ANT_TEST_VNODES: false
     # The number of times that the repeated JUnit test should be run.
-    REPEATED_ANT_TEST_COUNT: REPEATED_TESTS_COUNT
-    # Whether the test iteration should stop on the first failure.
-    REPEATED_ANT_TEST_STOP_ON_FAILURE: REPEATED_TESTS_STOP_ON_FAILURE
+    REPEATED_ANT_TEST_COUNT: 500
 
 j8_par_executor: &j8_par_executor
   executor:
@@ -1384,7 +1362,7 @@ jobs:
           methods: ${REPEATED_ANT_TEST_METHODS}
           vnodes: ${REPEATED_ANT_TEST_VNODES}
           count: ${REPEATED_ANT_TEST_COUNT}
-          stop_on_failure: ${REPEATED_ANT_TEST_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   j11_repeated_ant_test:
     <<: *j11_repeated_utest_executor
@@ -1398,7 +1376,7 @@ jobs:
           methods: ${REPEATED_ANT_TEST_METHODS}
           vnodes: ${REPEATED_ANT_TEST_VNODES}
           count: ${REPEATED_ANT_TEST_COUNT}
-          stop_on_failure: ${REPEATED_ANT_TEST_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   j8_dtests_repeat:
     <<: *j8_repeated_dtest_executor
@@ -1412,7 +1390,7 @@ jobs:
           vnodes: "false"
           upgrade: "false"
           count: ${REPEATED_DTESTS_COUNT}
-          stop_on_failure: ${REPEATED_DTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   j8_dtests_vnode_repeat:
     <<: *j8_repeated_dtest_executor
@@ -1426,7 +1404,7 @@ jobs:
           vnodes: "true"
           upgrade: "false"
           count: ${REPEATED_DTESTS_COUNT}
-          stop_on_failure: ${REPEATED_DTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   j11_dtests_repeat:
     <<: *j11_repeated_dtest_executor
@@ -1441,7 +1419,7 @@ jobs:
           vnodes: "false"
           upgrade: "false"
           count: ${REPEATED_DTESTS_COUNT}
-          stop_on_failure: ${REPEATED_DTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   j11_dtests_vnode_repeat:
     <<: *j11_repeated_dtest_executor
@@ -1456,7 +1434,7 @@ jobs:
           vnodes: "true"
           upgrade: "false"
           count: ${REPEATED_DTESTS_COUNT}
-          stop_on_failure: ${REPEATED_DTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   j8_upgrade_dtests_repeat:
     <<: *j8_repeated_upgrade_dtest_executor
@@ -1469,7 +1447,7 @@ jobs:
           tests: ${REPEATED_UPGRADE_DTESTS}
           vnodes: "false"
           upgrade: "true"
-          stop_on_failure: ${REPEATED_UPGRADE_DTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
           count: ${REPEATED_UPGRADE_DTESTS_COUNT}
 
 commands:
@@ -1853,7 +1831,7 @@ commands:
           target: testsome
           tests: ${REPEATED_UTESTS}
           count: ${REPEATED_UTESTS_COUNT}
-          stop_on_failure: ${REPEATED_UTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   run_utests_compression_repeat:
     steps:
@@ -1861,7 +1839,7 @@ commands:
           target: test-compression
           tests: ${REPEATED_UTESTS}
           count: ${REPEATED_UTESTS_COUNT}
-          stop_on_failure: ${REPEATED_UTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   run_utests_system_keyspace_directory_repeat:
     steps:
@@ -1869,7 +1847,7 @@ commands:
           target: test-system-keyspace-directory
           tests: ${REPEATED_UTESTS}
           count: ${REPEATED_UTESTS_COUNT}
-          stop_on_failure: ${REPEATED_UTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   run_utests_long_repeat:
     steps:
@@ -1877,7 +1855,7 @@ commands:
           target: long-testsome
           tests: ${REPEATED_UTESTS_LONG}
           count: ${REPEATED_UTESTS_LONG_COUNT}
-          stop_on_failure: ${REPEATED_UTESTS_LONG_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   run_utests_fqltool_repeat:
     steps:
@@ -1885,7 +1863,7 @@ commands:
           target: fqltool-test
           tests: ${REPEATED_UTESTS_FQLTOOL}
           count: ${REPEATED_UTESTS_FQLTOOL_COUNT}
-          stop_on_failure: ${REPEATED_UTESTS_FQLTOOL_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   run_utests_stress_repeat:
     steps:
@@ -1893,7 +1871,7 @@ commands:
           target: stress-test-some
           tests: ${REPEATED_UTESTS_STRESS}
           count: ${REPEATED_UTESTS_STRESS_COUNT}
-          stop_on_failure: ${REPEATED_UTESTS_STRESS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   run_jvm_dtests_repeat:
     steps:
@@ -1902,7 +1880,7 @@ commands:
           tests: ${REPEATED_JVM_DTESTS}
           count: ${REPEATED_JVM_DTESTS_COUNT}
           vnodes: false
-          stop_on_failure: ${REPEATED_JVM_DTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   run_simulator_dtests_repeat:
     steps:
@@ -1910,7 +1888,7 @@ commands:
           target: test-simulator-dtest
           tests: ${REPEATED_SIMULATOR_DTESTS}
           count: ${REPEATED_SIMULATOR_DTESTS_COUNT}
-          stop_on_failure: ${REPEATED_SIMULATOR_DTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   run_jvm_dtests_vnode_repeat:
     steps:
@@ -1919,7 +1897,7 @@ commands:
           tests: ${REPEATED_JVM_DTESTS}
           count: ${REPEATED_JVM_DTESTS_COUNT}
           vnodes: true
-          stop_on_failure: ${REPEATED_JVM_DTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   run_jvm_upgrade_dtests_repeat:
     steps:
@@ -1928,7 +1906,7 @@ commands:
           tests: ${REPEATED_JVM_UPGRADE_DTESTS}
           count: ${REPEATED_JVM_UPGRADE_DTESTS_COUNT}
           vnodes: false
-          stop_on_failure: ${REPEATED_JVM_UPGRADE_DTESTS_STOP_ON_FAILURE}
+          stop_on_failure: ${REPEATED_TESTS_STOP_ON_FAILURE}
 
   run_repeated_utests:
     parameters:

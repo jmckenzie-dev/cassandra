@@ -60,18 +60,82 @@ dtest repo and branch with MIDRES config you can run:
 generate.sh -m \
   -e DTEST_REPO=https://github.com/adelapena/cassandra-dtest.git \
   -e DTEST_BRANCH=CASSANDRA-8272
-```
-
-Or you can set the test multiplexer for repeating some specific tests with HIGHRES:
 
 ```
-generate.sh -h \
-  -e REPEATED_TESTS_COUNT=500 \
+
+## Running tests in a loop
+Running the `generate.sh` script with use `git diff` to find the new or modified tests.
+The script will then create jobs to run each of these new or modified tests for a certain
+number of times, to verify that they are stable. You can use environment variables to 
+specify the number of iterations of each type of test:
+```
+generate.sh -m \
+  -e REPEATED_UTESTS_COUNT=500 \
+  -e REPEATED_UTESTS_FQLTOOL_COUNT=500 \
+  -e REPEATED_UTESTS_LONG_COUNT=100 \
+  -e REPEATED_UTESTS_STRESS_COUNT=500 \
+  -e REPEATED_SIMULATOR_DTESTS_COUNT=500 \
+  -e REPEATED_JVM_DTESTS_COUNT=500 \
+  -e REPEATED_JVM_UPGRADE_DTESTS_COUNT=500 \
+  -e REPEATED_DTESTS_COUNT=500 \
+  -e REPEATED_UPGRADE_DTESTS_COUNT=25 \
+  -e REPEATED_ANT_TEST_COUNT=500
+```
+You can also specify whether the iteration should fail on the first test failure:
+```
+generate.sh -m -e REPEATED_TESTS_STOP_ON_FAILURE=false
+```
+In addition to the automatically detected tests, it's also possible to provide lists of
+specific tests to be repeated:
+```
+generate.sh -m \
   -e REPEATED_UTESTS=org.apache.cassandra.cql3.ViewTest,org.apache.cassandra.db.CellTest \
+  -e REPEATED_UTESTS_FQLTOOL=org.apache.cassandra.fqltool.FQLCompareTest \
+  -e REPEATED_UTESTS_LONG=org.apache.cassandra.io.sstable.CQLSSTableWriterLongTest#testWideRow \
+  -e REPEATED_UTESTS_STRESS=org.apache.cassandra.stress.generate.DistributionGaussianTest \
+  -e REPEATED_SIMULATOR_DTESTS=org.apache.cassandra.simulator.test.TrivialSimulationTest \
   -e REPEATED_DTESTS=cql_test.py,consistency_test.py::TestAvailability::test_simple_strategy \
   -e REPEATED_JVM_DTESTS=org.apache.cassandra.distributed.test.PagingTest#testPaging \
   -e REPEATED_UPGRADE_DTESTS=upgrade_tests/cql_tests.py \
   -e REPEATED_JVM_UPGRADE_DTESTS=org.apache.cassandra.distributed.upgrade.GroupByTest
+```
+For particular Ant test targets that are not included in the regular test suites, you can
+use the `run_repeated_utest` job:
+```
+generate.sh -m \
+  -e REPEATED_ANT_TEST_TARGET=test-cdc \
+  -e REPEATED_ANT_TEST_CLASS=org.apache.cassandra.cql3.ViewTest \
+  -e REPEATED_ANT_TEST_METHODS=testCompoundPartitionKey,testStaticTable \
+  -e REPEATED_ANT_TEST_VNODES=false \
+  -e REPEATED_ANT_TEST_COUNT=500
+```
+Putting all together, you can have runs as complex as:
+```
+generate.sh -m \
+  -e REPEATED_TESTS_STOP_ON_FAILURE=true \
+  -e REPEATED_UTESTS=org.apache.cassandra.cql3.ViewTest,org.apache.cassandra.db.CellTest \
+  -e REPEATED_UTESTS_COUNT=500 \
+  -e REPEATED_UTESTS_FQLTOOL=org.apache.cassandra.fqltool.FQLCompareTest \
+  -e REPEATED_UTESTS_FQLTOOL_COUNT=500 \
+  -e REPEATED_UTESTS_LONG=org.apache.cassandra.io.sstable.CQLSSTableWriterLongTest#testWideRow \
+  -e REPEATED_UTESTS_LONG_COUNT=100 \
+  -e REPEATED_UTESTS_STRESS=org.apache.cassandra.stress.generate.DistributionGaussianTest \
+  -e REPEATED_UTESTS_STRESS_COUNT=500 \
+  -e REPEATED_SIMULATOR_DTESTS=org.apache.cassandra.simulator.test.TrivialSimulationTest \
+  -e REPEATED_SIMULATOR_DTESTS_COUNT=500 \
+  -e REPEATED_DTESTS=cql_test.py,consistency_test.py::TestAvailability::test_simple_strategy \
+  -e REPEATED_DTESTS_COUNT=500 \
+  -e REPEATED_JVM_DTESTS=org.apache.cassandra.distributed.test.PagingTest#testPaging \
+  -e REPEATED_JVM_DTESTS_COUNT=500 \
+  -e REPEATED_UPGRADE_DTESTS=upgrade_tests/cql_tests.py \
+  -e REPEATED_UPGRADE_DTESTS_COUNT=25 \
+  -e REPEATED_JVM_UPGRADE_DTESTS=org.apache.cassandra.distributed.upgrade.GroupByTest \
+  -e REPEATED_JVM_UPGRADE_DTESTS_COUNT=500 \
+  -e REPEATED_ANT_TEST_TARGET=test-cdc \
+  -e REPEATED_ANT_TEST_CLASS=org.apache.cassandra.cql3.ViewTest \
+  -e REPEATED_ANT_TEST_METHODS=testCompoundPartitionKey,testStaticTable \
+  -e REPEATED_ANT_TEST_VNODES=false \
+  -e REPEATED_ANT_TEST_COUNT=500
 ```
 
 ## Updating the config
