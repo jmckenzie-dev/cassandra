@@ -451,6 +451,7 @@ public class SerDeserTest
     // return utf8 string that contains no ascii chars
     public static String randomUTF8(int count)
     {
+
         // valid for cassandra
         return RandomStringUtils.random(count, 129, 0xD800, false, false);
     }

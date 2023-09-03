@@ -19,7 +19,6 @@ package org.apache.cassandra.hints;
 
 import java.io.IOException;
 import java.io.InputStream;
-
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.util.Iterator;
@@ -51,7 +50,7 @@ import static org.junit.Assert.assertTrue;
 
 import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
 
-public class HintsWriteThenReadTest
+public class HintsWriteThenReadNewTest
 {
     private static final String KEYSPACE = "hints_write_then_read_test";
     private static final String TABLE = "table";

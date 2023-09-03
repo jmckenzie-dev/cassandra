@@ -51,7 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.psjava.util.AssertStatus.assertTrue;
 
-public class DiskSpaceMetricsTest extends CQLTester
+public class DiskSpaceMetricsNewTest extends CQLTester
 {
     /**
      * This test runs the system with normal operations and makes sure the disk metrics match reality
