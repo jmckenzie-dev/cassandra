@@ -314,6 +314,8 @@ public class TopPartitionsTest extends TestBaseImpl
                 assertEquals(i * 2, (long)tombstones.get(String.valueOf(i)));
         });
 
+        // Modifying to test logic to pick up diffs
+
         CLUSTER.get(1).forceCompact(KEYSPACE, name);
         // all tombstones actually purged;
         repair();
