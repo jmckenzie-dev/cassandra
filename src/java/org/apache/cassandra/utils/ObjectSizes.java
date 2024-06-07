@@ -41,6 +41,13 @@ public class ObjectSizes
                                                                                 Guess.UNSAFE)
                                                                   .build();
 
+    // TODO: Make a method available to switch the type of MemoryMeter for testing / debugging
+    //    private static final MemoryMeter meter = MemoryMeter.builder().withGuessing(Guess.INSTRUMENTATION_AND_SPECIFICATION,
+    //                                                                                Guess.UNSAFE)
+    //                                                                  .printVisitedTree()
+    //                                                                  .measureNonStrongReferences()
+    //                                                                  .build();
+
     private static final long HEAP_BUFFER_SHALLOW_SIZE = measure(ByteBufferUtil.EMPTY_BYTE_BUFFER);
     private static final long DIRECT_BUFFER_SHALLOW_SIZE = measure(ByteBuffer.allocateDirect(0));
     private static final long DIRECT_BUFFER_DEEP_SIZE = measureDeep(ByteBuffer.allocateDirect(0));

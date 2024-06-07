@@ -459,16 +459,17 @@ public interface InterceptorOfGlobalMethods extends InterceptorOfSystemMethods, 
             this.nextId = nextId;
         }
 
-        public synchronized int applyAsInt(Object value)
+        public int applyAsInt(Object value)
         {
             Integer id = saved.get(value);
             if (id == null)
             {
-                id = nextId.getAsInt();
+                synchronized (nextId) {
+                    id = nextId.getAsInt();
+                }
                 saved.put(value, id);
             }
             return id;
         }
     }
-
 }

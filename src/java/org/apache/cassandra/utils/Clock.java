@@ -47,7 +47,7 @@ public interface Clock
          * implementation. Set <code>cassandra.clock</code> system property to a FQCN to use a
          * different implementation instead.
          */
-        private static final Clock instance;
+        private static Clock instance;
 
         static
         {

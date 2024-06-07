@@ -58,7 +58,7 @@ public class CommitlogShutdownTest
     @BMRule(name = "Make removing commitlog segments slow",
     targetClass = "CommitLogSegment",
     targetMethod = "discard",
-    action = "Thread.sleep(50)")
+    action = "Thread.sleep(50L)")
     public void testShutdownWithPendingTasks() throws Exception
     {
         new Random().nextBytes(entropy);

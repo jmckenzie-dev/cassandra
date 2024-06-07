@@ -98,7 +98,12 @@ public class ClientState
     private volatile String keyspace;
     private volatile boolean issuedPreparedStatementsUseWarning;
 
-    private static final QueryHandler cqlQueryHandler;
+    /**
+     *  We allow mutation of this for purposes of testing only; DO NOT OTHERWISE CHANGE THIS REFERENCE
+     *  JDK21 is quite a bit pickier about changing access modifiers on field references and stripping
+     *  final off this doesn't quite work anymore.
+     */
+    private static QueryHandler cqlQueryHandler;
     static
     {
         QueryHandler handler = QueryProcessor.instance;
@@ -348,6 +353,12 @@ public class ClientState
     public static QueryHandler getCQLQueryHandler()
     {
         return cqlQueryHandler;
+    }
+
+    @VisibleForTesting
+    public static void setCQLQueryHandlerForTest(QueryHandler handler)
+    {
+        cqlQueryHandler = handler;
     }
 
     public InetSocketAddress getRemoteAddress()

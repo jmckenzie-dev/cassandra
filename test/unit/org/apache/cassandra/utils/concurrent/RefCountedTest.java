@@ -505,6 +505,8 @@ public class RefCountedTest
     public void testCycles()
     {
         assertThat(testCycles(LambdaTestClass::getRunOnCloseLambdaWithThis)).isNotEmpty(); // sanity test
+
+        // TODO: FAILS HERE. Is not empty.
         assertThat(testCycles(LambdaTestClass::getRunOnCloseInner)).isNotEmpty(); // sanity test
 
         assertThat(testCycles(LambdaTestClass::getRunOnCloseLambda)).isEmpty();

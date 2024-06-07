@@ -45,7 +45,8 @@
         The use of both CASSANDRA_USE_JDK11 and use-jdk11 is deprecated.
     -->
     <property name="java.default" value="11" />
-    <property name="java.supported" value="11,17" />
+    <!-- TODO: Remove 11 once 21 is fully working and we decide to drop support -->
+    <property name="java.supported" value="11,17,21" />
 
     <!-- directory details -->
     <property name="basedir" value="."/>
@@ -167,7 +168,7 @@
     <!-- When updating ASM, please, do consider whether you might need to update also FBUtilities#ASM_BYTECODE_VERSION
       and the simulator InterceptClasses#BYTECODE_VERSION, in particular if we are looking to provide Cassandra support
       for newer JDKs (CASSANDRA-17873). -->
-    <property name="asm.version" value="9.4"/>
+    <property name="asm.version" value="9.5"/>
     <property name="allocation-instrumenter.version" value="3.1.0"/>
 
     <condition property="is.source.artifact">
@@ -307,6 +308,80 @@
         <equals arg1="${ant.java.version}" arg2="17"/>
     </condition>
 
+    <resources id="_jvm21_arg_items">
+        <string>-Djdk.attach.allowAttachSelf=true</string>
+
+        <!-- Achilles' settings from original patch to add simulator support
+            <string>-XX:+UseG1GC</string>
+            <string>-XX:+ParallelRefProcEnabled</string>
+            <string>-XX:MaxTenuringThreshold=1</string>
+            <string>-XX:G1HeapRegionSize=16m</string>
+        -->
+
+        <string>-XX:+UseZGC</string>
+        <string>-XX:+ZGenerational</string>
+
+        <!-- TODO: Try this out. Should just blanket enable whatever we have available (may not have THP available fwiw) -->
+        <!-- <string>-XX:+UseLargePages</string> -->
+
+        <!-- TODO: Test this -->
+        <!-- <string>-XX:+SoftMaxHeapSize=12G</string> --> <!-- Max size ZGC will _attempt_ to stay below -->
+
+        <!-- Disable returning memory to the OS -->
+        <!-- TODO: Tinker with this. One of the settings I flipped to get things to behave on in-jvm dtest (i.e. not OOM) -->
+        <string>-XX:-ZUncommit</string>
+
+        <!-- TODO: Default delay is 300 seconds to return memory to OS. Can't imagine making this _longer_ would be useful, but shorter in a multi-node env? -->
+        <!-- <string>-XX:ZUncommitDelay=300</string> -->
+
+        <!-- Pay the tax up front to pretouch memory to smooth out latency later -->
+        <string>-XX:+AlwaysPreTouch</string>
+
+        <!-- Need to explicitly allow security manager on JDK21; deprecated for removal -->
+        <string>-Djava.security.manager=allow</string>
+
+        <string>--add-exports java.base/jdk.internal.misc=ALL-UNNAMED</string>
+        <string>--add-exports java.base/jdk.internal.ref=ALL-UNNAMED</string>
+        <string>--add-exports java.base/sun.nio.ch=ALL-UNNAMED</string>
+        <string>--add-exports java.management.rmi/com.sun.jmx.remote.internal.rmi=ALL-UNNAMED</string>
+
+        <string>--add-exports java.rmi/sun.rmi.registry=ALL-UNNAMED</string>
+        <string>--add-exports java.rmi/sun.rmi.server=ALL-UNNAMED</string>
+        <string>--add-exports java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED</string>
+        <string>--add-exports java.sql/java.sql=ALL-UNNAMED</string>
+        <string>--add-exports java.base/java.lang.ref=ALL-UNNAMED</string>
+        <string>--add-exports java.base/java.lang.reflect=ALL-UNNAMED</string>
+        <string>--add-exports jdk.unsupported/sun.misc=ALL-UNNAMED</string>
+        <string>--add-exports jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</string>
+
+        <string>--add-opens java.base/java.lang.module=ALL-UNNAMED</string>
+        <string>--add-opens java.base/java.net=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.loader=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.ref=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.reflect=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.math=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.module=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.util.jar=ALL-UNNAMED</string>
+        <string>--add-opens jdk.management/com.sun.management=ALL-UNNAMED</string>
+
+        <string>--add-opens java.base/sun.nio.ch=ALL-UNNAMED</string>
+        <string>--add-opens java.base/java.io=ALL-UNNAMED</string>
+        <string>--add-opens java.base/java.nio=ALL-UNNAMED</string>
+        <string>--add-opens java.base/java.util.concurrent=ALL-UNNAMED</string>
+        <string>--add-opens java.base/java.util=ALL-UNNAMED</string>
+        <string>--add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED</string>
+        <string>--add-opens java.base/java.lang=ALL-UNNAMED</string>
+        <string>--add-opens java.base/java.math=ALL-UNNAMED</string>
+        <string>--add-opens java.base/java.lang.reflect=ALL-UNNAMED</string>
+        <string>--add-opens java.base/java.net=ALL-UNNAMED</string>
+
+        <string>--add-opens java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED</string>
+    </resources>
+    <pathconvert property="_jvm21_args_concat" refid="_jvm21_arg_items" pathsep=" "/>
+    <condition property="java-jvmargs" value="${_jvm21_args_concat}" else="">
+        <equals arg1="${ant.java.version}" arg2="21"/>
+    </condition>
+
     <!--
       JVM arguments for tests.
 
@@ -324,15 +399,26 @@
         <string>-Dio.netty.tryReflectionSetAccessible=true</string>
     </resources>
     <pathconvert property="_jvm11_test_arg_items_concat" refid="_jvm11_test_arg_items" pathsep=" "/>
+    <condition property="_std-test-jvmargs" value="${_jvm11_test_arg_items_concat}">
+        <equals arg1="${ant.java.version}" arg2="11"/>
+    </condition>
+
     <resources id="_jvm17_test_arg_items">
         <string>-Dio.netty.tryReflectionSetAccessible=true</string>
     </resources>
     <pathconvert property="_jvm17_test_arg_items_concat" refid="_jvm17_test_arg_items" pathsep=" "/>
-    <condition property="_std-test-jvmargs" value="${_jvm11_test_arg_items_concat}">
-            <equals arg1="${ant.java.version}" arg2="11"/>
-    </condition>
     <condition property="_std-test-jvmargs" value="${_jvm17_test_arg_items_concat}">
         <equals arg1="${ant.java.version}" arg2="17"/>
+    </condition>
+
+    <resources id="_jvm21_test_arg_items">
+        <!-- security manager setting is being deprecated -->
+        <string>-Djava.security.manager=allow</string>
+        <string>-Dio.netty.tryReflectionSetAccessible=true</string>
+    </resources>
+    <pathconvert property="_jvm21_test_arg_items_concat" refid="_jvm21_test_arg_items" pathsep=" "/>
+    <condition property="_std-test-jvmargs" value="${_jvm21_test_arg_items_concat}">
+        <equals arg1="${ant.java.version}" arg2="21"/>
     </condition>
 
     <!-- needed to compile org.apache.cassandra.utils.JMXServerUtils -->
@@ -446,9 +532,13 @@
 
     <target name="gen-cql3-grammar" depends="check-gen-cql3-grammar" unless="cql3current">
       <echo>Building Grammar ${build.src.antlr}/Cql.g  ...</echo>
+      <!-- Ran into an odd situation where, on jdk21, antlr crashed first time through then worked 2nd. Forking it fixes this. -->
       <java classname="org.antlr.Tool"
             classpathref="cql3-grammar.classpath"
-            failonerror="true">
+            failonerror="true"
+            fork="true"
+            outputproperty="antlr.output"
+            errorproperty="antlr.error">
          <arg value="-Xconversiontimeout" />
          <arg value="10000" />
          <arg value="${build.src.antlr}/Cql.g" />
@@ -509,6 +599,8 @@
         <jvmarg value="-Dstorage-config=${test.conf}"/>
         <jvmarg value="-Dcassandra.reads.thresholds.coordinator.defensive_checks_enabled=true" /> <!-- enable defensive checks -->
         <jvmarg value="-javaagent:${build.dir.lib}/jars/jamm-${jamm.version}.jar" />
+          <!-- TODO: Can we remove these from the profiles here? i.e. are they inherited from the top level _jvmN_arg_test_items tags? -->
+        <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
         <jvmarg value="-ea"/>
         <jvmarg line="${java-jvmargs}"/>
       </java>
@@ -1159,6 +1251,9 @@
         <jvmarg value="-ea"/>
         <jvmarg value="-Djava.io.tmpdir=${tmp.dir}"/>
         <jvmarg value="-Dcassandra.debugrefcount=true"/>
+        <!-- TODO: Determine if this is needed to prevent OOM's on in-jvm dtests or not -->
+        <!-- Pull this up for genZGC / JDK21 -->
+        <jvmarg value="-Xms512M"/>
         <jvmarg value="${jvm_xss}"/>
         <!-- When we do classloader manipulation SoftReferences can cause memory leaks
              that can OOM our test runs. The next two settings informs our GC
@@ -1184,6 +1279,7 @@
         <jvmarg value="-Dcassandra.use_nix_recursive_delete=${cassandra.use_nix_recursive_delete}"/>
         <jvmarg value="-Dio.netty.allocator.useCacheForAllThreads=true"/>
         <jvmarg value="-Dio.netty.allocator.maxOrder=11"/>
+        <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
         <jvmarg line="${java-jvmargs}"/>
         <!-- disable shrinks in quicktheories CASSANDRA-15554 -->
         <jvmarg value="-DQT_SHRINKS=0"/>
@@ -1233,6 +1329,7 @@
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
     <fileset dir="${test.unit.src}" />
   </target>
@@ -1251,6 +1348,7 @@
         <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
         <jvmarg value="-Xmx${maxMemory}"/>
+        <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
       </testmacrohelper>
     </sequential>
   </macrodef>
@@ -1274,6 +1372,7 @@
         <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
         <jvmarg value="-Dcassandra.config=file:///${compressed_yaml}"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
+        <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
       </testmacrohelper>
     </sequential>
   </macrodef>
@@ -1294,6 +1393,7 @@
         <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
         <jvmarg value="-Dcassandra.config=file:///${cdc_yaml}"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
+        <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
       </testmacrohelper>
     </sequential>
   </macrodef>
@@ -1316,6 +1416,7 @@
                 <jvmarg value="-Dcassandra.config=file:///${latest_yaml}"/>
                 <jvmarg value="-Dcassandra.test.storage_compatibility_mode=NONE"/>
                 <jvmarg value="-Dcassandra.skip_sync=true" />
+                <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
             </testmacrohelper>
         </sequential>
     </macrodef>
@@ -1337,6 +1438,7 @@
         <jvmarg value="-Dcassandra.config=file:///${scm_none_yaml}"/>
         <jvmarg value="-Dcassandra.test.storage_compatibility_mode=NONE"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
+        <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
       </testmacrohelper>
     </sequential>
   </macrodef>
@@ -1357,6 +1459,7 @@
         <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
         <jvmarg value="-Dcassandra.config=file:///${system_keyspaces_directory_yaml}"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
+        <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
       </testmacrohelper>
     </sequential>
   </macrodef>
@@ -1386,6 +1489,7 @@
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
@@ -1399,6 +1503,7 @@
       <test if="withoutMethods" name="${test.name}" todir="${build.test.output.dir}/" outfile="TEST-${test.name}"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
@@ -1411,6 +1516,7 @@
       <test if="withMethods" name="${test.name}" methods="${test.methods}" todir="${build.test.output.dir}/" outfile="TEST-${test.name}-${test.methods}"/>
       <test if="withoutMethods" name="${test.name}" todir="${build.test.output.dir}/" outfile="TEST-${test.name}"/>
       <jvmarg value="-Dlogback.configurationFile=test/conf/logback-burntest.xml"/>
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
@@ -1459,6 +1565,7 @@
     <testmacro inputdir="${test.unit.src}"
         timeout="${test.timeout}" filter="**/SerializationsTest.java">
       <jvmarg value="-Dcassandra.test-serialization-writes=True"/>
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
@@ -1471,6 +1578,7 @@
     <testmacro inputdir="${test.unit.src}"
         timeout="${test.timeout}" filter="**/SerializationsTest.java">
       <jvmarg value="-Dcassandra.version=0.7"/>
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
@@ -1478,6 +1586,7 @@
     <testmacro inputdir="${test.unit.src}"
         timeout="${test.timeout}" filter="**/SerializationsTest.java">
       <jvmarg value="-Dcassandra.version=1.0"/>
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
@@ -1491,6 +1600,7 @@
     <testmacro inputdir="${test.long.src}"
                timeout="${test.long.timeout}">
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
     </testmacro>
   </target>
@@ -1499,6 +1609,7 @@
       <testmacro inputdir="${test.memory.src}"
                  timeout="${test.memory.timeout}">
           <jvmarg value="-javaagent:${build.dir}/test/lib/jars/java-allocation-instrumenter-${allocation-instrumenter.version}.jar"/>
+          <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
       </testmacro>
   </target>
 
@@ -1517,6 +1628,7 @@
         <jvmarg value="-Dcassandra.memtable_row_overhead_computation_step=100"/>
         <jvmarg value="-Dcassandra.test.use_prepared=${cassandra.test.use_prepared}"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
+        <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
         <classpath>
           <path refid="cassandra.classpath.test" />
           <pathelement location="${test.classes}"/>
@@ -1563,6 +1675,7 @@
         <jvmarg value="-Dcassandra.test.use_prepared=${cassandra.test.use_prepared}"/>
         <jvmarg value="-Dcassandra.memtable_row_overhead_computation_step=100"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
+        <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
         <classpath>
           <path refid="cassandra.classpath.test" />
           <pathelement location="${test.classes}"/>
@@ -1764,6 +1877,7 @@
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
       <jvmarg value="-Xmx8G"/>
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
@@ -1774,6 +1888,7 @@
       <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
@@ -1797,6 +1912,7 @@
       <jvmarg line="-XX:Tier4CompileThreshold=1000"/>
       <jvmarg line="-XX:ReservedCodeCacheSize=256M"/>
       <jvmarg line="-Xmx8G"/>
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
@@ -1811,6 +1927,7 @@
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
       <jvmarg value="-Xmx8G"/>
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
@@ -1827,6 +1944,7 @@
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
       <jvmarg value="-Xmx8G"/>
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
@@ -1839,6 +1957,7 @@
       <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
+      <jvmarg value="-Dnet.bytebuddy.experimental=true"/>
     </testmacro>
   </target>
 
