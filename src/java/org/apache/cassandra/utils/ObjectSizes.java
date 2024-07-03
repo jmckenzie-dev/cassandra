@@ -37,16 +37,14 @@ import static org.github.jamm.utils.ArrayMeasurementUtils.computeArraySize;
  */
 public class ObjectSizes
 {
+    /**
+     * For debugging purposes, you can construct this with .printVisitedTree() to get a printout of all the objects
+     * and their calculated size on heap to debug jamm related issues. See:
+     * <a href="https://github.com/jbellis/jamm/blob/master/README.md#visited-object-tree">README.md on github</a>
+     */
     private static final MemoryMeter meter = MemoryMeter.builder().withGuessing(Guess.INSTRUMENTATION_AND_SPECIFICATION,
                                                                                 Guess.UNSAFE)
                                                                   .build();
-
-    // TODO: Make a method available to switch the type of MemoryMeter for testing / debugging
-    //    private static final MemoryMeter meter = MemoryMeter.builder().withGuessing(Guess.INSTRUMENTATION_AND_SPECIFICATION,
-    //                                                                                Guess.UNSAFE)
-    //                                                                  .printVisitedTree()
-    //                                                                  .measureNonStrongReferences()
-    //                                                                  .build();
 
     private static final long HEAP_BUFFER_SHALLOW_SIZE = measure(ByteBufferUtil.EMPTY_BYTE_BUFFER);
     private static final long DIRECT_BUFFER_SHALLOW_SIZE = measure(ByteBuffer.allocateDirect(0));

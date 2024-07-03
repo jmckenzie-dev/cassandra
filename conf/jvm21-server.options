@@ -30,6 +30,8 @@
 ### Generational ZGC settings
 -XX:+UseZGC
 -XX:+ZGenerational
+# Temporary workaround for jamm's incorrect default CompressedOops; if you're using ZGC this needs to be set
+-XX:-UseCompressedOops
 
 # TODO: Test out the following settings on various workloads
 # Blanket enabling of all the THP / large pages available in the env

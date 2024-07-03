@@ -23,6 +23,7 @@ import java.util.Map;
 
 import org.junit.After;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.config.EncryptionOptions;
@@ -44,12 +45,20 @@ import org.apache.cassandra.transport.messages.QueryMessage;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.MD5Digest;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.CUSTOM_QUERY_HANDLER_CLASS;
 import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 
 public class MessagePayloadTest extends CQLTester
 {
     public static Map<String, ByteBuffer> requestPayload;
     public static Map<String, ByteBuffer> responsePayload;
+
+    @BeforeClass
+    public static void setUpClass()
+    {
+        CUSTOM_QUERY_HANDLER_CLASS.setString("org.apache.cassandra.transport.MessagePayloadTest$TestQueryHandler");
+        CQLTester.setUpClass();
+    }
 
     @After
     public void dropCreatedTable()
@@ -67,7 +76,6 @@ public class MessagePayloadTest extends CQLTester
     @Test
     public void testMessagePayloadBeta() throws Throwable
     {
-        ClientState.setCQLQueryHandlerForTest(new TestQueryHandler());
         requireNetwork();
 
         Assert.assertSame(TestQueryHandler.class, ClientState.getCQLQueryHandler().getClass());
@@ -139,7 +147,6 @@ public class MessagePayloadTest extends CQLTester
     @Test
     public void testMessagePayload() throws Throwable
     {
-        ClientState.setCQLQueryHandlerForTest(new TestQueryHandler());
         requireNetwork();
 
         Assert.assertSame(TestQueryHandler.class, ClientState.getCQLQueryHandler().getClass());
@@ -200,7 +207,6 @@ public class MessagePayloadTest extends CQLTester
     @Test
     public void testMessagePayloadVersion3() throws Throwable
     {
-        ClientState.setCQLQueryHandlerForTest(new TestQueryHandler());
         requireNetwork();
 
         Assert.assertSame(TestQueryHandler.class, ClientState.getCQLQueryHandler().getClass());

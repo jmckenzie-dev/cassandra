@@ -149,7 +149,11 @@ Upgrading
 
 Deprecation
 -----------
-
+    - Updating dependencies for JDK21 necessitated updating Chronicle Queue, which has changed the enums used for log
+    rolling (cassandra.yaml -> full_query_logging_options:roll_cycle). Older legacy options will still work for the
+    foreseeable future but you will see warnings in logs and future dependency upgrades may break your log rolling param.
+    The default log rolling param has been changed from HOURLY to FAST_HOURLY, primarily different on how frequently
+    indexes are built (256 in FAST_HOURLY vs. 16 in HOURLY).
 
 5.0
 ===

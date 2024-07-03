@@ -130,32 +130,22 @@ java_version_string=$(IFS=" "; echo "${java_versions_supported[*]}")
 JAVA_VERSION=$(java -version 2>&1 | grep '[openjdk|java] version' | cut -d '"' -f2 | cut -d '.' -f1)
 
 supported=0
-highest_supported=-1
-# Both capture highest supported so we can support newer JDK's, and compare to see if ours is explicitly supported
 for version in "${java_versions_supported[@]}"; do
-  if [ "$version" -gt "$highest_supported" ]; then
-    highest_supported=$version
-  fi
   if [ "$version" -eq "$JAVA_VERSION" ]; then
       supported=1
   fi
 done
 
-if [ "$JAVA_VERSION" -gt "$highest_supported" ]; then
+if [[ "$supported" -eq 0 ]]; then
   if [ -z "$CASSANDRA_JDK_UNSUPPORTED" ]; then
-    echo "######################################################################"
-    echo "Warning! You are using JDK$JAVA_VERSION. This Cassandra version only supports $java_version_string"
-    echo "######################################################################"
-  else
     echo "Unsupported Java $JAVA_VERSION. Supported are $java_version_string"
     echo "If you would like to test with newer Java versions set CASSANDRA_JDK_UNSUPPORTED to any value (for example, CASSANDRA_JDK_UNSUPPORTED=true). Unset the parameter for default behavior"
     exit 1
+  else
+    echo "######################################################################"
+    echo "Warning! You are using JDK$JAVA_VERSION. This Cassandra version only supports $java_version_string"
+    echo "######################################################################"
   fi
-fi
-
-if [ "$supported" -eq "0" ]; then
-  echo "Unsupported Java $JAVA_VERSION. Supported are $java_version_string"
-  exit 1
 fi
 
 # TODO: Either remove the JVM_VENDOR and JVM_ARCH variables or explain where they're used. Appear vestigial.

@@ -36,14 +36,8 @@
     </license>
   </licenses>
   <properties>
-    <!-- JDK21 UPDATE -->
     <bytebuddy.version>1.14.15</bytebuddy.version>
-    <!-- OLD VERSION -->
-    <!--    <bytebuddy.version>1.12.13</bytebuddy.version>-->
-    <!-- JDK21 UPDATE -->
     <byteman.version>4.0.21</byteman.version>
-    <!-- OLD VERSION -->
-    <!--    <byteman.version>4.0.20</byteman.version>-->
     <ohc.version>0.5.1</ohc.version>
 
     <!-- These are referenced in build.xml, so need to be propagated from there -->
@@ -493,14 +487,12 @@
         <groupId>org.mockito</groupId>
         <artifactId>mockito-core</artifactId>
         <version>5.12.0</version>
-        <!--        <version>4.7.0</version>-->
         <scope>test</scope>
       </dependency>
       <dependency>
         <groupId>org.mockito</groupId>
         <artifactId>mockito-inline</artifactId>
         <version>5.2.0</version>
-        <!--        <version>4.7.0</version>-->
         <scope>test</scope>
       </dependency>
       <dependency>
@@ -736,8 +728,7 @@
       <dependency>
         <groupId>io.netty</groupId>
         <artifactId>netty-all</artifactId>
-        <version>4.1.109.Final</version>
-        <!--        <version>4.1.96.Final</version>-->
+        <version>4.1.111.Final</version>
         <exclusions>
           <exclusion>
             <groupId>io.netty</groupId>
@@ -850,12 +841,8 @@
       <dependency>
         <groupId>net.openhft</groupId>
         <artifactId>chronicle-queue</artifactId>
-        <!-- WORKING -->
+        <!-- chronicle ea builds before the corresponding Final are code identical; Final builds are not made available on Maven -->
         <version>5.25ea16</version>
-        <!-- NOT WORKING -->
-        <!--        <version>5.25ea12</version>-->
-        <!-- OLD VERSION -->
-        <!--        <version>5.23.37</version>-->
         <exclusions>
           <exclusion>
             <artifactId>tools</artifactId>
@@ -871,12 +858,7 @@
       <dependency>
         <groupId>net.openhft</groupId>
         <artifactId>chronicle-core</artifactId>
-        <!-- WORKING -->
         <version>2.25ea14</version>
-        <!--            NOT WORKING-->
-        <!--        <version>2.25ea11</version>-->
-        <!--         OLD VERSION -->
-        <!--        <version>2.23.36</version>-->
         <exclusions>
           <exclusion>
             <artifactId>chronicle-analytics</artifactId>
@@ -891,12 +873,7 @@
       <dependency>
         <groupId>net.openhft</groupId>
         <artifactId>chronicle-bytes</artifactId>
-        <!--        WORKING-->
         <version>2.25ea10</version>
-        <!-- NOT WORKING -->
-        <!--        <version>2.25ea8</version>-->
-        <!-- OLD -->
-        <!--        <version>2.23.33</version>-->
         <exclusions>
           <exclusion>
             <artifactId>annotations</artifactId>
@@ -907,12 +884,7 @@
       <dependency>
         <groupId>net.openhft</groupId>
         <artifactId>chronicle-wire</artifactId>
-        <!-- WORKING -->
         <version>2.25ea15</version>
-        <!-- NOT WORKING -->
-        <!--        <version>2.25ea11</version>-->
-        <!-- OLD -->
-        <!--        <version>2.23.39</version>-->
         <exclusions>
           <exclusion>
             <artifactId>compiler</artifactId>
@@ -928,12 +900,7 @@
       <dependency>
         <groupId>net.openhft</groupId>
         <artifactId>chronicle-threads</artifactId>
-        <!-- WORKING -->
         <version>2.25ea7</version>
-        <!-- NOT WORKING -->
-        <!--        <version>2.23.25</version>-->
-        <!-- OLD -->
-        <!--        <version>2.23.25</version>-->
         <exclusions>
           <exclusion>
               <!-- pulls in affinity-3.23ea1 which pulls in third-party-bom-3.22.4-SNAPSHOT -->
