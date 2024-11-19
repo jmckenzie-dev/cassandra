@@ -22,7 +22,6 @@ import java.nio.ByteBuffer;
 import java.util.Random;
 
 import com.google.common.collect.ImmutableMap;
-import org.apache.cassandra.io.util.File;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -38,6 +37,7 @@ import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.BytesType;
+import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.TableId;
 import org.jboss.byteman.contrib.bmunit.BMRule;
@@ -58,7 +58,7 @@ public class CommitlogShutdownTest
     @BMRule(name = "Make removing commitlog segments slow",
     targetClass = "CommitLogSegment",
     targetMethod = "discard",
-    action = "Thread.sleep(50)")
+    action = "Thread.sleep(250L)")
     public void testShutdownWithPendingTasks() throws Exception
     {
         new Random().nextBytes(entropy);
@@ -73,8 +73,7 @@ public class CommitlogShutdownTest
                                     KeyspaceParams.simple(1),
                                     SchemaLoader.standardCFMD(KEYSPACE1, STANDARD1, 0, AsciiType.instance, BytesType.instance));
 
-                                    CompactionManager.instance.disableAutoCompaction();
-
+        CompactionManager.instance.disableAutoCompaction();
         ColumnFamilyStore cfs1 = Keyspace.open(KEYSPACE1).getColumnFamilyStore(STANDARD1);
 
         final Mutation m = new RowUpdateBuilder(cfs1.metadata.get(), 0, "k")
@@ -93,7 +92,11 @@ public class CommitlogShutdownTest
         CommitLog.instance.discardCompletedSegments(tableId, CommitLogPosition.NONE, CommitLog.instance.getCurrentPosition());
         CommitLog.instance.shutdownBlocking();
 
-        // the shutdown should block until all logs except the currently active one and perhaps a new, empty one are gone
-        Assert.assertTrue(new File(DatabaseDescriptor.getCommitLogLocation()).tryList().length <= 2);
+        // Confirm that the # that the CL thinks are active matches the # that are on disk at this point.
+        int clSegmentCount = CommitLog.instance.getActiveSegmentNames().size();
+        int onDiskCount = new File(DatabaseDescriptor.getCommitLogLocation()).tryList().length;
+        Assert.assertEquals("Unexpected mismatch of CommitLog active segment count and files on disk found.",
+            clSegmentCount,
+            onDiskCount);
     }
 }
