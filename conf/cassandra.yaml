@@ -1311,6 +1311,17 @@ uuid_sstable_identifiers_enabled: false
 # low is equally ill-advised since clients could get timeouts even for successful
 # operations just because the timeout setting is too tight.
 
+# Throttles the calculation of partition sizes via the ESTIMATE_LIVE_UNCOMPRESSED_SIZE
+# command when calculating the live portion of the data. Note: on exceedingly
+# large partitions this can lead to the size calculation timing out and needing
+# to resort to SELECT_SIZE, SELECT_COMPRESSED_SIZE, or upping the query's timeout.
+# By default, we don't throttle these queries as they're functionally no different
+# than a slightly lighter weight SELECT * from a partition key.
+# Disable the feature with 0
+# Defaults to 10000MiB/s which we're not likely to hit given the overhead on materializing
+# and merging data to do these calculations.
+# select_size_calculation_throughput: 10000MiB/s
+
 # How long the coordinator should wait for read operations to complete.
 # Lowest acceptable value is 10 ms.
 # Min unit: ms

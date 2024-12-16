@@ -854,6 +854,9 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void setCompactionThroughputMbPerSec(int value);
     Map<String, String> getCurrentCompactionThroughputMebibytesPerSec();
 
+    public int getSelectSizeThroughputMbPerSec();
+    public void setSelectSizeThroughputMbPerSec(int value);
+
     public int getBatchlogReplayThrottleInKB();
     public void setBatchlogReplayThrottleInKB(int value);
 

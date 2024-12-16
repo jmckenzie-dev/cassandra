@@ -31,6 +31,8 @@ import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.partitions.CachedBTreePartition;
+import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.io.sstable.format.big.BigFormatPartitionWriter;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -153,8 +155,11 @@ public class UnfilteredRowIteratorSerializer
         UnfilteredSerializer.serializer.writeEndOfPartition(out);
     }
 
-    // Please note that this consume the iterator, and as such should not be called unless we have a simple way to
-    // recreate an iterator for both serialize and serializedSize, which is mostly only PartitionUpdate/ArrayBackedCachedPartition.
+    /**
+     * This consumes the iterator, and as such should not be called unless we have a simple way to recreate an iterator
+     * for both {@link #serialize} and {@link #serializedSize}. This is generally only in the two cases of:
+     * {@link PartitionUpdate} and {@link CachedBTreePartition}.
+     */
     public long serializedSize(UnfilteredRowIterator iterator, ColumnFilter selection, int version, int rowEstimate)
     {
         SerializationHeader header = new SerializationHeader(false,

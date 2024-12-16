@@ -350,6 +350,10 @@ public class Config
     public volatile int concurrent_materialized_view_builders = 1;
     public volatile int reject_repair_compaction_threshold = Integer.MAX_VALUE;
 
+    /** 0 == feature disabled, any positive value == rate limit in MiB */
+    public volatile DataRateSpec.LongBytesPerSecondBound select_size_calculation_throughput =
+    new DataRateSpec.LongBytesPerSecondBound("10000MiB/s");
+
     // The number of executors to use for building secondary indexes
     public volatile int concurrent_index_builders = 2;
 

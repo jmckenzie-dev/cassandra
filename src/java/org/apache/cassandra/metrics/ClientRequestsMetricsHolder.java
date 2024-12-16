@@ -29,16 +29,23 @@ public final class ClientRequestsMetricsHolder
     public static final CASClientWriteRequestMetrics casWriteMetrics = new CASClientWriteRequestMetrics("CASWrite");
     public static final CASClientRequestMetrics casReadMetrics = new CASClientRequestMetrics("CASRead");
     public static final ViewWriteMetrics viewWriteMetrics = new ViewWriteMetrics("ViewWrite");
+    public static final ClientRequestMetrics selectSizeMetrics = new ClientRequestMetrics("SelectSize");
+    public static final ClientRequestMetrics estimateLiveUncompressedSizeMetrics = new ClientRequestMetrics("EstimateLiveUncompressedSize");
 
     public static final Map<ConsistencyLevel, ClientRequestMetrics> readMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     public static final Map<ConsistencyLevel, ClientWriteRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
+    // We store the RowIndexEntry size-based calculations separately from the live uncompressed calculation as they share a calculation shape / runtime ergonomics
+    private static final EnumMap<ConsistencyLevel, ClientRequestMetrics> selectSizeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
+    private static final EnumMap<ConsistencyLevel, ClientRequestMetrics> estimateLiveUncompressedSizeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
 
     static
     {
         for (ConsistencyLevel level : ConsistencyLevel.values())
         {
-             readMetricsMap.put(level, new ClientRequestMetrics("Read-" + level.name()));
+            readMetricsMap.put(level, new ClientRequestMetrics("Read-" + level.name()));
             writeMetricsMap.put(level, new ClientWriteRequestMetrics("Write-" + level.name()));
+            selectSizeMetricsMap.put(level, new ClientRequestMetrics("SelectSize-" + level.name()));
+            estimateLiveUncompressedSizeMetricsMap.put(level, new ClientRequestMetrics("EstimateLiveUncompressedSize-" + level.name()));
         }
     }
 
@@ -50,5 +57,16 @@ public final class ClientRequestsMetricsHolder
     public static ClientWriteRequestMetrics writeMetricsForLevel(ConsistencyLevel level)
     {
         return writeMetricsMap.get(level);
+    }
+
+
+    public static ClientRequestMetrics selectSizeMetricsForLevel(ConsistencyLevel level)
+    {
+        return selectSizeMetricsMap.get(level);
+    }
+
+    public static ClientRequestMetrics estimateLiveUncompressedSizeForLevel(ConsistencyLevel level)
+    {
+        return estimateLiveUncompressedSizeMetricsMap.get(level);
     }
 }

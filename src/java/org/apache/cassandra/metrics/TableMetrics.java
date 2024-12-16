@@ -1034,7 +1034,7 @@ public class TableMetrics
 
                 CompressionMetadata compressionMetadata = sstable.getCompressionMetadata();
                 compressedLengthSum += compressionMetadata.compressedFileLength;
-                dataLengthSum += compressionMetadata.dataLength;
+                dataLengthSum += compressionMetadata.uncompressedDataLength;
             }
         }
         return dataLengthSum != 0 ? compressedLengthSum / dataLengthSum : MetadataCollector.NO_COMPRESSION_RATIO;

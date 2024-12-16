@@ -28,8 +28,8 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
 import org.apache.cassandra.distributed.shared.ThrowingRunnable;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.RandomHelpers;
 
-import static org.apache.cassandra.cql3.TombstonesWithIndexedSSTableTest.makeRandomString;
 import static org.junit.Assert.assertEquals;
 
 /**
@@ -94,7 +94,7 @@ public class DecoratedKeyPrefixesTest extends CQLTester
     private void addPartition(String key, int rowCount) throws Throwable
     {
         for (int i = 0; i < rowCount; ++i)
-            execute("INSERT INTO %s (pk, ck, v1, v2) values (?, ?, ?, ?)", key, i, 1, makeRandomString(ENTRY_SIZE));
+            execute("INSERT INTO %s (pk, ck, v1, v2) values (?, ?, ?, ?)", key, i, 1, RandomHelpers.makeRandomString(ENTRY_SIZE));
     }
 
     void testWithFlush(ThrowingRunnable test) throws Throwable

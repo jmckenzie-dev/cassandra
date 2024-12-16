@@ -407,7 +407,7 @@ public class MmappedRegionsTest
             {
                 assertFalse(regions.isEmpty());
                 int dataOffset = 0;
-                while (dataOffset < metadata.dataLength)
+                while (dataOffset < metadata.uncompressedDataLength)
                 {
                     verifyChunks(f, metadata, dataOffset, regions);
                     dataOffset += metadata.chunkLength();
@@ -442,7 +442,7 @@ public class MmappedRegionsTest
             regions.extend(metadata);
             assertFalse(regions.isEmpty());
             dataOffset = 0;
-            while (dataOffset < metadata.dataLength)
+            while (dataOffset < metadata.uncompressedDataLength)
             {
                 logger.info("Checking chunk {}..{}", dataOffset, dataOffset + metadata.chunkLength());
                 verifyChunks(f, metadata, dataOffset, regions);

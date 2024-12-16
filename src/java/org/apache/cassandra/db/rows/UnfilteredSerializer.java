@@ -19,6 +19,8 @@ package org.apache.cassandra.db.rows;
 
 import java.io.IOException;
 
+import com.google.common.base.Preconditions;
+
 import net.nicoulaj.compilecommand.annotations.Inline;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.ByteArrayAccessor;
@@ -304,13 +306,24 @@ public class UnfilteredSerializer
         }
     }
 
-    public long serializedSize(Unfiltered unfiltered, SerializationHelper helper, int version)
+    /**
+     * For an SSTable, since we don't have access to the SSTable's {@link EncodingStats} and the {@link Unfiltered}
+     * serialized with them in {@link #serializedRowBodySize), the values we get from the various
+     * serialized size calls will be off by some margin.
+     */
+    public long estimateSerializedSize(Unfiltered unfiltered, SerializationHelper helper, int version)
     {
-        assert !helper.header.isForSSTable();
+        Preconditions.checkArgument(helper.header.isForSSTable(), "Only use serializedSize estimation on SSTables");
         return serializedSize(unfiltered, helper, 0, version);
     }
 
-    public long serializedSize(Unfiltered unfiltered, SerializationHelper helper, long previousUnfilteredSize,int version)
+    public long serializedSize(Unfiltered unfiltered, SerializationHelper helper, int version)
+    {
+        Preconditions.checkArgument(!helper.header.isForSSTable(), "Do not use serializedSize for SSTables; use estimateSerializedSize instead.");
+        return serializedSize(unfiltered, helper, 0, version);
+    }
+
+    public long serializedSize(Unfiltered unfiltered, SerializationHelper helper, long previousUnfilteredSize, int version)
     {
         return unfiltered.kind() == Unfiltered.Kind.RANGE_TOMBSTONE_MARKER
              ? serializedSize((RangeTombstoneMarker) unfiltered, helper, previousUnfilteredSize, version)

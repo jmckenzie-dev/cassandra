@@ -24,6 +24,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -54,6 +55,7 @@ import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.cql3.statements.SelectSizeStatement;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.CounterMutation;
@@ -67,6 +69,7 @@ import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.RejectException;
+import org.apache.cassandra.db.SelectSizeCommand;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.TruncateRequest;
 import org.apache.cassandra.db.WriteType;
@@ -107,6 +110,7 @@ import org.apache.cassandra.locator.ReplicaPlan;
 import org.apache.cassandra.locator.ReplicaPlans;
 import org.apache.cassandra.locator.Replicas;
 import org.apache.cassandra.metrics.CASClientRequestMetrics;
+import org.apache.cassandra.metrics.ClientRequestMetrics;
 import org.apache.cassandra.metrics.ClientRequestSizeMetrics;
 import org.apache.cassandra.metrics.DenylistMetrics;
 import org.apache.cassandra.metrics.ReadRepairMetrics;
@@ -131,6 +135,8 @@ import org.apache.cassandra.service.paxos.v1.PrepareCallback;
 import org.apache.cassandra.service.paxos.v1.ProposeCallback;
 import org.apache.cassandra.service.reads.AbstractReadExecutor;
 import org.apache.cassandra.service.reads.ReadCallback;
+import org.apache.cassandra.service.reads.SelectSizeCallback;
+import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
 import org.apache.cassandra.service.reads.range.RangeCommands;
 import org.apache.cassandra.service.reads.repair.ReadRepair;
 import org.apache.cassandra.tcm.ClusterMetadata;
@@ -155,6 +161,10 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static org.apache.cassandra.db.ConsistencyLevel.SERIAL;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.casReadMetrics;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.casWriteMetrics;
+import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.estimateLiveUncompressedSizeForLevel;
+import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.estimateLiveUncompressedSizeMetrics;
+import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.selectSizeMetrics;
+import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.selectSizeMetricsForLevel;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.readMetrics;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.readMetricsForLevel;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.viewWriteMetrics;
@@ -2045,6 +2055,84 @@ public class StorageProxy implements StorageProxyMBean
                 return concatenated.next();
             }
         };
+    }
+
+    /**
+     * As the live uncompressed data set size calculations are expected to take much longer than RowIndexEntry lookups
+     * plus a couple chunk calculations, we want to store the metrics for those separately.
+     */
+    private static ClientRequestMetrics getSizeMetricsForLevel(SelectSizeCommand command, ConsistencyLevel cl)
+    {
+        return command.selectSizeType == SelectSizeStatement.Type.LIVE_UNCOMPRESSED
+               ? estimateLiveUncompressedSizeForLevel(cl)
+               : selectSizeMetricsForLevel(cl);
+    }
+
+    private static ClientRequestMetrics getSizeMetricsForCommand(SelectSizeCommand command)
+    {
+        return command.selectSizeType == SelectSizeStatement.Type.LIVE_UNCOMPRESSED
+               ? estimateLiveUncompressedSizeMetrics
+               : selectSizeMetrics;
+    }
+
+    public static Map<InetAddressAndPort, Long> fetchPartitionSize(SelectSizeCommand command, ConsistencyLevel cl, Dispatcher.RequestTime queryStartTime) throws ReadTimeoutException, UnavailableException
+    {
+        long start = nanoTime();
+        Keyspace keyspace = Keyspace.open(command.keyspace);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(command.table);
+
+        Token token = cfs.decorateKey(command.key).getToken();
+        try
+        {
+            ReplicaPlan.Shared sharedReplicaPlan = ReplicaPlan.shared(ReplicaPlans.forRead(keyspace, token, null, cl, SpeculativeRetryPolicy.fromString("never")));
+
+            SelectSizeCallback callback = new SelectSizeCallback(sharedReplicaPlan, queryStartTime);
+            Message<SelectSizeCommand> message = command.getMessage();
+
+            InetAddressAndPort broadcastAddress = FBUtilities.getBroadcastAddressAndPort();
+            Iterator<InetAddressAndPort> iter = sharedReplicaPlan.get().contacts().endpoints().iterator();
+            while (iter.hasNext())
+            {
+                InetAddressAndPort replica = iter.next();
+                if (replica.equals(broadcastAddress))
+                {
+                    Stage.READ.maybeExecuteImmediately(() -> {
+                        long size = command.executeLocally();
+                        callback.handleResponse(broadcastAddress, size);
+                    });
+                }
+                else
+                {
+                    MessagingService.instance().sendWithCallback(message, replica, callback);
+                }
+            }
+
+            return callback.get();
+        }
+        catch (UnavailableException e)
+        {
+            getSizeMetricsForLevel(command, cl).unavailables.mark();
+            getSizeMetricsForCommand(command).unavailables.mark();
+            throw e;
+        }
+        catch (ReadTimeoutException e)
+        {
+            getSizeMetricsForLevel(command, cl).timeouts.mark();
+            getSizeMetricsForCommand(command).timeouts.mark();
+            throw e;
+        }
+        catch (ReadFailureException e)
+        {
+            getSizeMetricsForLevel(command, cl).failures.mark();
+            getSizeMetricsForCommand(command).failures.mark();
+            throw e;
+        }
+        finally
+        {
+            long latency = nanoTime() - start;
+            getSizeMetricsForCommand(command).addNano(latency);
+            getSizeMetricsForLevel(command, cl).addNano(latency);
+        }
     }
 
     /**

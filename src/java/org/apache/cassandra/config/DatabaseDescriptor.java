@@ -2707,6 +2707,16 @@ public class DatabaseDescriptor
         conf.concurrent_validations = value;
     }
 
+    public static int getSelectSizeThroughputMebibytesPerSec()
+    {
+        return conf.select_size_calculation_throughput.toMebibytesPerSecondAsInt();
+    }
+
+    public static void setSelectSizeThroughputMebibytesPerSec(int value)
+    {
+        conf.select_size_calculation_throughput = new DataRateSpec.LongBytesPerSecondBound(value, MEBIBYTES_PER_SECOND);
+    }
+
     public static int getConcurrentViewBuilders()
     {
         return conf.concurrent_materialized_view_builders;

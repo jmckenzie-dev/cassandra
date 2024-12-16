@@ -601,13 +601,13 @@ public class SchemaLoader
                         put("tokenization_normalize_lowercase", "true");
                     }}));
 
-    return builder.indexes(indexes.build());
-}
+        return builder.indexes(indexes.build());
+    }
 
-public static TableMetadata.Builder clusteringSASICFMD(String ksName, String cfName)
-{
-    return clusteringSASICFMD(ksName, cfName, "location", "age", "height", "score");
-}
+    public static TableMetadata.Builder clusteringSASICFMD(String ksName, String cfName)
+    {
+        return clusteringSASICFMD(ksName, cfName, "location", "age", "height", "score");
+    }
 
     public static TableMetadata.Builder clusteringSASICFMD(String ksName, String cfName, String...indexedColumns)
     {
@@ -737,7 +737,6 @@ public static TableMetadata.Builder clusteringSASICFMD(String ksName, String cfN
             builder.build().apply();
         }
     }
-
 
     public static void cleanupSavedCaches()
     {

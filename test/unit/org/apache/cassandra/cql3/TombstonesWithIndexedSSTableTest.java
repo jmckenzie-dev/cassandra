@@ -17,8 +17,6 @@
  */
 package org.apache.cassandra.cql3;
 
-import java.util.Random;
-
 import org.junit.Assume;
 import org.junit.Test;
 
@@ -32,6 +30,7 @@ import org.apache.cassandra.io.sstable.format.big.BigTableReader;
 import org.apache.cassandra.io.sstable.format.big.RowIndexEntry;
 import org.apache.cassandra.io.sstable.format.bti.BtiFormat;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.RandomHelpers;
 
 public class TombstonesWithIndexedSSTableTest extends CQLTester
 {
@@ -60,7 +59,7 @@ public class TombstonesWithIndexedSSTableTest extends CQLTester
 
         // We create a partition that is big enough that the underlying sstable will be indexed
         // For that, we use a large-ish number of row, and a value that isn't too small.
-        String text = makeRandomString(VALUE_LENGTH);
+        String text = RandomHelpers.makeRandomString(VALUE_LENGTH);
         for (int i = 0; i < ROWS; i++)
             execute("INSERT INTO %s(k, t, v) VALUES (?, ?, ?)", 0, i, text + i);
 
@@ -130,7 +129,7 @@ public class TombstonesWithIndexedSSTableTest extends CQLTester
         int VALUE_LENGTH = 100;
 
         createTable("CREATE TABLE %s (k int, t int, v1 text, v2 text, v3 text, v4 text, PRIMARY KEY (k, t)) WITH caching = { 'keys' : '" + cacheKeys + "' }");
-        String text = makeRandomString(VALUE_LENGTH);
+        String text = RandomHelpers.makeRandomString(VALUE_LENGTH);
 
         // Write a large-enough partition to be indexed.
         for (int i = 0; i < ROWS; i++)
@@ -181,14 +180,5 @@ public class TombstonesWithIndexedSSTableTest extends CQLTester
             assertRows(execute("SELECT v1,v2,v3 FROM %s WHERE k = ? AND t <= ? ORDER BY t DESC LIMIT 1", 0, i),
                        row(v1Expected, v2Expected, text));
         }
-    }
-
-    public static String makeRandomString(int length)
-    {
-        Random random = new Random();
-        char[] chars = new char[length];
-        for (int i = 0; i < length; ++i)
-            chars[i++] = (char) ('a' + random.nextInt('z' - 'a' + 1));
-        return new String(chars);
     }
 }

@@ -36,6 +36,7 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
+import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -88,6 +89,7 @@ import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.assertj.core.api.Assertions;
 import org.mockito.Mockito;
 
 import static java.lang.String.format;
@@ -1434,5 +1436,110 @@ public class SSTableReaderTest
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cf);
         cfs.discardSSTables(System.currentTimeMillis());
         return cfs;
+    }
+
+    @Test
+    public void calculateUncompressedSizeTest()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD2);
+        partitioner = cfs.getPartitioner();
+
+        // insert 2 rows
+        for (int j = 0; j < 2; j++)
+        {
+            new RowUpdateBuilder(cfs.metadata(), j, String.valueOf(j))
+            .clustering("0")
+            .add("val", ByteBufferUtil.EMPTY_BYTE_BUFFER)
+            .build()
+            .applyUnsafe();
+        }
+
+        Set<SSTableReader> beforeFlush = cfs.getLiveSSTables();
+        cfs.forceBlockingFlush(UNIT_TESTS);
+        Set<SSTableReader> afterFlush = cfs.getLiveSSTables();
+        Sets.SetView<SSTableReader> sstables = Sets.difference(afterFlush, beforeFlush);
+
+        assertEquals(1, sstables.size());
+
+        SSTableReader sstable = sstables.iterator().next();
+
+        // check that both keys add up to total sstable size
+        long expectedTotal = sstable.uncompressedLength();
+        long actualTotal = sstable.tryGetUncompressedSerializedRowSize(dk(0)) + sstable.tryGetUncompressedSerializedRowSize(dk(1));
+        assertEquals(expectedTotal, actualTotal);
+
+        // check non-existant keys return nothing
+        assertEquals(0, sstable.tryGetUncompressedSerializedRowSize(dk(2)));
+    }
+
+    @SuppressWarnings("rawtypes")
+    @Test
+    public void calculateCompressedSizeTest()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_COMPRESSED);
+        partitioner = cfs.getPartitioner();
+        int partitionCount = 10;
+
+        // Insert 10 PK's w/1024 clustering values each
+        for (int p = 0; p < partitionCount; p++)
+        {
+            for (int c = 0; c < 1024; c++)
+            {
+                new RowUpdateBuilder(cfs.metadata.get(), c, String.valueOf(p))
+                .clustering(String.valueOf(c))
+                .add("val", String.valueOf(c))
+                .build()
+                .applyUnsafe();
+            }
+        }
+
+        Set<SSTableReader> beforeFlush = cfs.getLiveSSTables();
+        cfs.forceBlockingFlush(UNIT_TESTS);
+        Set<SSTableReader> afterFlush = cfs.getLiveSSTables();
+        Sets.SetView<SSTableReader> sstables = Sets.difference(afterFlush, beforeFlush);
+
+        // Even w/all the PK's and data, we should still be within 1 SSTable in size
+        Assert.assertEquals(1, sstables.size());
+
+        SSTableReader sstable = sstables.iterator().next();
+        long uncExpected = sstable.uncompressedLength();
+
+        long uncompressedSize = 0;
+        long compressedSize = 0;
+        // Sum up all the uncompressed sizes and confirm they are == the on disk size
+        for (int p = 0; p < partitionCount; p++)
+        {
+            DecoratedKey dk = dk(p);
+            long start = sstable.maybeGetPositionForKey(dk);
+            if (start == -1)
+                continue;
+            long end = sstable.maybeGetPositionForNextKey(dk);
+            uncompressedSize += sstable.getUncompressedSerializedRowSizeByBounds(dk, start, end);
+            compressedSize += sstable.estimateCompressedSerializedRowSize(dk, start, end);
+        }
+        // This differs slightly from the uncompressed test above where we check 1 PK. In this case we're checking all
+        // that we inserted to confirm that a summation of everything == the value of the file on disk
+        Assert.assertEquals(uncExpected, uncompressedSize);
+
+        // For our compressed data, since we're estimating within 2x Chunk.length on each entry we have a margin of error
+        // we need to compare to.
+        // Notably, in small test cases like this the errorMargin ends up being quite high compared to the data stored
+        // on disk. As partition sizes grow the portion of this estimate that is incorrect should shrink.
+        int errorMargin = partitionCount * sstable.metadata.get().params.compression.chunkLength() * 2;
+        long compressedExpected = sstable.onDiskLength();
+        Assert.assertTrue(Math.abs(compressedExpected - compressedSize) < errorMargin);
+
+        DecoratedKey badKey = dk(11);
+        Assert.assertEquals(0, sstable.tryGetUncompressedSerializedRowSize(badKey));
+        long start = sstable.maybeGetPositionForKey(badKey);
+        long end = sstable.maybeGetPositionForNextKey(badKey);
+
+        // The API's for uncompressed and compressed throw when the start is null if they're provided.
+        // We exercise the "don't try and do this" logic when we test the command itself elsewhere.
+        Assertions.assertThatThrownBy(() -> sstable.estimateCompressedSerializedRowSize(badKey, start, end))
+                  .isInstanceOf(IllegalStateException.class)
+                  .hasMessageContaining("partition which we do not know");
     }
 }

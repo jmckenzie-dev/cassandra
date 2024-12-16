@@ -1428,6 +1428,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return result;
     }
 
+    public int getSelectSizeThroughputMbPerSec()
+    {
+        return DatabaseDescriptor.getSelectSizeThroughputMebibytesPerSec();
+    }
+
+    public void setSelectSizeThroughputMbPerSec(int value)
+    {
+        DatabaseDescriptor.setSelectSizeThroughputMebibytesPerSec(value);
+    }
+
     public int getBatchlogReplayThrottleInKB()
     {
         return DatabaseDescriptor.getBatchlogReplayThrottleInKiB();

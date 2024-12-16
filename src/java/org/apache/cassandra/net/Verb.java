@@ -40,6 +40,9 @@ import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadCommandVerbHandler;
 import org.apache.cassandra.db.ReadRepairVerbHandler;
 import org.apache.cassandra.db.ReadResponse;
+import org.apache.cassandra.db.SelectSizeCommand;
+import org.apache.cassandra.db.SelectSizeResponse;
+import org.apache.cassandra.db.SelectSizeVerbHandler;
 import org.apache.cassandra.db.SnapshotCommand;
 import org.apache.cassandra.db.TruncateResponse;
 import org.apache.cassandra.db.TruncateVerbHandler;
@@ -247,6 +250,9 @@ public enum Verb
 
     // generic failure response
     FAILURE_RSP            (99,  P0, noTimeout,       REQUEST_RESPONSE,  () -> RequestFailureReason.serializer,      () -> ResponseVerbHandler.instance                             ),
+
+    SELECT_SIZE_RSP        (130, P2, readTimeout,     REQUEST_RESPONSE,  () -> SelectSizeResponse.serializer,        () -> ResponseVerbHandler.instance                             ),
+    SELECT_SIZE_REQ        (131, P3, readTimeout,     READ,              () -> SelectSizeCommand.serializer,         () -> SelectSizeVerbHandler.instance,      SELECT_SIZE_RSP     ),
 
     // dummy verbs
     _TRACE                 (30,  P1, rpcTimeout,      TRACING,           () -> NoPayload.serializer,                 () -> null                                                     ),

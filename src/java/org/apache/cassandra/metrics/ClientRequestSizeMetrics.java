@@ -49,14 +49,24 @@ public class ClientRequestSizeMetrics
         int rowCount = rows.result.size();
         ClientRequestSizeMetrics.totalRowsRead.inc(rowCount);
         
-        int nonRestrictedColumns = selection.getColumns().size();
-        
-        for (ColumnMetadata column : selection.getColumns())
-            if (restrictions.isEqualityRestricted(column))
-                nonRestrictedColumns--;
-            
-        long columnCount = (long) rowCount * nonRestrictedColumns;
-        ClientRequestSizeMetrics.totalColumnsRead.inc(columnCount);
+        if (selection == null)
+        {
+            // SELECT_SIZE, SELECT_COMPRESSED_SIZE, and ESTIMATE_LIVE_UNCOMPRESSED_SIZE queries do not select particular
+            // columns, and they will not pass restrictions here.
+            long columnCount = (long) rowCount * (rows.result.metadata.requestNames().size());
+            ClientRequestSizeMetrics.totalColumnsRead.inc(columnCount);
+        }
+        else
+        {
+            int nonRestrictedColumns = selection.getColumns().size();
+
+            for (ColumnMetadata column : selection.getColumns())
+                if (restrictions.isEqualityRestricted(column))
+                    nonRestrictedColumns--;
+
+            long columnCount = (long) rowCount * nonRestrictedColumns;
+            ClientRequestSizeMetrics.totalColumnsRead.inc(columnCount);
+        }
     }
 
     public static void recordRowAndColumnCountMetrics(Collection<? extends IMutation> mutations)

@@ -201,7 +201,7 @@ public class MmappedRegions extends SharedCloseableImpl
         long offset = metadata.getDataOffsetForChunkOffset(lastSegmentOffset);
         long segmentSize = 0;
 
-        while (offset < metadata.dataLength)
+        while (offset < metadata.uncompressedDataLength)
         {
             CompressionMetadata.Chunk chunk = metadata.chunkFor(offset);
 

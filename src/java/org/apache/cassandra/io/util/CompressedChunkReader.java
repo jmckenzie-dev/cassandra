@@ -40,7 +40,7 @@ public abstract class CompressedChunkReader extends AbstractReaderFileProxy impl
 
     protected CompressedChunkReader(ChannelProxy channel, CompressionMetadata metadata, Supplier<Double> crcCheckChanceSupplier)
     {
-        super(channel, metadata.dataLength);
+        super(channel, metadata.uncompressedDataLength);
         this.metadata = metadata;
         this.maxCompressedLength = metadata.maxCompressedLength();
         this.crcCheckChanceSupplier = crcCheckChanceSupplier;
@@ -67,7 +67,7 @@ public abstract class CompressedChunkReader extends AbstractReaderFileProxy impl
                              channel.filePath(),
                              metadata.compressor().getClass().getSimpleName(),
                              metadata.chunkLength(),
-                             metadata.dataLength);
+                             metadata.uncompressedDataLength);
     }
 
     @Override

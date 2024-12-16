@@ -99,7 +99,7 @@ public class FileHandle extends SharedCloseableImpl
 
     public long dataLength()
     {
-        return compressionMetadata.map(c -> c.dataLength).orElseGet(rebuffererFactory::fileLength);
+        return compressionMetadata.map(c -> c.uncompressedDataLength).orElseGet(rebuffererFactory::fileLength);
     }
 
     public RebuffererFactory rebuffererFactory()
@@ -176,7 +176,7 @@ public class FileHandle extends SharedCloseableImpl
     public void dropPageCache(long before)
     {
         long position = compressionMetadata.map(metadata -> {
-            if (before >= metadata.dataLength)
+            if (before >= metadata.uncompressedDataLength)
                 return 0L;
             else
                 return metadata.chunkFor(before).offset;

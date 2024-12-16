@@ -31,6 +31,7 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 public abstract class AbstractRowIndexEntry implements IMeasurableMemory
 {
     public final long position;
+    public static final short NOT_FOUND = -1;
 
     public AbstractRowIndexEntry(long position)
     {

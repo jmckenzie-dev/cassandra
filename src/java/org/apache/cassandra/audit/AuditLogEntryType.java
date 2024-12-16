@@ -62,6 +62,9 @@ public enum AuditLogEntryType
     DROP_IDENTITY(AuditLogEntryCategory.DCL),
     USE_KEYSPACE(AuditLogEntryCategory.OTHER),
     DESCRIBE(AuditLogEntryCategory.OTHER),
+    SELECT_SIZE(AuditLogEntryCategory.QUERY),
+    SELECT_COMPRESSED_SIZE(AuditLogEntryCategory.QUERY),
+    ESTIMATE_LIVE_UNCOMPRESSED_SIZE(AuditLogEntryCategory.QUERY),
 
     /*
      * Common Audit Log Entry Types

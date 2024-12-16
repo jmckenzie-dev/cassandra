@@ -255,7 +255,7 @@ public final class Generators
 
     public static Gen<String> string(Gen<Integer> sizes, char[] domain)
     {
-        // note, map is overloaded so String::new is ambugious to javac, so need a lambda here
+        // note, map is overloaded so String::new is ambiguous to javac, so need a lambda here
         return charArray(sizes, domain).map(c -> new String(c));
     }
 

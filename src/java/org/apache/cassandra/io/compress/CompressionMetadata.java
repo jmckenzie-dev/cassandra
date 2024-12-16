@@ -56,10 +56,11 @@ import org.apache.cassandra.utils.concurrent.WrappedSharedCloseable;
  */
 public class CompressionMetadata extends WrappedSharedCloseable
 {
-    // dataLength can represent either the true length of the file
-    // or some shorter value, in the case we want to impose a shorter limit on readers
-    // (when early opening, we want to ensure readers cannot read past fully written sections)
-    public final long dataLength;
+    /** uncompressedDataLength can represent either the true length of the file
+     * or some shorter value, in the case we want to impose a shorter limit on readers
+     * (when early opening, we want to ensure readers cannot read past fully written sections)
+     */
+    public final long uncompressedDataLength;
     public final long compressedFileLength;
     private final Memory chunkOffsets;
     private final long chunkOffsetsSize;
@@ -118,13 +119,13 @@ public class CompressionMetadata extends WrappedSharedCloseable
                                CompressionParams parameters,
                                Memory chunkOffsets,
                                long chunkOffsetsSize,
-                               long dataLength,
+                               long uncompressedDataLength,
                                long compressedFileLength)
     {
         super(chunkOffsets);
         this.chunksIndexFile = chunksIndexFile;
         this.parameters = parameters;
-        this.dataLength = dataLength;
+        this.uncompressedDataLength = uncompressedDataLength;
         this.compressedFileLength = compressedFileLength;
         this.chunkOffsets = chunkOffsets;
         this.chunkOffsetsSize = chunkOffsetsSize;
@@ -135,7 +136,7 @@ public class CompressionMetadata extends WrappedSharedCloseable
         super(copy);
         this.chunksIndexFile = copy.chunksIndexFile;
         this.parameters = copy.parameters;
-        this.dataLength = copy.dataLength;
+        this.uncompressedDataLength = copy.uncompressedDataLength;
         this.compressedFileLength = copy.compressedFileLength;
         this.chunkOffsets = copy.chunkOffsets;
         this.chunkOffsetsSize = copy.chunkOffsetsSize;

@@ -94,6 +94,7 @@ import org.apache.cassandra.io.util.FileHandle;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.metrics.RestorableMeter;
+import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -517,6 +518,62 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
         return sum;
     }
 
+    public long tryGetUncompressedSerializedRowSize(DecoratedKey dk)
+    {
+        long start = maybeGetPositionForKey(dk);
+        if (start == AbstractRowIndexEntry.NOT_FOUND)
+            return 0;
+        long end = maybeGetPositionForNextKey(dk);
+        return getUncompressedSerializedRowSizeByBounds(dk, start, end);
+    }
+
+    public long getUncompressedSerializedRowSizeByBounds(DecoratedKey dk, long start, long end)
+    {
+        if (start == AbstractRowIndexEntry.NOT_FOUND)
+            throw new IllegalStateException(String.format("Attempted to calculate an uncompressed partition size for a partition which we do not know: %s.", dk));
+
+        return end == AbstractRowIndexEntry.NOT_FOUND ?
+               uncompressedLength() - start :
+               end - start;
+    }
+
+    /**
+     * In the compressed case, we need to diff the offset for the chunks between start and end. We don't know precisely
+     * where in the {@link CompressionMetadata.Chunk} the initial key or ending key are, so our theoretical worst-case
+     * of being off is 2x {@link CompressionParams#chunkLength()}. This allows us to estimate the compressed size without
+     * a more heavy-handed approach - like decompressing the partition entirely to summate its size.
+     *
+     * @param dk The key for which we're estimating
+     * @param start The offset of the start of the data; this is required to be > 0; the caller should look this up
+     * @param end The offset of the end of the data; this is optional and can be passed in as -1 if not found.
+     * @return estimated calculated length of compressed bytes for this PK, 0 if not a compressed file
+     */
+    public long estimateCompressedSerializedRowSize(DecoratedKey dk, long start, long end)
+    {
+        if (dfile.compressionMetadata().isEmpty())
+            return 0;
+
+        if (start == AbstractRowIndexEntry.NOT_FOUND)
+            throw new IllegalStateException(String.format("Attempted to calculate a compressed partition size for a partition which we do not know: %s.", dk));
+
+        CompressionMetadata compressionMetadata = dfile.compressionMetadata().get();
+
+        if (end == AbstractRowIndexEntry.NOT_FOUND)
+            return compressionMetadata.compressedFileLength - compressionMetadata.chunkFor(start).offset;
+        else
+        {
+            long endOffset = compressionMetadata.chunkFor(end).offset;
+            CompressionMetadata.Chunk startChunk = compressionMetadata.chunkFor(start);
+            long startOffset = startChunk.offset;
+            // In the special case where the start and end RowIndexEntry are in the same chunk, we need to return an
+            // estimate of *something* that's not 0 and also not just the entire Chunk size. For now we use the minimum
+            // of the uncompressed size or the chunk size.
+            if (endOffset == startOffset)
+                return Math.min(getUncompressedSerializedRowSizeByBounds(dk, start, end), startChunk.length);
+            return endOffset - startOffset;
+        }
+    }
+
     public boolean equals(Object that)
     {
         return that instanceof SSTableReader && ((SSTableReader) that).descriptor.equals(this.descriptor);
@@ -858,6 +915,16 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
         return getPosition(key, op, updateStats, SSTableReadsListener.NOOP_LISTENER);
     }
 
+    public final long maybeGetPositionForKey(DecoratedKey key)
+    {
+        return getPosition(key, Operator.EQ);
+    }
+
+    public final long maybeGetPositionForNextKey(DecoratedKey key)
+    {
+        return getPosition(key, Operator.GT);
+    }
+
     /**
      * Retrieve a position in data file according to the provided key and operator.
      *
@@ -874,7 +941,7 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
                                SSTableReadsListener listener)
     {
         AbstractRowIndexEntry rie = getRowIndexEntry(key, op, updateStats, listener);
-        return rie != null ? rie.position : -1;
+        return rie != null ? rie.position : AbstractRowIndexEntry.NOT_FOUND;
     }
 
     /**
@@ -1817,7 +1884,7 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
         {
             // Only the data file is compressable.
             bytes += logical && component == Components.DATA && compression
-                     ? getCompressionMetadata().dataLength
+                     ? getCompressionMetadata().uncompressedDataLength
                      : descriptor.fileFor(component).length();
         }
         return bytes;

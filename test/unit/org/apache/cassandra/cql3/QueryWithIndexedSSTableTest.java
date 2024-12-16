@@ -27,6 +27,7 @@ import org.apache.cassandra.io.sstable.SSTableReadsListener;
 import org.apache.cassandra.io.sstable.format.ForwardingSSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.RandomHelpers;
 
 public class QueryWithIndexedSSTableTest extends CQLTester
 {
@@ -44,7 +45,7 @@ public class QueryWithIndexedSSTableTest extends CQLTester
 
         // We create a partition that is big enough that the underlying sstable will be indexed
         // For that, we use a large-ish number of row, and a value that isn't too small.
-        String text = TombstonesWithIndexedSSTableTest.makeRandomString(VALUE_LENGTH);
+        String text = RandomHelpers.makeRandomString(VALUE_LENGTH);
         for (int i = 0; i < ROWS; i++)
             execute("INSERT INTO %s(k, t, v) VALUES (?, ?, ?)", 0, i, text + i);
 

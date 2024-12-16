@@ -1281,4 +1281,15 @@ public class Util
         return tagSnapshotsMap;
     }
 
+    /**
+     * I'm going to blame Tom on this one: https://medium.com/unruly-engineering/detecting-when-youre-in-intellij-d4ea0fb86972
+     * NOTE: This is brittle and likely to break in the future, but should be trivially fixable and not a huge burden.
+     * TODO: extend this to include other IDE's and rename to logIfIDE. For anyone who wants this in their IDE that's not intellij.
+     */
+    @SuppressWarnings("JavadocLinkAsPlainText")
+    public static void logIfIntellij(String msg)
+    {
+        if (System.getProperty("sun.java.command","").contains("intellij"))
+            logger.info(msg);
+    }
 }

@@ -236,6 +236,7 @@ cqlStatement returns [CQLStatement.Raw stmt]
     | st42=addIdentityStatement            { $stmt = st42; }
     | st43=dropIdentityStatement           { $stmt = st43; }
     | st44=listSuperUsersStatement         { $stmt = st44; }
+    | st45=selectSizeStatement             { $stmt = st45; }
     ;
 
 /*
@@ -465,6 +466,30 @@ orderByClause[List<Ordering.Raw> orderings]
 
 groupByClause[List<Selectable.Raw> groups]
     : s=unaliasedSelector { groups.add(s); }
+    ;
+
+/**
+ * [ SELECT_SIZE | SELECT_COMPRESSED_SIZE | ESTIMATE_LIVE_UNCOMPRESSED_SIZE ] FROM <CF> WHERE KEY = "KEY1";
+ */
+selectSizeStatement returns [SelectSizeStatement.RawStatement expr]
+    : K_SELECT_SIZE
+        K_FROM cf=columnFamilyName
+        K_WHERE wclause=whereClause
+        {
+            $expr = new SelectSizeStatement.RawStatement(cf, wclause.build(), SelectSizeStatement.Type.UNCOMPRESSED);
+        }
+    | K_SELECT_COMPRESSED_SIZE
+      K_FROM cf=columnFamilyName
+      K_WHERE wclause=whereClause
+      {
+          $expr = new SelectSizeStatement.RawStatement(cf, wclause.build(), SelectSizeStatement.Type.COMPRESSED);
+      }
+    | K_ESTIMATE_LIVE_UNCOMPRESSED_SIZE
+      K_FROM cf=columnFamilyName
+      K_WHERE wclause=whereClause
+      {
+          $expr = new SelectSizeStatement.RawStatement(cf, wclause.build(), SelectSizeStatement.Type.LIVE_UNCOMPRESSED);
+      }
     ;
 
 /**
@@ -2055,5 +2080,8 @@ basic_unreserved_keyword returns [String str]
         | K_VECTOR
         | K_ANN
         | K_BETWEEN
+        | K_SELECT_SIZE
+        | K_SELECT_COMPRESSED_SIZE
+        | K_ESTIMATE_LIVE_UNCOMPRESSED_SIZE
         ) { $str = $k.text; }
     ;

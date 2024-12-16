@@ -31,9 +31,9 @@ import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.RandomHelpers;
 import org.hamcrest.Matchers;
 
-import static org.apache.cassandra.cql3.TombstonesWithIndexedSSTableTest.makeRandomString;
 import static org.junit.Assert.assertThat;
 
 public class UnifiedCompactionDensitiesTest extends TestBaseImpl
@@ -109,7 +109,7 @@ public class UnifiedCompactionDensitiesTest extends TestBaseImpl
     private static void writeData(Cluster cluster, long offset, long toWrite, int payloadSize)
     {
         for (int i = 0; i < toWrite; i += payloadSize)
-            cluster.coordinator(1).execute(withKeyspace("insert into %s.tbl (id, value) values (?, ?)"), ConsistencyLevel.ONE, i + offset, makeRandomString(payloadSize));
+            cluster.coordinator(1).execute(withKeyspace("insert into %s.tbl (id, value) values (?, ?)"), ConsistencyLevel.ONE, i + offset, RandomHelpers.makeRandomString(payloadSize));
     }
 
     private void checkSSTableSizes(int nodeCount, Cluster cluster, long targetMin, long targetMax)
