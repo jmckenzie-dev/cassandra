@@ -46,12 +46,15 @@ public class TombstonesTest extends CQLTester
     static final int ORIGINAL_WARN_THRESHOLD = DatabaseDescriptor.getTombstoneFailureThreshold();
     static final int WARN_THRESHOLD = 50;
 
+    static final int ORIGINAL_PAGE_TOMBSTONES = DatabaseDescriptor.getTombstonePagingThreshold();
+
     @BeforeClass
     public static void setUp() throws Throwable
     {
         DatabaseDescriptor.daemonInitialization();
         DatabaseDescriptor.setTombstoneFailureThreshold(FAILURE_THRESHOLD);
         DatabaseDescriptor.setTombstoneWarnThreshold(WARN_THRESHOLD);
+        DatabaseDescriptor.setTombstonePagingThreshold(-1);
     }
 
     @AfterClass
@@ -59,6 +62,7 @@ public class TombstonesTest extends CQLTester
     {
         DatabaseDescriptor.setTombstoneFailureThreshold(ORIGINAL_FAILURE_THRESHOLD);
         DatabaseDescriptor.setTombstoneWarnThreshold(ORIGINAL_WARN_THRESHOLD);
+        DatabaseDescriptor.setTombstonePagingThreshold(ORIGINAL_PAGE_TOMBSTONES);
     }
 
     @Test

@@ -26,6 +26,7 @@ import com.google.common.collect.Iterables;
 
 import org.apache.commons.lang3.tuple.Pair;
 
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.cql3.statements.SelectOptions;
 import org.apache.cassandra.db.ReadCommand.PotentialTxnConflicts;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
@@ -223,21 +224,29 @@ public interface SinglePartitionReadQuery extends ReadQuery
             // Note that the only difference between the queries in a group must be the partition key on which
             // they applied.
             boolean enforceStrictLiveness = queries.get(0).metadata().enforceStrictLiveness();
-            return limits.filter(UnfilteredPartitionIterators.filter(executeLocally(controller, false), nowInSec),
+            return limits.filter(UnfilteredPartitionIterators.filter(executeLocally(controller, Config.TOMBSTONE_PAGING_DISABLED, false), nowInSec),
                                  nowInSec,
                                  selectsFullPartitions,
                                  enforceStrictLiveness);
         }
 
+        @Override
         public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController)
         {
-            return executeLocally(executionController, true);
+            return executeLocally(executionController, -1, true);
+        }
+
+        @Override
+        public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, int tombstonePagingThreshold)
+        {
+            return executeLocally(executionController, tombstonePagingThreshold, true);
         }
 
         /**
          * Implementation of {@link ReadQuery#executeLocally(ReadExecutionController)}.
          *
          * @param executionController - the {@code ReadExecutionController} protecting the read.
+         * @param tombstonePagingThreshold - the value at which a page should short-circuit if enabled; -1 indicates disabled.
          * @param sort - whether to sort the inner queries by partition key, required for merging the iterator
          *               later on. This will be false when called by {@link ReadQuery#executeInternal(ReadExecutionController)}
          *               because in this case it is safe to do so as there is no merging involved and we don't want to
@@ -245,11 +254,11 @@ public interface SinglePartitionReadQuery extends ReadQuery
          *
          * @return - the iterator that can be used to retrieve the query result.
          */
-        private UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, boolean sort)
+        private UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, int tombstonePagingThreshold, boolean sort)
         {
             List<Pair<DecoratedKey, UnfilteredPartitionIterator>> partitions = new ArrayList<>(queries.size());
             for (T query : queries)
-                partitions.add(Pair.of(query.partitionKey(), query.executeLocally(executionController)));
+                partitions.add(Pair.of(query.partitionKey(), query.executeLocally(executionController, tombstonePagingThreshold)));
 
             if (sort)
                 Collections.sort(partitions, (p1, p2) -> p1.getLeft().compareTo(p2.getLeft()));

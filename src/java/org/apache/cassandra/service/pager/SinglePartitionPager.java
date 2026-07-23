@@ -18,6 +18,7 @@
 package org.apache.cassandra.service.pager;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.DecoratedKey;
@@ -87,12 +88,17 @@ public class SinglePartitionPager extends AbstractQueryPager<SinglePartitionRead
     @Override
     protected SinglePartitionReadQuery nextPageReadQuery(int pageSize)
     {
+        if (pageQueries == null)
+            pageQueries = new ArrayList<>();
         Clustering<?> clustering = lastReturned == null ? null : lastReturned.clustering(query.metadata());
+
         DataLimits limits = lastReturned == null
                           ? limits().forPaging(pageSize)
                           : limits().forPaging(pageSize, key(), remainingInPartition());
 
-        return query.forPaging(clustering, limits);
+        SinglePartitionReadQuery nextQuery = query.forPaging(clustering, limits);
+        pageQueries.add(nextQuery);
+        return nextQuery;
     }
 
     protected void recordLast(DecoratedKey key, Row last)

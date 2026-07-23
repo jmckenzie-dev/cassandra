@@ -85,4 +85,11 @@ public abstract class StoppingTransformation<I extends BaseRowIterator<?>> exten
     {
         rows = null;
     }
+
+    /** Allows deriving classes to introspect and take action if iteration has been stopped. */
+    protected boolean isStopped()
+    {
+        return (rows != null && rows.stop.isSignalled) ||
+               (partitions != null && partitions.stop.isSignalled);
+    }
 }
