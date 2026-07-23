@@ -635,6 +635,9 @@ public class Config
     public volatile int tombstone_warn_threshold = 1000;
     public volatile int tombstone_failure_threshold = 100000;
 
+    public static final int TOMBSTONE_PAGING_DISABLED = -1;
+    public volatile int tombstone_paging_threshold = TOMBSTONE_PAGING_DISABLED;
+
     public volatile boolean write_thresholds_enabled = false;
     public volatile DataStorageSpec.LongBytesBound write_size_warn_threshold = null;
     public volatile DurationSpec.LongMillisecondsBound coordinator_write_warn_interval = new DurationSpec.LongMillisecondsBound("1000ms");

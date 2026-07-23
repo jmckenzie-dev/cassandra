@@ -152,6 +152,73 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
     // include byteman so tests can use
     public static final Predicate<String> SHARED_PREDICATE = getSharedClassPredicate(ANY);
 
+    // (class, static field) locations where jamm stores its Instrumentation, across the versions we start in
+    // upgrade dtests. jamm 0.4.x uses MemoryMeterStrategies (public); jamm 0.3.x (bundled by 4.1) uses
+    // MemoryMeter (private). Only one exists per instance; we patch/read whichever is present.
+    private static final String[][] JAMM_INSTRUMENTATION_FIELDS = {
+        { "org.github.jamm.strategies.MemoryMeterStrategies", "instrumentation" },
+        { "org.github.jamm.MemoryMeter", "instrumentation" },
+    };
+
+    // jamm's Instrumentation, captured from the outer JVM's -javaagent:jamm premain. jamm is NOT one of
+    // InstanceClassLoader's shared packages, so every instance (regular or upgrade dtest-jar) loads its
+    // own copy of jamm with a null 'instrumentation' field. With no Instrumentation, jamm falls back to
+    // its Unsafe strategy, whose Unsafe.objectFieldOffset call throws "can't get field offset on a hidden
+    // class" on JDK17+ lambdas during ObjectSizes.measureDeep (e.g. at startup in SystemKeyspace.checkHealth).
+    // We propagate this reference into each instance's jamm before it starts so it uses instrumentation-based
+    // sizing instead. Null if no jamm agent is set on the outer JVM (then instances keep jamm's own behavior).
+    private static final Object OUTER_JAMM_INSTRUMENTATION = readOuterJammInstrumentation();
+
+    private static Object readOuterJammInstrumentation()
+    {
+        for (String[] loc : JAMM_INSTRUMENTATION_FIELDS)
+        {
+            try
+            {
+                Field field = Class.forName(loc[0]).getDeclaredField(loc[1]);
+                field.setAccessible(true);
+                Object inst = field.get(null);
+                if (inst != null)
+                    return inst;
+            }
+            catch (ReflectiveOperationException | LinkageError ignored)
+            {
+                // try the next known jamm flavor
+            }
+        }
+        logger.debug("Could not read jamm Instrumentation from the outer JVM; in-JVM instances will use jamm's fallback strategy");
+        return null;
+    }
+
+    // Best-effort: set the given instance classloader's jamm Instrumentation to the outer JVM's, so jamm
+    // uses instrumentation-based sizing rather than the Unsafe fallback. Must run before the instance first
+    // touches MemoryMeter (jamm 0.4.x builds its strategy lazily on first use; 0.3.x reads the field per
+    // measurement), which the instance initializer guarantees since it runs before instance startup.
+    static void propagateJammInstrumentation(ClassLoader instanceClassLoader)
+    {
+        if (OUTER_JAMM_INSTRUMENTATION == null)
+            return;
+        for (String[] loc : JAMM_INSTRUMENTATION_FIELDS)
+        {
+            try
+            {
+                Field field = instanceClassLoader.loadClass(loc[0]).getDeclaredField(loc[1]);
+                field.setAccessible(true);
+                field.set(null, OUTER_JAMM_INSTRUMENTATION);
+                return; // patched the flavor of jamm this instance bundles
+            }
+            catch (ClassNotFoundException | NoSuchFieldException | LinkageError e)
+            {
+                // not this jamm flavor; try the next known location
+            }
+            catch (IllegalAccessException e)
+            {
+                throw new RuntimeException(e);
+            }
+        }
+        logger.debug("Could not locate a jamm Instrumentation field to patch in instance classloader; jamm will use its fallback strategy");
+    }
+
     private final UUID clusterId = UUID.randomUUID();
     private final Path root;
     private final ClassLoader sharedClassLoader;
@@ -206,6 +273,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         private IInstanceInitializer defaultInitializer()
         {
             return (classLoader, threadGroup, i, i1) -> {
+                propagateJammInstrumentation(classLoader);
                 try
                 {
                     Class<?> ef = classLoader.loadClass(ExecutorFactory.class.getName());

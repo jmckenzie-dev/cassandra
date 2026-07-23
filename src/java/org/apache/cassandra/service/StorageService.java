@@ -4836,6 +4836,18 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         logger.info("updated tombstone_failure_threshold to {}", threshold);
     }
 
+    @Override
+    public int getTombstonePagingEnabled()
+    {
+        return DatabaseDescriptor.getTombstonePagingThreshold();
+    }
+
+    @Override
+    public void setTombstonePagingEnabled(int value)
+    {
+        DatabaseDescriptor.setTombstonePagingThreshold(value);
+    }
+
     public int getCachedReplicaRowsWarnThreshold()
     {
         return DatabaseDescriptor.getCachedReplicaRowsWarnThreshold();

@@ -25,6 +25,7 @@ import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
+import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.schema.TableMetadata;
@@ -64,7 +65,7 @@ public interface ReadQuery
                 return EmptyIterators.partition();
             }
 
-            public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController)
+            public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, int tombstonePagingThreshold)
             {
                 return EmptyIterators.unfilteredPartition(executionController.metadata());
             }
@@ -166,13 +167,36 @@ public interface ReadQuery
     PartitionIterator executeInternal(ReadExecutionController controller);
 
     /**
+     * If no specific behavior is specified for local query execution, we fall back on throwing an exception
+     * and not short-circuiting on tombstones. We don't want regular non-paged queries to accidentally
+     * pick up the short-circuit behavior since it takes an external actor to introspect on {@link ReadCommand#tombstoneLimitedRow()}
+     * to determine if the query returned all the requested data or not.
+     * @param executionController the {@code ReadExecutionController} protecting the read.
+     * @return the result of the read query, potentially short-circuited if a tombstone threshold is reached.
+     */
+    default UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController)
+    {
+        return executeLocally(executionController, -1);
+    }
+
+    /**
      * Execute the query locally. This is similar to {@link ReadQuery#executeInternal(ReadExecutionController)}
      * but it returns an unfiltered partition iterator that can be merged later on.
      *
      * @param executionController the {@code ReadExecutionController} protecting the read.
+     * @param tombstonePagingThreshold The value at which a page should short-circuit if enabled. -1 indicates disabled.
      * @return the result of the read query.
      */
-    UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController);
+    UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, int tombstonePagingThreshold);
+
+    /**
+     * If not null, this indicates paging across tombstones was requested at time of query creation
+     * and the query was stopped based on hitting tombstone count.
+     */
+    default @Nullable Row tombstoneLimitedRow()
+    {
+        return null;
+    }
 
     /**
      * Returns a pager for the query.
@@ -289,5 +313,13 @@ public interface ReadQuery
     default Index.QueryPlan indexQueryPlan()
     {
         return null;
+    }
+
+    /**
+     * Optionally provides a more easily human-readable format of the query, resolving clustering and other data.
+     */
+    default String toCQLString()
+    {
+        return this.toString();
     }
 }

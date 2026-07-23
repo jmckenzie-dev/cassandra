@@ -3384,6 +3384,16 @@ public class DatabaseDescriptor
         conf.tombstone_failure_threshold = threshold;
     }
 
+    public static int getTombstonePagingThreshold()
+    {
+        return conf.tombstone_paging_threshold;
+    }
+
+    public static void setTombstonePagingThreshold(int threshold)
+    {
+        conf.tombstone_paging_threshold = threshold;
+    }
+
     public static int getCachedReplicaRowsWarnThreshold()
     {
         return conf.replica_filtering_protection.cached_rows_warn_threshold;
