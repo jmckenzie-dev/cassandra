@@ -30,6 +30,7 @@ import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.distributed.test.TestBaseImpl;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.locator.ReplicaCollection;
@@ -116,6 +117,34 @@ public class StorageServiceTest extends TestBaseImpl
     {
         StorageService.instance.setSSTablePreemptiveOpenIntervalInMB(-1);
         assertEquals(-1, StorageService.instance.getSSTablePreemptiveOpenIntervalInMB());
+    }
+
+    @Test
+    public void testTombstoneCompactionQueueCapacity()
+    {
+        StorageService storageService = StorageService.instance;
+        int previous = storageService.getTombstoneCompactionQueueCapacity();
+        try
+        {
+            storageService.setTombstoneCompactionQueueCapacity(0);
+            assertEquals(0, storageService.getTombstoneCompactionQueueCapacity());
+            storageService.setTombstoneCompactionQueueCapacity(12);
+            assertEquals(12, storageService.getTombstoneCompactionQueueCapacity());
+
+            try
+            {
+                storageService.setTombstoneCompactionQueueCapacity(-1);
+                fail("Negative capacity must be rejected");
+            }
+            catch (ConfigurationException expected)
+            {
+                assertEquals(12, storageService.getTombstoneCompactionQueueCapacity());
+            }
+        }
+        finally
+        {
+            storageService.setTombstoneCompactionQueueCapacity(previous);
+        }
     }
 
     @Test

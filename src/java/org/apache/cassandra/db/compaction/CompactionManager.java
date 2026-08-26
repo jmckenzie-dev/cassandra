@@ -113,6 +113,7 @@ import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.schema.CompactionParams.TombstoneOption;
 import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
@@ -122,6 +123,7 @@ import org.apache.cassandra.tcm.ownership.DataPlacement;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.MBeanWrapper;
+import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.OutputHandler;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.TimeUUID;
@@ -173,13 +175,31 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
     private final ValidationExecutor validationExecutor = new ValidationExecutor();
     private final CompactionExecutor cacheCleanupExecutor = new CacheCleanupExecutor();
     private final CompactionExecutor viewBuildExecutor = new ViewBuildExecutor();
+    private final CompactionExecutor tombstoneCompactionExecutor =
+        new CompactionExecutor(1, "TombstoneCompactionExecutor", Integer.MAX_VALUE);
+    private final TombstoneTriggeredCompactionManager tombstoneTriggeredCompactions =
+        new TombstoneTriggeredCompactionManager(DatabaseDescriptor::getTombstoneCompactionQueueCapacity,
+                                                this::executeTombstoneTriggeredCompaction,
+                                                tombstoneCompactionExecutor,
+                                                100);
 
     // We can't house 2i builds in SecondaryIndexManagement because it could cause deadlocks with itself, and can cause
     // massive to indefinite pauses if prioritized either before or after normal compactions so we instead put it in its
     // own pool to prevent either scenario.
     private final SecondaryIndexExecutor secondaryIndexExecutor = new SecondaryIndexExecutor();
 
-    private final CompactionMetrics metrics = new CompactionMetrics(executor, validationExecutor, viewBuildExecutor, secondaryIndexExecutor);
+    private final CompactionMetrics metrics = new CompactionMetrics(executor, validationExecutor, viewBuildExecutor,
+                                                                    secondaryIndexExecutor, tombstoneCompactionExecutor);
+
+    private final NoSpamLogger.NoSpamLogStatement tombstoneCompactionAccepted =
+        NoSpamLogger.getStatement(logger,
+                                  "Accepted tombstone-triggered compaction for {} at token {} after purging {} tombstones; " +
+                                  "queue depth {}. Regular compaction may be lagging.",
+                                  1, TimeUnit.MINUTES);
+    private final NoSpamLogger.NoSpamLogStatement tombstoneCompactionQueueFull =
+        NoSpamLogger.getStatement(logger,
+                                  "Rejected tombstone-triggered compaction for {} at token {} because the queue is full at {} requests",
+                                  1, TimeUnit.MINUTES);
 
     @VisibleForTesting
     final Multiset<ColumnFamilyStore> compactingCF = ConcurrentHashMultiset.create();
@@ -298,7 +318,7 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
     @VisibleForTesting
     public boolean hasOngoingOrPendingTasks()
     {
-        if (!active.getCompactions().isEmpty() || !compactingCF.isEmpty())
+        if (!active.getCompactions().isEmpty() || !compactingCF.isEmpty() || tombstoneTriggeredCompactions.hasTasks())
             return true;
 
         int pendingTasks = executor.getPendingTaskCount() +
@@ -324,6 +344,7 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
      */
     public void forceShutdown()
     {
+        tombstoneTriggeredCompactions.shutdown(true);
         // shutdown executors to prevent further submission
         executor.shutdown();
         validationExecutor.shutdown();
@@ -341,7 +362,7 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
         // compaction tasks are interrupted above, so it shuold be fairy quick
         // until not interrupted tasks to complete.
         for (ExecutorService exec : Arrays.asList(executor, validationExecutor, viewBuildExecutor,
-                                                  cacheCleanupExecutor, secondaryIndexExecutor))
+                                                  cacheCleanupExecutor, secondaryIndexExecutor, tombstoneCompactionExecutor))
         {
             try
             {
@@ -357,8 +378,10 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
 
     public void finishCompactionsAndShutdown(long timeout, TimeUnit unit) throws InterruptedException
     {
+        tombstoneTriggeredCompactions.shutdown(false);
         executor.shutdown();
         executor.awaitTermination(timeout, unit);
+        tombstoneTriggeredCompactions.awaitTermination(timeout, unit);
     }
 
     // the actual sstables to compact are not determined until we run the BCT; that way, if new sstables
@@ -1322,6 +1345,55 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
     public void forceCompactionForKey(ColumnFamilyStore cfStore, DecoratedKey key)
     {
         forceCompaction(cfStore, () -> sstablesWithKey(cfStore, key), Predicates.alwaysTrue());
+    }
+
+    public void submitTombstoneTriggeredCompaction(ColumnFamilyStore cfs, DecoratedKey key, int tombstoneCount)
+    {
+        TombstoneTriggeredCompactionManager.AdmissionResult result = tombstoneTriggeredCompactions.enqueue(cfs.metadata().id, key);
+        if (result == TombstoneTriggeredCompactionManager.AdmissionResult.ACCEPTED)
+        {
+            tombstoneCompactionAccepted.warn(cfs.getKeyspaceName() + '.' + cfs.getTableName(),
+                                             key.getToken(),
+                                             tombstoneCount,
+                                             tombstoneTriggeredCompactions.outstandingTasks());
+        }
+        else if (result == TombstoneTriggeredCompactionManager.AdmissionResult.FULL)
+        {
+            tombstoneCompactionQueueFull.warn(cfs.getKeyspaceName() + '.' + cfs.getTableName(),
+                                              key.getToken(),
+                                              tombstoneTriggeredCompactions.outstandingTasks());
+        }
+    }
+
+    private TombstoneTriggeredCompactionManager.ExecutionResult executeTombstoneTriggeredCompaction(TableId tableId,
+                                                                                                     DecoratedKey key)
+    {
+        ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreInstance(tableId);
+        if (cfs == null)
+            return TombstoneTriggeredCompactionManager.ExecutionResult.COMPLETED;
+
+        Collection<SSTableReader> sstables = sstablesWithKey(cfs, key);
+        if (sstables.isEmpty())
+            return TombstoneTriggeredCompactionManager.ExecutionResult.COMPLETED;
+
+        CompactionTasks tasks = cfs.getCompactionStrategyManager()
+                                   .getUserDefinedTasksIfAvailable(sstables,
+                                                                  cfs.getDefaultGcBefore(FBUtilities.nowInSeconds()),
+                                                                  OperationType.TOMBSTONE_COMPACTION);
+        if (tasks == null)
+            return TombstoneTriggeredCompactionManager.ExecutionResult.BUSY;
+
+        try (CompactionTasks closeableTasks = tasks)
+        {
+            for (AbstractCompactionTask task : closeableTasks)
+            {
+                if (task != null)
+                {
+                    task.execute(active);
+                }
+            }
+        }
+        return TombstoneTriggeredCompactionManager.ExecutionResult.COMPLETED;
     }
 
     public void forceCompactionForKeys(ColumnFamilyStore cfStore, Collection<DecoratedKey> keys)

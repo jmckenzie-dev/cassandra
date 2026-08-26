@@ -1068,6 +1068,10 @@ public interface StorageServiceMBean extends NotificationEmitter
     public int getTombstoneWarnThreshold();
     /** Sets the threshold for warning queries with many tombstones */
     public void setTombstoneWarnThreshold(int tombstoneDebugThreshold);
+    /** Returns the maximum number of active and queued tombstone-triggered compactions */
+    public int getTombstoneCompactionQueueCapacity();
+    /** Sets the maximum number of active and queued tombstone-triggered compactions */
+    public void setTombstoneCompactionQueueCapacity(int capacity);
     /** Returns the threshold for write warning of queries with many tombstones */
     public int getWriteTombstoneWarnThreshold();
     /** Sets the threshold for write warning queries with many tombstones */

@@ -720,6 +720,37 @@ public class DatabaseDescriptorTest
     }
 
     @Test
+    public void testTombstoneCompactionQueueCapacity()
+    {
+        Config conf = new Config();
+        assertThat(conf.tombstone_compaction_queue_capacity).isEqualTo(10);
+
+        conf.tombstone_compaction_queue_capacity = 0;
+        DatabaseDescriptor.applyThresholdsValidations(conf);
+        conf.tombstone_compaction_queue_capacity = 20;
+        DatabaseDescriptor.applyThresholdsValidations(conf);
+        conf.tombstone_compaction_queue_capacity = -1;
+        assertThatThrownBy(() -> DatabaseDescriptor.applyThresholdsValidations(conf))
+        .isInstanceOf(ConfigurationException.class)
+        .hasMessageContaining("tombstone_compaction_queue_capacity (-1) must be >= 0");
+
+        int previous = DatabaseDescriptor.getTombstoneCompactionQueueCapacity();
+        try
+        {
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(0);
+            assertThat(DatabaseDescriptor.getTombstoneCompactionQueueCapacity()).isZero();
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(25);
+            assertThat(DatabaseDescriptor.getTombstoneCompactionQueueCapacity()).isEqualTo(25);
+            assertThatThrownBy(() -> DatabaseDescriptor.setTombstoneCompactionQueueCapacity(-1))
+            .isInstanceOf(ConfigurationException.class);
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(previous);
+        }
+    }
+
+    @Test
     public void testClientLargeReadWarnEqAbort()
     {
         Config conf = new Config();

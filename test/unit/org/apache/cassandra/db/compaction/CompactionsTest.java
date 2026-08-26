@@ -701,6 +701,42 @@ public class CompactionsTest
     }
 
     @Test
+    public void testUserDefinedTasksIfAvailableDoNotInterruptOwners()
+    {
+        ColumnFamilyStore store = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD4);
+        store.truncateBlocking();
+        store.disableAutoCompaction();
+        try
+        {
+            populate(KEYSPACE1, CF_STANDARD4, 0, 1, 0);
+            Util.flush(store);
+            SSTableReader sstable = store.getLiveSSTables().iterator().next();
+
+            for (OperationType ownerType : Arrays.asList(OperationType.COMPACTION,
+                                                         OperationType.VALIDATION,
+                                                         OperationType.ANTICOMPACTION))
+            {
+                ILifecycleTransaction owner = store.getTracker().tryModify(Collections.singleton(sstable), ownerType);
+                assertThat(owner).isNotNull();
+                try (ILifecycleTransaction closeableOwner = owner)
+                {
+                    CompactionTasks tasks = store.getCompactionStrategyManager()
+                                                 .getUserDefinedTasksIfAvailable(Collections.singleton(sstable),
+                                                                                 store.getDefaultGcBefore(FBUtilities.nowInSeconds()),
+                                                                                 OperationType.TOMBSTONE_COMPACTION);
+                    assertThat(tasks).isNull();
+                    assertThat(closeableOwner.originals()).containsExactly(sstable);
+                }
+            }
+        }
+        finally
+        {
+            store.truncateBlocking();
+            store.enableAutoCompaction();
+        }
+    }
+
+    @Test
     public void testConcurrencySettings()
     {
         CompactionManager.instance.setConcurrentCompactors(2);

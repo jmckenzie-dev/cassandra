@@ -48,6 +48,7 @@ import org.apache.cassandra.config.DataStorageSpec;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CqlBuilder;
 import org.apache.cassandra.cql3.statements.SelectOptions;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.filter.DataLimits;
@@ -974,6 +975,10 @@ public abstract class ReadCommand extends AbstractReadQuery
 
         class WithoutPurgeableTombstones extends PurgeFunction
         {
+            private DecoratedKey partitionKey;
+            private int purgeableTombstones;
+            private boolean compactionSubmitted;
+
             public WithoutPurgeableTombstones()
             {
                 super(nowInSec(), cfs.gcBefore(nowInSec()), controller.oldestUnrepairedTombstone(),
@@ -984,6 +989,25 @@ public abstract class ReadCommand extends AbstractReadQuery
             protected LongPredicate getPurgeEvaluator()
             {
                 return time -> true;
+            }
+
+            @Override
+            protected void onNewPartition(DecoratedKey partitionKey)
+            {
+                this.partitionKey = partitionKey;
+                purgeableTombstones = 0;
+                compactionSubmitted = false;
+            }
+
+            @Override
+            protected void onPurgeableDeletion()
+            {
+                purgeableTombstones++;
+                if (!compactionSubmitted && purgeableTombstones > DatabaseDescriptor.getTombstoneWarnThreshold())
+                {
+                    compactionSubmitted = true;
+                    CompactionManager.instance.submitTombstoneTriggeredCompaction(cfs, partitionKey, purgeableTombstones);
+                }
             }
         }
         return Transformation.apply(iterator, new WithoutPurgeableTombstones());

@@ -4826,6 +4826,17 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         logger.info("updated tombstone_warn_threshold to {}", threshold);
     }
 
+    public int getTombstoneCompactionQueueCapacity()
+    {
+        return DatabaseDescriptor.getTombstoneCompactionQueueCapacity();
+    }
+
+    public void setTombstoneCompactionQueueCapacity(int capacity)
+    {
+        DatabaseDescriptor.setTombstoneCompactionQueueCapacity(capacity);
+        logger.info("updated tombstone_compaction_queue_capacity to {}", capacity);
+    }
+
     public int getWriteTombstoneWarnThreshold()
     {
         return DatabaseDescriptor.getWriteTombstoneWarnThreshold();

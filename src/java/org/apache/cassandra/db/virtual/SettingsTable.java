@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
@@ -43,11 +44,14 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.utils.JsonUtils;
 
+import static org.apache.cassandra.cql3.statements.RequestValidations.invalidRequest;
+
 @VisibleForTesting
-public final class SettingsTable extends AbstractVirtualTable
+public final class SettingsTable extends AbstractMutableVirtualTable
 {
     private static final String NAME = "name";
     private static final String VALUE = "value";
+    private static final String TOMBSTONE_COMPACTION_QUEUE_CAPACITY = "tombstone_compaction_queue_capacity";
 
     public static final Map<String, String> BACKWARDS_COMPATIBLE_NAMES = ImmutableMap.copyOf(getBackwardsCompatibleNames());
     protected static final Map<String, Property> PROPERTIES = ImmutableMap.copyOf(getProperties());
@@ -94,9 +98,56 @@ public final class SettingsTable extends AbstractVirtualTable
         return result;
     }
 
+    @Override
+    protected void applyColumnUpdate(ColumnValues partitionKey,
+                                     ColumnValues clusteringColumns,
+                                     Optional<ColumnValue> columnValue)
+    {
+        String name = partitionKey.value(0);
+        if (!TOMBSTONE_COMPACTION_QUEUE_CAPACITY.equals(name))
+            throw invalidRequest("Setting '%s' is read-only", name);
+
+        if (!columnValue.isPresent() || !VALUE.equals(columnValue.get().name()))
+            throw invalidRequest("Only the value column of setting '%s' can be updated", name);
+
+        String value = columnValue.get().value();
+        final int capacity;
+        try
+        {
+            capacity = Integer.parseInt(value);
+        }
+        catch (NumberFormatException e)
+        {
+            throw invalidRequest("Invalid integer value '%s' for setting '%s'", value, name);
+        }
+
+        DatabaseDescriptor.setTombstoneCompactionQueueCapacity(capacity);
+    }
+
+    @Override
+    protected void applyPartitionDeletion(ColumnValues partitionKey)
+    {
+        throw invalidRequest("Settings cannot be deleted");
+    }
+
+    @Override
+    protected void applyRowDeletion(ColumnValues partitionKey, ColumnValues clusteringColumns)
+    {
+        throw invalidRequest("Settings cannot be deleted");
+    }
+
+    @Override
+    protected void applyColumnDeletion(ColumnValues partitionKey, ColumnValues clusteringColumns, String columnName)
+    {
+        throw invalidRequest("Settings cannot be deleted");
+    }
+
     @VisibleForTesting
     String getValue(Property prop)
     {
+        if (TOMBSTONE_COMPACTION_QUEUE_CAPACITY.equals(prop.getName()))
+            return Integer.toString(DatabaseDescriptor.getTombstoneCompactionQueueCapacity());
+
         Redacted maybeCredential = prop.getAnnotation(Redacted.class);
         if (maybeCredential != null)
             return maybeCredential.redactedValue();

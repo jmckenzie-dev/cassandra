@@ -43,14 +43,22 @@ public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator
                          boolean enforceStrictLiveness)
     {
         this.nowInSec = nowInSec;
-        this.purger = (timestamp, localDeletionTime) ->
-                      !(onlyPurgeRepairedTombstones && localDeletionTime >= oldestUnrepairedTombstone)
-                      && (localDeletionTime < gcBefore || ignoreGcGraceSeconds)
-                      && getPurgeEvaluator().test(timestamp);
+        this.purger = (timestamp, localDeletionTime) -> {
+            boolean shouldPurge = !(onlyPurgeRepairedTombstones && localDeletionTime >= oldestUnrepairedTombstone)
+                                  && (localDeletionTime < gcBefore || ignoreGcGraceSeconds)
+                                  && getPurgeEvaluator().test(timestamp);
+            if (shouldPurge)
+                onPurgeableDeletion();
+            return shouldPurge;
+        };
         this.enforceStrictLiveness = enforceStrictLiveness;
     }
 
     protected abstract LongPredicate getPurgeEvaluator();
+
+    protected void onPurgeableDeletion()
+    {
+    }
 
     // Called at the beginning of each new partition
     protected void onNewPartition(DecoratedKey partitionKey)

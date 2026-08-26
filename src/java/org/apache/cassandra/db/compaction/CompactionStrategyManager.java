@@ -1294,6 +1294,48 @@ public class CompactionStrategyManager implements INotificationConsumer
         }
     }
 
+    /**
+     * Create user-defined tasks only when every repair and disk group can be reserved without interruption.
+     * Returns {@code null} and releases any partial reservations when another operation owns a group.
+     */
+    CompactionTasks getUserDefinedTasksIfAvailable(Collection<SSTableReader> sstables,
+                                                    long gcBefore,
+                                                    OperationType operationType)
+    {
+        maybeReloadDiskBoundaries();
+        List<AbstractCompactionTask> tasks = new ArrayList<>();
+        boolean available = true;
+        readLock.lock();
+        try
+        {
+            List<GroupedSSTableContainer> groupedSSTables = groupSSTables(sstables);
+            outer:
+            for (int i = 0; i < holders.size(); i++)
+            {
+                for (AbstractCompactionTask task : holders.get(i).getUserDefinedTasks(groupedSSTables.get(i), gcBefore))
+                {
+                    if (task == null)
+                    {
+                        available = false;
+                        break outer;
+                    }
+                    tasks.add(task.setCompactionType(operationType));
+                }
+            }
+        }
+        finally
+        {
+            readLock.unlock();
+        }
+
+        if (!available)
+        {
+            CompactionTasks.create(tasks).close();
+            return null;
+        }
+        return CompactionTasks.create(tasks);
+    }
+
     public int getEstimatedRemainingTasks()
     {
         maybeReloadDiskBoundaries();

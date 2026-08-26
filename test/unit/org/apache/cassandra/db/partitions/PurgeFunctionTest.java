@@ -19,6 +19,7 @@ package org.apache.cassandra.db.partitions;
 
 import java.nio.ByteBuffer;
 import java.util.Iterator;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongPredicate;
 
 import com.google.common.collect.Iterators;
@@ -61,6 +62,13 @@ public final class PurgeFunctionTest
 
     private static UnfilteredPartitionIterator withoutPurgeableTombstones(UnfilteredPartitionIterator iterator, long gcBefore)
     {
+        return withoutPurgeableTombstones(iterator, gcBefore, new AtomicInteger());
+    }
+
+    private static UnfilteredPartitionIterator withoutPurgeableTombstones(UnfilteredPartitionIterator iterator,
+                                                                           long gcBefore,
+                                                                           AtomicInteger purged)
+    {
         class WithoutPurgeableTombstones extends PurgeFunction
         {
             private WithoutPurgeableTombstones()
@@ -71,6 +79,12 @@ public final class PurgeFunctionTest
             protected LongPredicate getPurgeEvaluator()
             {
                 return time -> true;
+            }
+
+            @Override
+            protected void onPurgeableDeletion()
+            {
+                purged.incrementAndGet();
             }
         }
 
@@ -138,6 +152,27 @@ public final class PurgeFunctionTest
         UnfilteredPartitionIterator purged = withoutPurgeableTombstones(original, 2);
 
         assertTrue(!purged.hasNext());
+    }
+
+    @Test
+    public void testPurgeCallbackFiresOnlyForPurgeableDeletions()
+    {
+        AtomicInteger purged = new AtomicInteger();
+        UnfilteredPartitionIterator original = iter(false,
+                                                    bound(Kind.INCL_START_BOUND, 0L, 0, "a"),
+                                                    bound(Kind.INCL_END_BOUND, 0L, 0, "b"));
+        UnfilteredPartitionIterator result = withoutPurgeableTombstones(original, 1, purged);
+        assertTrue(!result.hasNext());
+        assertEquals(2, purged.get());
+
+        purged.set(0);
+        original = iter(false,
+                        bound(Kind.INCL_START_BOUND, 0L, 1, "a"),
+                        bound(Kind.INCL_END_BOUND, 0L, 1, "b"));
+        result = withoutPurgeableTombstones(original, 1, purged);
+        assertTrue(result.hasNext());
+        assertEquals(0, purged.get());
+        result.close();
     }
 
     @Test

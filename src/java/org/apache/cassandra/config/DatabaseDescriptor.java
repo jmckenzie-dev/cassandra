@@ -1353,6 +1353,7 @@ public class DatabaseDescriptor
         validateReadThresholds("coordinator_read_size", config.coordinator_read_size_warn_threshold, config.coordinator_read_size_fail_threshold);
         validateReadThresholds("local_read_size", config.local_read_size_warn_threshold, config.local_read_size_fail_threshold);
         validateReadThresholds("row_index_read_size", config.row_index_read_size_warn_threshold, config.row_index_read_size_fail_threshold);
+        validateTombstoneCompactionQueueCapacity(config.tombstone_compaction_queue_capacity);
 
         // Write threshold warning depends on top_partitions tracking
         if (config.write_thresholds_enabled && !config.top_partitions_enabled)
@@ -1387,6 +1388,12 @@ public class DatabaseDescriptor
         if (writeTombstoneWarn != -1 && writeTombstoneWarn < minTrackedTombstoneCount)
             throw new ConfigurationException(String.format("write_tombstone_warn_threshold (%d) cannot be less than min_tracked_partition_tombstone_count (%d)",
                                                            writeTombstoneWarn, minTrackedTombstoneCount));
+    }
+
+    private static void validateTombstoneCompactionQueueCapacity(int capacity)
+    {
+        if (capacity < 0)
+            throw new ConfigurationException(String.format("tombstone_compaction_queue_capacity (%d) must be >= 0", capacity));
     }
 
     public static GuardrailsOptions getGuardrailsConfig()
@@ -3406,6 +3413,17 @@ public class DatabaseDescriptor
     public static void setTombstoneWarnThreshold(int threshold)
     {
         conf.tombstone_warn_threshold = threshold;
+    }
+
+    public static int getTombstoneCompactionQueueCapacity()
+    {
+        return conf.tombstone_compaction_queue_capacity;
+    }
+
+    public static void setTombstoneCompactionQueueCapacity(int capacity)
+    {
+        validateTombstoneCompactionQueueCapacity(capacity);
+        conf.tombstone_compaction_queue_capacity = capacity;
     }
 
     public static int getTombstoneFailureThreshold()

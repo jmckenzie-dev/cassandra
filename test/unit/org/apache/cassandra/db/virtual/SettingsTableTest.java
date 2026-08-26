@@ -40,6 +40,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -63,6 +64,7 @@ import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.distributed.shared.WithProperties;
 import org.apache.cassandra.repair.autorepair.AutoRepairConfig;
 import org.apache.cassandra.security.SSLFactory;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.JsonUtils;
 
 import static java.util.stream.Collectors.toMap;
@@ -171,6 +173,37 @@ public class SettingsTableTest extends CQLTester
     {
         String q = "SELECT * FROM vts.settings WHERE name = 'EMPTY'";
         assertRowsNet(executeNet(q));
+    }
+
+    @Test
+    public void testTombstoneCompactionQueueCapacityIsMutable() throws Throwable
+    {
+        int previous = StorageService.instance.getTombstoneCompactionQueueCapacity();
+        try
+        {
+            executeNet("UPDATE vts.settings SET value = '7' WHERE name = 'tombstone_compaction_queue_capacity'");
+            assertRowsNet(executeNet("SELECT * FROM vts.settings WHERE name = 'tombstone_compaction_queue_capacity'"),
+                          new Object[] { "tombstone_compaction_queue_capacity", "7" });
+            Assert.assertEquals(7, StorageService.instance.getTombstoneCompactionQueueCapacity());
+
+            StorageService.instance.setTombstoneCompactionQueueCapacity(9);
+            Assert.assertEquals(9, DatabaseDescriptor.getTombstoneCompactionQueueCapacity());
+            assertRowsNet(executeNet("SELECT * FROM vts.settings WHERE name = 'tombstone_compaction_queue_capacity'"),
+                          new Object[] { "tombstone_compaction_queue_capacity", "9" });
+
+            assertInvalidMessage("tombstone_compaction_queue_capacity (-1) must be >= 0",
+                                 "UPDATE vts.settings SET value = '-1' WHERE name = 'tombstone_compaction_queue_capacity'");
+            assertInvalidMessage("Invalid integer value 'bad'",
+                                 "UPDATE vts.settings SET value = 'bad' WHERE name = 'tombstone_compaction_queue_capacity'");
+            assertInvalidMessage("Setting 'tombstone_warn_threshold' is read-only",
+                                 "UPDATE vts.settings SET value = '1' WHERE name = 'tombstone_warn_threshold'");
+            assertInvalidMessage("Settings cannot be deleted",
+                                 "DELETE FROM vts.settings WHERE name = 'tombstone_compaction_queue_capacity'");
+        }
+        finally
+        {
+            StorageService.instance.setTombstoneCompactionQueueCapacity(previous);
+        }
     }
 
     @Test

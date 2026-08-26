@@ -634,6 +634,7 @@ public class Config
 
     public volatile int sstables_per_read_log_threshold = 100;
     public volatile int tombstone_warn_threshold = 1000;
+    public volatile int tombstone_compaction_queue_capacity = 10;
     public volatile int tombstone_failure_threshold = 100000;
 
     public volatile boolean write_thresholds_enabled = false;

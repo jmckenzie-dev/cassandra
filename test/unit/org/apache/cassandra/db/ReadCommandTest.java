@@ -45,6 +45,7 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.compaction.CompactionPipelineCounts;
 import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.filter.DataLimits;
@@ -100,6 +101,7 @@ import org.apache.cassandra.utils.TimeUUID;
 
 import static org.apache.cassandra.utils.ByteBufferUtil.EMPTY_BYTE_BUFFER;
 import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
+import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -756,6 +758,51 @@ public class ReadCommandTest
         assertEquals(0, cfs.metric.purgeableTombstoneScannedHistogram.cf.getSnapshot().getMin());
         assertEquals(3, cfs.metric.purgeableTombstoneScannedHistogram.cf.getSnapshot().getMax());
     }
+
+    @Test
+    public void testPurgeableTombstonesTriggerPartitionCompaction() throws Exception
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF10);
+        int previousThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
+        int previousCapacity = DatabaseDescriptor.getTombstoneCompactionQueueCapacity();
+        Config.TombstonesMetricGranularity previousGranularity = DatabaseDescriptor.getPurgeableTobmstonesMetricGranularity();
+        boolean previousCursorSetting = DatabaseDescriptor.cursorCompactionEnabled();
+        cfs.disableAutoCompaction();
+        try
+        {
+            DatabaseDescriptor.setTombstoneWarnThreshold(1);
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(10);
+            DatabaseDescriptor.setPurgeableTobmstonesMetricGranularity(Config.TombstonesMetricGranularity.disabled);
+
+            for (boolean cursorEnabled : new boolean[] { false, true })
+            {
+                cfs.truncateBlocking();
+                DatabaseDescriptor.setCursorCompactionEnabled(cursorEnabled);
+                String key = "trigger-" + cursorEnabled;
+                runWriteOperations(cfs, new TestWriteOperation[] {
+                    TestWriteOperation.deleteRow(key, "aa", PURGEABLE_DELETION),
+                    TestWriteOperation.deleteRow(key, "bb", PURGEABLE_DELETION)
+                });
+                Util.flush(cfs);
+                assertFalse(cfs.getLiveSSTables().isEmpty());
+
+                CompactionPipelineCounts pipelines = CompactionPipelineCounts.mark();
+                runPartitionReadCommands(cfs, Collections.singleton(key));
+                await().atMost(30, java.util.concurrent.TimeUnit.SECONDS).until(() -> cfs.getLiveSSTables().isEmpty());
+                CompactionPipelineCounts.assertPipelineRan(false, pipelines);
+            }
+        }
+        finally
+        {
+            DatabaseDescriptor.setCursorCompactionEnabled(previousCursorSetting);
+            DatabaseDescriptor.setPurgeableTobmstonesMetricGranularity(previousGranularity);
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(previousCapacity);
+            DatabaseDescriptor.setTombstoneWarnThreshold(previousThreshold);
+            cfs.truncateBlocking();
+            cfs.enableAutoCompaction();
+        }
+    }
+
     @Test
     public void testCountPurgeablePartitionTombstones() throws Exception
     {
