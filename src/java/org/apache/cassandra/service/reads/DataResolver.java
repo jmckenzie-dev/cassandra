@@ -50,12 +50,14 @@ import org.apache.cassandra.index.Index;
 import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.locator.ReplicaPlan;
 import org.apache.cassandra.net.Message;
+import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.reads.repair.NoopReadRepair;
 import org.apache.cassandra.service.reads.repair.ReadRepair;
 import org.apache.cassandra.service.reads.repair.RepairedDataTracker;
 import org.apache.cassandra.service.reads.repair.RepairedDataVerifier;
 import org.apache.cassandra.transport.Dispatcher;
+import org.apache.cassandra.utils.FBUtilities;
 
 import static com.google.common.collect.Iterables.any;
 import static com.google.common.collect.Iterables.transform;
@@ -88,6 +90,14 @@ public class DataResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
     public boolean isDataPresent()
     {
         return !responses.isEmpty();
+    }
+
+    public boolean supportsTombstonePageCheckpoints()
+    {
+        return command.isLimitedToOnePartition()
+               && !command.isTopK()
+               && !command.limits().isUnlimited()
+               && replicaPlan().readQuorum() > 1;
     }
 
     public PartitionIterator resolve()
@@ -202,13 +212,21 @@ public class DataResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
 
     private UnfilteredPartitionIterator shortReadProtectedResponse(int i, ResolveContext context, @Nullable Runnable onShortRead)
     {
-        UnfilteredPartitionIterator originalResponse = responses.get(i).payload.makeIterator(command);
+        Message<ReadResponse> response = responses.get(i);
+        UnfilteredPartitionIterator originalResponse = response.payload.makeIterator(command);
+        int tombstoneLimitedCount = (int) response.header.params().getOrDefault(ParamType.TOMBSTONE_PAGE_CHECKPOINT, 0);
+        boolean needShortReadProtection = context.needShortReadProtection();
+        if (needShortReadProtection
+            && tombstoneLimitedCount > 0
+            && response.from().equals(FBUtilities.getBroadcastAddressAndPort()))
+            command.consumeTombstoneLimitedRow();
 
-        return context.needShortReadProtection()
+        return needShortReadProtection
                ? ShortReadProtection.extend(context.replicas.get(i),
-                                            () -> { responses.clearUnsafe(i); if (onShortRead != null) onShortRead.run(); },
-                                            originalResponse,
-                                            command,
+                                             () -> { responses.clearUnsafe(i); if (onShortRead != null) onShortRead.run(); },
+                                             originalResponse,
+                                             tombstoneLimitedCount,
+                                             command,
                                             context.mergedResultCounter,
                                             coordinator,
                                             requestTime,

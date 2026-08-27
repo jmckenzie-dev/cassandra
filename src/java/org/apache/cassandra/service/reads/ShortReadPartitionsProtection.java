@@ -29,6 +29,7 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
 import org.apache.cassandra.db.ReadCommand;
+import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
@@ -42,6 +43,7 @@ import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.locator.ReplicaPlan;
 import org.apache.cassandra.locator.ReplicaPlans;
+import org.apache.cassandra.net.Message;
 import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.service.reads.repair.NoopReadRepair;
 import org.apache.cassandra.tracing.Tracing;
@@ -56,6 +58,7 @@ public class ShortReadPartitionsProtection extends Transformation<UnfilteredRowI
     private final Replica source;
 
     private final Runnable preFetchCallback; // called immediately before fetching more contents
+    private final int tombstoneLimitedCount;
 
     private final DataLimits.Counter singleResultCounter; // unmerged per-source counter
     private final DataLimits.Counter mergedResultCounter; // merged end-result counter
@@ -71,6 +74,7 @@ public class ShortReadPartitionsProtection extends Transformation<UnfilteredRowI
                                          ReadCommand command,
                                          Replica source,
                                          Runnable preFetchCallback,
+                                         int tombstoneLimitedCount,
                                          DataLimits.Counter singleResultCounter,
                                          DataLimits.Counter mergedResultCounter,
                                          Dispatcher.RequestTime requestTime)
@@ -79,6 +83,7 @@ public class ShortReadPartitionsProtection extends Transformation<UnfilteredRowI
         this.command = command;
         this.source = source;
         this.preFetchCallback = preFetchCallback;
+        this.tombstoneLimitedCount = tombstoneLimitedCount;
         this.singleResultCounter = singleResultCounter;
         this.mergedResultCounter = mergedResultCounter;
         this.requestTime = requestTime;
@@ -103,7 +108,8 @@ public class ShortReadPartitionsProtection extends Transformation<UnfilteredRowI
                                                                          command, source,
                                                                          (cmd) -> executeReadCommand(cmd, sharedReplicaPlan),
                                                                          singleResultCounter,
-                                                                         mergedResultCounter);
+                                                                         mergedResultCounter,
+                                                                         tombstoneLimitedCount);
         return Transformation.apply(MoreRows.extend(partition, protection), protection);
     }
 
@@ -176,15 +182,25 @@ public class ShortReadPartitionsProtection extends Transformation<UnfilteredRowI
         DataRange newDataRange = cmd.dataRange().forSubRange(newBounds);
 
         ReplicaPlan.ForRangeRead replicaPlan = ReplicaPlans.forSingleReplicaRead(Keyspace.open(command.metadata().keyspace), cmd.dataRange().keyRange(), source, 1);
-        return executeReadCommand(cmd.withUpdatedLimitsAndDataRange(newLimits, newDataRange), ReplicaPlan.shared(replicaPlan));
+        Message<ReadResponse> response = executeReadCommand(cmd.withUpdatedLimitsAndDataRange(newLimits, newDataRange), ReplicaPlan.shared(replicaPlan));
+        return response.payload.makeIterator(command);
     }
 
     private <E extends Endpoints<E>, P extends ReplicaPlan.ForRead<E, P>>
-    UnfilteredPartitionIterator executeReadCommand(ReadCommand cmd, ReplicaPlan.Shared<E, P> replicaPlan)
+    Message<ReadResponse> executeReadCommand(ReadCommand cmd, ReplicaPlan.Shared<E, P> replicaPlan)
     {
         cmd = coordinator.maybeAllowOutOfRangeReads(cmd, replicaPlan.get().consistencyLevel());
         DataResolver<E, P> resolver = new DataResolver<>(coordinator, cmd, replicaPlan, (NoopReadRepair<E, P>)NoopReadRepair.instance, requestTime);
-        ReadCallback<E, P> handler = new ReadCallback<>(resolver, cmd, replicaPlan, requestTime);
+        boolean acceptsTombstonePageCheckpoints = cmd.isLimitedToOnePartition()
+                                                  && !cmd.isTopK()
+                                                  && !cmd.limits().isUnlimited();
+        ReadCallback<E, P> handler = new ReadCallback<>(resolver,
+                                                        cmd,
+                                                        replicaPlan,
+                                                        requestTime,
+                                                        acceptsTombstonePageCheckpoints
+                                                        ? ReadCallback.TombstonePageCheckpointPolicy.ACCEPT
+                                                        : ReadCallback.TombstonePageCheckpointPolicy.REJECT);
 
         if (source.isSelf() && coordinator.localReadSupported())
         {
@@ -200,6 +216,6 @@ public class ShortReadPartitionsProtection extends Transformation<UnfilteredRowI
         // We don't call handler.get() because we want to preserve tombstones since we're still in the middle of merging node results.
         handler.awaitResults();
         assert resolver.getMessages().size() == 1;
-        return resolver.getMessages().get(0).payload.makeIterator(command);
+        return resolver.getMessages().get(0);
     }
 }

@@ -33,7 +33,9 @@ import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
+import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.db.partitions.PartitionIterator;
+import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.locator.Replica;
@@ -93,13 +95,19 @@ public abstract class AbstractReadRepair<E extends Endpoints<E>, P extends Repli
         return replicaPlan.get();
     }
 
+    void dispatchLocalRead(Runnable localRead)
+    {
+        Stage.READ.maybeExecuteImmediately(localRead);
+    }
+
     void sendReadCommand(Replica to, ReadCallback<E, P> readCallback, boolean speculative, boolean trackRepairedStatus)
     {
         ReadCommand command = coordinator.maybeAllowOutOfRangeReads(this.command, replicaPlan().consistencyLevel());
 
         if (to.isSelf() && coordinator.localReadSupported())
         {
-            Stage.READ.maybeExecuteImmediately(new StorageProxy.LocalReadRunnable(command, readCallback, requestTime, trackRepairedStatus));
+            command = command.copy();
+            dispatchLocalRead(new StorageProxy.LocalReadRunnable(command, readCallback, requestTime, trackRepairedStatus));
             return;
         }
 
@@ -143,7 +151,36 @@ public abstract class AbstractReadRepair<E extends Endpoints<E>, P extends Repli
 
         // Do a full data read to resolve the correct response (and repair node that need be)
         DataResolver<E, P> resolver = new DataResolver<>(coordinator, command, replicaPlan, this, requestTime, trackRepairedStatus);
-        ReadCallback<E, P> readCallback = new ReadCallback<>(resolver, command, replicaPlan, requestTime);
+        boolean supportsTombstonePageCheckpoints = resolver.supportsTombstonePageCheckpoints();
+        Row tombstoneLimitedRow = command.tombstoneLimitedRow();
+        int tombstoneLimitedCount = command.tombstoneLimitedCount();
+        if (tombstoneLimitedRow != null || tombstoneLimitedCount > 0)
+        {
+            if (!supportsTombstonePageCheckpoints)
+            {
+                if (command instanceof SinglePartitionReadCommand && tombstoneLimitedRow != null)
+                {
+                    throw new TombstoneOverwhelmingException(tombstoneLimitedCount,
+                                                              command.toCQLString(),
+                                                              command.metadata(),
+                                                              ((SinglePartitionReadCommand) command).partitionKey(),
+                                                              tombstoneLimitedRow.clustering());
+                }
+
+                throw new IllegalStateException(String.format("Cannot continue tombstone-limited read repair for %s at consistency level %s",
+                                                              command.toCQLString(),
+                                                              replicaPlan().consistencyLevel()));
+            }
+
+            command.consumeTombstoneLimitedRow();
+        }
+        ReadCallback<E, P> readCallback = new ReadCallback<>(resolver,
+                                                             command,
+                                                             replicaPlan,
+                                                             requestTime,
+                                                             supportsTombstonePageCheckpoints
+                                                             ? ReadCallback.TombstonePageCheckpointPolicy.ACCEPT
+                                                             : ReadCallback.TombstonePageCheckpointPolicy.REJECT);
 
         digestRepair = new DigestRepair<>(resolver, readCallback, resultConsumer);
 

@@ -105,11 +105,14 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.quicktheories.QuickTheory.qt;
+import static org.quicktheories.generators.SourceDSL.integers;
 
 public class ReadCommandTest
 {
     private static final String CREATE = "1";
     private static final String DELETE = "-1";
+    private static final long TOMBSTONE_CHECKPOINT_PROPERTY_SEED = 7130977L;
 
     private static final String KEYSPACE = "ReadCommandTest";
     private static final String CF1 = "Standard1";
@@ -801,6 +804,130 @@ public class ReadCommandTest
         assertEquals(0, cfs.metric.purgeableTombstoneScannedHistogram.cf.getSnapshot().getMin());
         assertEquals(1, cfs.metric.purgeableTombstoneScannedHistogram.cf.getSnapshot().getMax());
 
+    }
+
+    @Test
+    public void testTombstoneLimitStateResetOnReuse()
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF2);
+        String partitionKey = "checkpoint-reset";
+        int originalFailureThreshold = DatabaseDescriptor.getTombstoneFailureThreshold();
+
+        try
+        {
+            DatabaseDescriptor.setTombstoneFailureThreshold(2);
+            RowUpdateBuilder.deleteRow(cfs.metadata(), 10, ByteBufferUtil.bytes(partitionKey), "aa").applyUnsafe();
+            RowUpdateBuilder.deleteRow(cfs.metadata(), 10, ByteBufferUtil.bytes(partitionKey), "bb").applyUnsafe();
+            RowUpdateBuilder.deleteRow(cfs.metadata(), 10, ByteBufferUtil.bytes(partitionKey), "cc").applyUnsafe();
+
+            SinglePartitionReadCommand command = getWholePartitionReadCommand(cfs, partitionKey, FBUtilities.nowInSeconds())
+                                                   .withUpdatedLimit(DataLimits.cqlLimits(1));
+            executeAndConsume(command, 2);
+            Assert.assertNotNull(command.tombstoneLimitedRow());
+            assertEquals(3, command.tombstoneLimitedCount());
+
+            Assert.assertNotNull(command.consumeTombstoneLimitedRow());
+            Assert.assertNull(command.tombstoneLimitedRow());
+            assertEquals(0, command.tombstoneLimitedCount());
+
+            executeAndConsume(command, 2);
+            Assert.assertNotNull(command.tombstoneLimitedRow());
+            assertEquals(3, command.tombstoneLimitedCount());
+
+            cfs.truncateBlocking();
+            executeAndConsume(command, 2);
+            Assert.assertNull(command.tombstoneLimitedRow());
+            assertEquals(0, command.tombstoneLimitedCount());
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstoneFailureThreshold(originalFailureThreshold);
+            cfs.truncateBlocking();
+        }
+    }
+
+    @Test
+    public void tombstonePageCheckpointStateIsThresholdBoundedProperty()
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF2);
+        String partitionKey = "checkpoint-property";
+        int originalFailureThreshold = DatabaseDescriptor.getTombstoneFailureThreshold();
+
+        try
+        {
+            qt().withSeed(TOMBSTONE_CHECKPOINT_PROPERTY_SEED)
+                .withExamples(24)
+                .withPure(false)
+                .forAll(integers().between(1, 12), integers().between(1, 12))
+                .checkAssert((failureThreshold, extraTombstones) -> {
+                    cfs.truncateBlocking();
+                    try
+                    {
+                        DatabaseDescriptor.setTombstoneFailureThreshold(failureThreshold);
+                        int tombstoneCount = failureThreshold + extraTombstones;
+                        for (int clustering = 0; clustering < tombstoneCount; clustering++)
+                            RowUpdateBuilder.deleteRow(cfs.metadata(), 10, ByteBufferUtil.bytes(partitionKey), Integer.toString(clustering)).applyUnsafe();
+
+                        SinglePartitionReadCommand command = getWholePartitionReadCommand(cfs, partitionKey, FBUtilities.nowInSeconds())
+                                                           .withUpdatedLimit(DataLimits.cqlLimits(1));
+                        executeAndConsume(command, failureThreshold);
+
+                        Assert.assertNotNull(command.tombstoneLimitedRow());
+                        assertEquals(failureThreshold + 1, command.tombstoneLimitedCount());
+                        Assert.assertNotNull(command.consumeTombstoneLimitedRow());
+                        Assert.assertNull(command.tombstoneLimitedRow());
+                        assertEquals(0, command.tombstoneLimitedCount());
+
+                        executeAndConsume(command, failureThreshold);
+                        Assert.assertNotNull(command.tombstoneLimitedRow());
+                        assertEquals(failureThreshold + 1, command.tombstoneLimitedCount());
+
+                        cfs.truncateBlocking();
+                        executeAndConsume(command, failureThreshold);
+                        Assert.assertNull(command.tombstoneLimitedRow());
+                        assertEquals(0, command.tombstoneLimitedCount());
+                    }
+                    finally
+                    {
+                        cfs.truncateBlocking();
+                    }
+                });
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstoneFailureThreshold(originalFailureThreshold);
+            cfs.truncateBlocking();
+        }
+    }
+
+    @Test
+    public void testTombstonePageCheckpointOwnerCopiedWithCommandVariants()
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF2);
+        SinglePartitionReadCommand command = getWholePartitionReadCommand(cfs, "checkpoint-owner", FBUtilities.nowInSeconds());
+
+        assertFalse(command.hasTombstonePageCheckpointOwner());
+        command.setTombstonePageCheckpointOwner();
+
+        assertTrue(command.copy().hasTombstonePageCheckpointOwner());
+        assertTrue(command.withUpdatedLimit(DataLimits.cqlLimits(1)).hasTombstonePageCheckpointOwner());
+        assertTrue(command.withTransactionalSettings(false, command.nowInSec()).hasTombstonePageCheckpointOwner());
+    }
+
+    private static void executeAndConsume(SinglePartitionReadCommand command, int tombstonePagingThreshold)
+    {
+        try (ReadExecutionController executionController = command.executionController();
+             UnfilteredPartitionIterator partitions = command.executeLocally(executionController, tombstonePagingThreshold))
+        {
+            while (partitions.hasNext())
+            {
+                try (UnfilteredRowIterator rows = partitions.next())
+                {
+                    while (rows.hasNext())
+                        rows.next();
+                }
+            }
+        }
     }
 
     /**

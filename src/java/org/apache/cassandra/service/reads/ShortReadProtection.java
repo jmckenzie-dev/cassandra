@@ -42,6 +42,7 @@ public class ShortReadProtection
     public static UnfilteredPartitionIterator extend(Replica source,
                                                      Runnable preFetchCallback,
                                                      UnfilteredPartitionIterator partitions,
+                                                     int tombstoneLimitedCount,
                                                      ReadCommand command,
                                                      DataLimits.Counter mergedResultCounter,
                                                      ReadCoordinator coordinator,
@@ -54,9 +55,10 @@ public class ShortReadProtection
                                                                              enforceStrictLiveness).onlyCount();
 
         ShortReadPartitionsProtection protection = new ShortReadPartitionsProtection(coordinator, command,
-                                                                                     source,
-                                                                                     preFetchCallback,
-                                                                                     singleResultCounter,
+                                                                                      source,
+                                                                                      preFetchCallback,
+                                                                                      tombstoneLimitedCount,
+                                                                                      singleResultCounter,
                                                                                      mergedResultCounter,
                                                                                      requestTime);
 

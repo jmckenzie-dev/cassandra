@@ -420,7 +420,8 @@ public class SinglePartitionReadCommand extends ReadCommand implements SinglePar
 
     public SinglePartitionReadCommand copy()
     {
-        return create(serializedAtEpoch(),
+        return copyTombstonePageCheckpointOwner(
+               create(serializedAtEpoch(),
                       isDigestQuery(),
                       digestVersion(),
                       acceptsTransient(),
@@ -433,7 +434,14 @@ public class SinglePartitionReadCommand extends ReadCommand implements SinglePar
                       partitionKey(),
                       clusteringIndexFilter(),
                       indexQueryPlan(),
-                      isTrackingWarnings());
+                      isTrackingWarnings()));
+    }
+
+    private SinglePartitionReadCommand copyTombstonePageCheckpointOwner(SinglePartitionReadCommand copy)
+    {
+        if (hasTombstonePageCheckpointOwner())
+            copy.setTombstonePageCheckpointOwner();
+        return copy;
     }
 
     @Override
@@ -477,7 +485,8 @@ public class SinglePartitionReadCommand extends ReadCommand implements SinglePar
     @Override
     public SinglePartitionReadCommand withUpdatedLimit(DataLimits newLimits)
     {
-        return create(serializedAtEpoch(),
+        return copyTombstonePageCheckpointOwner(
+               create(serializedAtEpoch(),
                       isDigestQuery(),
                       digestVersion(),
                       acceptsTransient(),
@@ -490,7 +499,7 @@ public class SinglePartitionReadCommand extends ReadCommand implements SinglePar
                       partitionKey(),
                       clusteringIndexFilter(),
                       indexQueryPlan(),
-                      isTrackingWarnings());
+                      isTrackingWarnings()));
     }
 
     @Override
@@ -1360,7 +1369,8 @@ public class SinglePartitionReadCommand extends ReadCommand implements SinglePar
      */
     public SinglePartitionReadCommand withTransactionalSettings(boolean withoutReconciliation, long nowInSeconds)
     {
-        return create(serializedAtEpoch(),
+        return copyTombstonePageCheckpointOwner(
+               create(serializedAtEpoch(),
                       isDigestQuery(),
                       digestVersion(),
                       acceptsTransient(),
@@ -1373,7 +1383,7 @@ public class SinglePartitionReadCommand extends ReadCommand implements SinglePar
                       partitionKey(),
                       clusteringIndexFilter(),
                       indexQueryPlan(),
-                      isTrackingWarnings());
+                      isTrackingWarnings()));
     }
 
     /**

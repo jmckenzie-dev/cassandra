@@ -165,6 +165,8 @@ public abstract class ReadCommand extends AbstractReadQuery
 
     /** If the command is stopped due to reaching a tombstone limit, we cache the Row on which it was stopped */
     private Row tombstoneLimitedRow;
+    private int tombstoneLimitedCount;
+    private boolean hasTombstonePageCheckpointOwner;
 
     private final boolean isDigestQuery;
     private final boolean acceptsTransient;
@@ -392,6 +394,29 @@ public abstract class ReadCommand extends AbstractReadQuery
         return tombstoneLimitedRow;
     }
 
+    public int tombstoneLimitedCount()
+    {
+        return tombstoneLimitedCount;
+    }
+
+    public void setTombstonePageCheckpointOwner()
+    {
+        hasTombstonePageCheckpointOwner = true;
+    }
+
+    public boolean hasTombstonePageCheckpointOwner()
+    {
+        return hasTombstonePageCheckpointOwner;
+    }
+
+    public @Nullable Row consumeTombstoneLimitedRow()
+    {
+        Row row = tombstoneLimitedRow;
+        tombstoneLimitedRow = null;
+        tombstoneLimitedCount = 0;
+        return row;
+    }
+
     /**
      * Returns a copy of this command.
      *
@@ -556,6 +581,9 @@ public abstract class ReadCommand extends AbstractReadQuery
                                   // iterators created inside the try as long as we do close the original resultIterator), or by closing the result.
     public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, @Nullable ClusterMetadata cm, int tombstonePagingThreshold)
     {
+        tombstoneLimitedRow = null;
+        tombstoneLimitedCount = 0;
+
         long startTimeNanos = nanoTime();
 
         COMMAND.set(this);
@@ -730,7 +758,10 @@ public abstract class ReadCommand extends AbstractReadQuery
                 }
 
                 if (isStopped())
+                {
                     tombstoneLimitedRow = row;
+                    tombstoneLimitedCount = tombstones;
+                }
 
                 return row;
             }

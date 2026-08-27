@@ -97,6 +97,7 @@ public class SinglePartitionPager extends AbstractQueryPager<SinglePartitionRead
                           : limits().forPaging(pageSize, key(), remainingInPartition());
 
         SinglePartitionReadQuery nextQuery = query.forPaging(clustering, limits);
+        nextQuery.setTombstonePageCheckpointOwner();
         pageQueries.add(nextQuery);
         return nextQuery;
     }

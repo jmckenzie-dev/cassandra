@@ -696,7 +696,8 @@ public class PagingAcrossTombstonesTest extends CQLTester
             Message.Response resp = client.execute(query);
             assertNull(resp.getWarnings());
 
-            query = new QueryMessage(String.format("SELECT * FROM %s.%s WHERE pk = 1;", KEYSPACE, table), QueryOptions.DEFAULT);
+            QueryOptions pagedOptions = QueryOptions.withPageSize(QueryOptions.DEFAULT, 300);
+            query = new QueryMessage(String.format("SELECT * FROM %s.%s WHERE pk = 1;", KEYSPACE, table), pagedOptions);
             resp = client.execute(query);
             assertNotNull("Response was unexpectedly null.", resp);
             assertNotNull("Response warnings was unexpectedly null.", resp.getWarnings());

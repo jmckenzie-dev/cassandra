@@ -66,6 +66,13 @@ import static org.apache.cassandra.utils.concurrent.Condition.newOneTimeConditio
 
 public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<E, P>> implements RequestCallback<ReadResponse>
 {
+    public enum TombstonePageCheckpointPolicy
+    {
+        REJECT,
+        ACCEPT,
+        USE_LOCAL_COMMAND
+    }
+
     protected static final Logger logger = LoggerFactory.getLogger(ReadCallback.class);
 
     public final ResponseResolver<E, P> resolver;
@@ -75,6 +82,7 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
     // may not be visible to the threads immediately, but ReplicaPlan only contains final fields, so they will never see an uninitialised object
     final ReplicaPlan.Shared<E, P> replicaPlan;
     private final ReadCommand command;
+    private final TombstonePageCheckpointPolicy tombstonePageCheckpointPolicy;
     private static final AtomicIntegerFieldUpdater<ReadCallback> failuresUpdater
             = newUpdater(ReadCallback.class, "failures");
     private volatile int failures = 0;
@@ -85,10 +93,20 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
 
     public ReadCallback(ResponseResolver<E, P> resolver, ReadCommand command, ReplicaPlan.Shared<E, P> replicaPlan, Dispatcher.RequestTime requestTime)
     {
+        this(resolver, command, replicaPlan, requestTime, TombstonePageCheckpointPolicy.REJECT);
+    }
+
+    public ReadCallback(ResponseResolver<E, P> resolver,
+                        ReadCommand command,
+                        ReplicaPlan.Shared<E, P> replicaPlan,
+                        Dispatcher.RequestTime requestTime,
+                        TombstonePageCheckpointPolicy tombstonePageCheckpointPolicy)
+    {
         this.command = command;
         this.resolver = resolver;
         this.requestTime = requestTime;
         this.replicaPlan = replicaPlan;
+        this.tombstonePageCheckpointPolicy = tombstonePageCheckpointPolicy;
         this.failureReasonByEndpoint = new ConcurrentHashMap<>();
         // we don't support read repair (or rapid read protection) for range scans yet (CASSANDRA-6897)
         assert !(command instanceof PartitionRangeReadCommand) || replicaPlan().readQuorum() >= replicaPlan().contacts().size();
@@ -225,9 +243,17 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
         assertWaitingFor(message.from());
         Map<ParamType, Object> params = message.header.params();
         InetAddressAndPort from = message.from();
-        if (WarningContext.isSupported(params.keySet()))
+        Map<ParamType, Object> warningParams = params;
+        if (tombstonePageCheckpointPolicy == TombstonePageCheckpointPolicy.ACCEPT
+            && params.containsKey(ParamType.TOMBSTONE_PAGE_CHECKPOINT)
+            && !message.payload.isDigestResponse())
         {
-            RequestFailure reason = getWarningContext().updateCounters(params, from);
+            warningParams = new HashMap<>(params);
+            warningParams.remove(ParamType.TOMBSTONE_FAIL);
+        }
+        if (WarningContext.isSupported(warningParams.keySet()))
+        {
+            RequestFailure reason = getWarningContext().updateCounters(warningParams, from);
             replicaPlan().collectFailure(message.from(), reason);
             if (reason != null)
             {
@@ -264,10 +290,31 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
 
     public void response(ReadResponse result)
     {
+        response(result, 0, true);
+    }
+
+    private void response(ReadResponse result, int tombstoneLimitedCount, boolean failOnTombstonePageCheckpoint)
+    {
         Verb kind = command.isRangeRequest() ? Verb.RANGE_RSP : Verb.READ_RSP;
         Message<ReadResponse> message = Message.internalResponse(kind, result);
         message = MessageParams.addToMessage(message);
+        if (tombstoneLimitedCount > 0)
+        {
+            message = message.withParam(ParamType.TOMBSTONE_PAGE_CHECKPOINT, tombstoneLimitedCount);
+            if (failOnTombstonePageCheckpoint)
+                message = message.withParam(ParamType.TOMBSTONE_FAIL, tombstoneLimitedCount);
+        }
         onResponse(message);
+    }
+
+    public void response(ReadResponse result, ReadCommand executedCommand)
+    {
+        if (tombstonePageCheckpointPolicy == TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND
+            && command == executedCommand
+            && command.hasTombstonePageCheckpointOwner())
+            response(result, executedCommand.tombstoneLimitedCount(), false);
+        else
+            response(result, executedCommand.tombstoneLimitedCount(), true);
     }
 
     @Override

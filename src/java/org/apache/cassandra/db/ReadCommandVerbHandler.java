@@ -36,6 +36,7 @@ import org.apache.cassandra.metrics.TCMMetrics;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.tcm.ClusterMetadata;
@@ -126,6 +127,12 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
             Tracing.trace("Enqueuing response to {}", message.from());
             Message<ReadResponse> reply = message.responseWith(response);
             reply = MessageParams.addToMessage(reply);
+            int tombstoneLimitedCount = command.tombstoneLimitedCount();
+            if (tombstoneLimitedCount > 0)
+            {
+                reply = reply.withParam(ParamType.TOMBSTONE_PAGE_CHECKPOINT, tombstoneLimitedCount)
+                             .withParam(ParamType.TOMBSTONE_FAIL, tombstoneLimitedCount);
+            }
             MessagingService.instance().send(reply, message.from());
         }
         else

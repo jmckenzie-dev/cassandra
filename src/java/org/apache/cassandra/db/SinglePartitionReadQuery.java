@@ -132,6 +132,8 @@ public interface SinglePartitionReadQuery extends ReadQuery
      */
     SinglePartitionReadQuery forPaging(Clustering<?> lastReturned, DataLimits limits);
 
+    void setTombstonePageCheckpointOwner();
+
     @Override
     default SinglePartitionPager getPager(PagingState pagingState, ProtocolVersion protocolVersion)
     {

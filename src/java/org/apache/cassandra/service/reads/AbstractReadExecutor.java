@@ -89,7 +89,15 @@ public abstract class AbstractReadExecutor
         // the ReadRepair and DigestResolver both need to see our updated
         this.readRepair = ReadRepair.create(coordinator, command, this.replicaPlan, requestTime);
         this.digestResolver = new DigestResolver<>(coordinator, command, this.replicaPlan, requestTime);
-        this.handler = new ReadCallback<>(digestResolver, command, this.replicaPlan, requestTime);
+        boolean useLocalCommand = command.hasTombstonePageCheckpointOwner() && !command.isTopK();
+        ReadCallback.TombstonePageCheckpointPolicy tombstonePageCheckpointPolicy = useLocalCommand
+                                                                                   ? ReadCallback.TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND
+                                                                                   : ReadCallback.TombstonePageCheckpointPolicy.REJECT;
+        this.handler = new ReadCallback<>(digestResolver,
+                                          command,
+                                          this.replicaPlan,
+                                          requestTime,
+                                          tombstonePageCheckpointPolicy);
         this.cfs = cfs;
         this.traceState = Tracing.instance.get();
         this.requestTime = requestTime;

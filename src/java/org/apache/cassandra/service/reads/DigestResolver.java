@@ -27,13 +27,16 @@ import com.google.common.base.Preconditions;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
+import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
+import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.locator.ReplicaPlan;
 import org.apache.cassandra.net.Message;
+import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.service.reads.repair.NoopReadRepair;
 import org.apache.cassandra.transport.Dispatcher;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -88,6 +91,17 @@ public class DigestResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRea
             // transient replica response still contains data, which needs to be reconciled.
             DataResolver<E, P> dataResolver
                     = new DataResolver<>(coordinator, command, replicaPlan, NoopReadRepair.instance, requestTime);
+
+            int tombstoneLimitedCount = (int) dataResponse.header.params().getOrDefault(ParamType.TOMBSTONE_PAGE_CHECKPOINT, 0);
+            if (tombstoneLimitedCount > 0 && !dataResolver.supportsTombstonePageCheckpoints())
+            {
+                Row checkpoint = Preconditions.checkNotNull(command.tombstoneLimitedRow(), "Local checkpoint response has no command cursor");
+                throw new TombstoneOverwhelmingException(tombstoneLimitedCount,
+                                                         command.toCQLString(),
+                                                         command.metadata(),
+                                                         ((SinglePartitionReadCommand) command).partitionKey(),
+                                                         checkpoint.clustering());
+            }
 
             dataResolver.preprocess(dataResponse);
             // Reconcile with transient replicas

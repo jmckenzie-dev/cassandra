@@ -18,6 +18,9 @@
 
 package org.apache.cassandra.service.reads;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -26,17 +29,32 @@ import java.util.concurrent.TimeUnit;
 import org.junit.Assert;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.ReadExecutionController;
+import org.apache.cassandra.db.ReadResponse;
+import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.db.SimpleBuilders;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
+import org.apache.cassandra.db.filter.DataLimits;
+import org.apache.cassandra.db.marshal.AsciiType;
+import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.db.rows.RowIterator;
+import org.apache.cassandra.exceptions.ReadFailureException;
 import org.apache.cassandra.locator.EndpointsForToken;
 import org.apache.cassandra.locator.ReplicaPlan;
+import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.reads.repair.NoopReadRepair;
+import org.apache.cassandra.service.reads.thresholds.CoordinatorWarnings;
 import org.apache.cassandra.tcm.Epoch;
 import org.apache.cassandra.transport.Dispatcher;
+import org.apache.cassandra.utils.ByteBufferUtil;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.apache.cassandra.locator.ReplicaUtils.full;
 import static org.apache.cassandra.locator.ReplicaUtils.trans;
 
@@ -80,6 +98,73 @@ public class DigestResolverTest extends AbstractReadResponseTest
         Assert.assertTrue(resolver.responsesMatch());
 
         assertPartitionsEqual(filter(iter(response)), resolver.getData());
+    }
+
+    @Test
+    public void tombstonePageCheckpointFailsDigestResolverRead()
+    {
+        SinglePartitionReadCommand command = SinglePartitionReadCommand.fullPartitionRead(cfm, nowInSec, dk)
+                                                                         .withUpdatedLimit(DataLimits.cqlLimits(1));
+        EndpointsForToken targetReplicas = EndpointsForToken.of(dk.getToken(), full(EP1), full(EP2));
+        ReplicaPlan.SharedForTokenRead plan = plan(ConsistencyLevel.ONE, targetReplicas);
+        Dispatcher.RequestTime requestTime = new Dispatcher.RequestTime(0L, 0L);
+        DigestResolver<EndpointsForToken, ReplicaPlan.ForTokenRead> resolver = new DigestResolver<>(ReadCoordinator.DEFAULT, command, plan, requestTime);
+        ReadCallback<EndpointsForToken, ReplicaPlan.ForTokenRead> callback =
+        new ReadCallback<>(resolver,
+                           command,
+                           plan,
+                           requestTime,
+                           ReadCallback.TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND);
+        PartitionUpdate response = update(row(1000, 4, 4)).build();
+
+        callback.onResponse(response(command, EP1, iter(response))
+                            .withParam(ParamType.TOMBSTONE_PAGE_CHECKPOINT, 3)
+                            .withParam(ParamType.TOMBSTONE_FAIL, 3));
+
+        CoordinatorWarnings.init();
+        try
+        {
+            assertThatThrownBy(callback::awaitResults).isInstanceOf(ReadFailureException.class);
+            Assert.assertFalse(resolver.isDataPresent());
+        }
+        finally
+        {
+            CoordinatorWarnings.done();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void tombstonePageCheckpointAcceptedByShortReadCapableDataResolver()
+    {
+        SinglePartitionReadCommand command = SinglePartitionReadCommand.fullPartitionRead(cfm, nowInSec, dk)
+                                                                         .withUpdatedLimit(DataLimits.cqlLimits(1));
+        EndpointsForToken targetReplicas = EndpointsForToken.of(dk.getToken(), full(EP1), full(EP2));
+        ReplicaPlan.SharedForTokenRead plan = plan(ConsistencyLevel.QUORUM, targetReplicas);
+        Dispatcher.RequestTime requestTime = new Dispatcher.RequestTime(0L, 0L);
+        DataResolver<EndpointsForToken, ReplicaPlan.ForTokenRead> resolver =
+        new DataResolver<>(ReadCoordinator.DEFAULT,
+                           command,
+                           plan,
+                           (NoopReadRepair<EndpointsForToken, ReplicaPlan.ForTokenRead>) NoopReadRepair.instance,
+                           requestTime);
+        Assert.assertTrue(resolver.supportsTombstonePageCheckpoints());
+        ReadCallback<EndpointsForToken, ReplicaPlan.ForTokenRead> callback =
+        new ReadCallback<>(resolver,
+                           command,
+                           plan,
+                           requestTime,
+                           ReadCallback.TombstonePageCheckpointPolicy.ACCEPT);
+        PartitionUpdate response = update(row(1000, 4, 4)).build();
+
+        callback.onResponse(response(command, EP1, iter(response))
+                            .withParam(ParamType.TOMBSTONE_PAGE_CHECKPOINT, 3)
+                            .withParam(ParamType.TOMBSTONE_FAIL, 3));
+        callback.onResponse(response(command, EP2, iter(response)));
+        callback.awaitResults();
+
+        Assert.assertEquals(2, resolver.getMessages().size());
+        Assert.assertTrue(resolver.getMessages().get(0).header.params().containsKey(ParamType.TOMBSTONE_PAGE_CHECKPOINT));
     }
 
     /**
@@ -211,6 +296,70 @@ public class DigestResolverTest extends AbstractReadResponseTest
                                           row(1000, 1, 1),
                                           row(1000, 2, 2))),
                               resolver.getData());
+    }
+
+    @Test
+    public void localCheckpointMetadataReachesTransientReconciliation()
+    {
+        int originalFailureThreshold = DatabaseDescriptor.getTombstoneFailureThreshold();
+        CoordinatorWarnings.init();
+        try
+        {
+            cfs.truncateBlocking();
+            DatabaseDescriptor.setTombstoneFailureThreshold(2);
+            RowUpdateBuilder.deleteRow(cfm, 20, ByteBufferUtil.bytes("key1"), "0").applyUnsafe();
+            RowUpdateBuilder.deleteRow(cfm, 20, ByteBufferUtil.bytes("key1"), "1").applyUnsafe();
+            RowUpdateBuilder.deleteRow(cfm, 20, ByteBufferUtil.bytes("key1"), "2").applyUnsafe();
+            new RowUpdateBuilder(cfm, 10, ByteBufferUtil.bytes("key1")).clustering("3").add("c1", "3").build().applyUnsafe();
+            new RowUpdateBuilder(cfm, 10, ByteBufferUtil.bytes("key1")).clustering("4").add("c1", "4").build().applyUnsafe();
+
+            SinglePartitionReadCommand command = SinglePartitionReadCommand.fullPartitionRead(cfm, nowInSec, dk)
+                                                                             .withUpdatedLimit(DataLimits.cqlLimits(2));
+            command.setTombstonePageCheckpointOwner();
+            EndpointsForToken targetReplicas = EndpointsForToken.of(dk.getToken(), full(EP1), trans(EP2));
+            ReplicaPlan.SharedForTokenRead plan = plan(ConsistencyLevel.QUORUM, targetReplicas);
+            Dispatcher.RequestTime requestTime = Dispatcher.RequestTime.forImmediateExecution();
+            DigestResolver<EndpointsForToken, ReplicaPlan.ForTokenRead> resolver =
+            new DigestResolver<>(ReadCoordinator.DEFAULT, command, plan, requestTime);
+            ReadCallback<EndpointsForToken, ReplicaPlan.ForTokenRead> callback =
+            new ReadCallback<>(resolver,
+                               command,
+                               plan,
+                               requestTime,
+                               ReadCallback.TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND);
+
+            try (ReadExecutionController controller = command.executionController();
+                 UnfilteredPartitionIterator iterator = command.executeLocally(controller, 2))
+            {
+                ReadResponse localResponse = ReadResponse.createDataResponse(iterator, command);
+                Assert.assertEquals(3, command.tombstoneLimitedCount());
+                callback.response(localResponse, command);
+            }
+
+            PartitionUpdate transientResponse = update(row(10, 0, 0), row(10, 3, 3), row(10, 5, 5)).build();
+            callback.onResponse(response(command, EP2, iter(transientResponse), false));
+            callback.awaitResults();
+
+            List<String> clusterings = new ArrayList<>();
+            try (PartitionIterator partitions = resolver.getData())
+            {
+                while (partitions.hasNext())
+                {
+                    try (RowIterator rows = partitions.next())
+                    {
+                        while (rows.hasNext())
+                            clusterings.add(AsciiType.instance.getString(rows.next().clustering().bufferAt(0)));
+                    }
+                }
+            }
+            Assert.assertEquals(Arrays.asList("3", "4"), clusterings);
+        }
+        finally
+        {
+            CoordinatorWarnings.done();
+            DatabaseDescriptor.setTombstoneFailureThreshold(originalFailureThreshold);
+            cfs.truncateBlocking();
+        }
     }
 
     private ReplicaPlan.SharedForTokenRead plan(ConsistencyLevel consistencyLevel, EndpointsForToken replicas)

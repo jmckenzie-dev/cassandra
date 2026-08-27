@@ -2784,7 +2784,7 @@ public class StorageProxy implements StorageProxyMBean
 
                 if (command.complete())
                 {
-                    handler.response(response);
+                    handler.response(response, command);
                 }
                 else
                 {

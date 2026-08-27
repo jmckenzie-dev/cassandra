@@ -24,9 +24,11 @@ import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.ReadCommand;
+import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.DataLimits;
+import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
 import org.apache.cassandra.db.rows.Row;
@@ -34,6 +36,8 @@ import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.transform.MoreRows;
 import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.locator.Replica;
+import org.apache.cassandra.net.Message;
+import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.tracing.Tracing;
 
@@ -43,7 +47,7 @@ class ShortReadRowsProtection extends Transformation implements MoreRows<Unfilte
     private final Replica source;
     private final DataLimits.Counter singleResultCounter; // unmerged per-source counter
     private final DataLimits.Counter mergedResultCounter; // merged end-result counter
-    private final Function<ReadCommand, UnfilteredPartitionIterator> commandExecutor;
+    private final Function<ReadCommand, Message<ReadResponse>> commandExecutor;
     private final TableMetadata metadata;
     private final DecoratedKey partitionKey;
 
@@ -52,10 +56,12 @@ class ShortReadRowsProtection extends Transformation implements MoreRows<Unfilte
     private int lastCounted = 0; // last seen recorded # before attempting to fetch more rows
     private int lastFetched = 0; // # rows returned by last attempt to get more (or by the original read command)
     private int lastQueried = 0; // # extra rows requested from the replica last time
+    private int lastResponseTombstoneLimitedCount;
 
     ShortReadRowsProtection(DecoratedKey partitionKey, ReadCommand command, Replica source,
-                            Function<ReadCommand, UnfilteredPartitionIterator> commandExecutor,
-                            DataLimits.Counter singleResultCounter, DataLimits.Counter mergedResultCounter)
+                            Function<ReadCommand, Message<ReadResponse>> commandExecutor,
+                            DataLimits.Counter singleResultCounter, DataLimits.Counter mergedResultCounter,
+                            int lastResponseTombstoneLimitedCount)
     {
         this.command = command;
         this.source = source;
@@ -64,6 +70,7 @@ class ShortReadRowsProtection extends Transformation implements MoreRows<Unfilte
         this.mergedResultCounter = mergedResultCounter;
         this.metadata = command.metadata();
         this.partitionKey = partitionKey;
+        this.lastResponseTombstoneLimitedCount = lastResponseTombstoneLimitedCount;
     }
 
     @Override
@@ -92,7 +99,9 @@ class ShortReadRowsProtection extends Transformation implements MoreRows<Unfilte
          * Can only take the short cut if there is no per partition limit set. Otherwise it's possible to hit false
          * positives due to some rows being uncounted for in certain scenarios (see CASSANDRA-13911).
          */
-        if (command.limits().isExhausted(singleResultCounter) && command.limits().perPartitionCount() == DataLimits.NO_LIMIT)
+        if (lastResponseTombstoneLimitedCount == 0
+            && command.limits().isExhausted(singleResultCounter)
+            && command.limits().perPartitionCount() == DataLimits.NO_LIMIT)
             return null;
 
         /*
@@ -111,8 +120,15 @@ class ShortReadRowsProtection extends Transformation implements MoreRows<Unfilte
          * rows. In that scenario the counter will remain at 0 until the partition is closed - which happens after
          * the moreContents() call.
          */
-        if (singleResultCounter.rowsCountedInCurrentPartition() == 0)
+        if (lastResponseTombstoneLimitedCount == 0 && singleResultCounter.rowsCountedInCurrentPartition() == 0)
             return null;
+
+        if (lastResponseTombstoneLimitedCount > 0 && lastClustering == null)
+            throw new TombstoneOverwhelmingException(lastResponseTombstoneLimitedCount,
+                                                      command.toCQLString(),
+                                                      metadata,
+                                                      partitionKey,
+                                                      Clustering.STATIC_CLUSTERING);
 
         /*
          * This is a table with no clustering columns, and has at most one row per partition - with EMPTY clustering.
@@ -125,7 +141,7 @@ class ShortReadRowsProtection extends Transformation implements MoreRows<Unfilte
         lastCounted = singleResultCounter.rowsCountedInCurrentPartition();
 
         // getting back fewer rows than we asked for means the partition on the replica has been fully consumed
-        if (lastQueried > 0 && lastFetched < lastQueried)
+        if (lastResponseTombstoneLimitedCount == 0 && lastQueried > 0 && lastFetched < lastQueried)
             return null;
 
         /*
@@ -168,7 +184,9 @@ class ShortReadRowsProtection extends Transformation implements MoreRows<Unfilte
         Tracing.trace("Requesting {} extra rows from {} for short read protection", lastQueried, source);
 
         SinglePartitionReadCommand cmd = makeFetchAdditionalRowsReadCommand(lastQueried);
-        return UnfilteredPartitionIterators.getOnlyElement(commandExecutor.apply(cmd), cmd);
+        Message<ReadResponse> response = commandExecutor.apply(cmd);
+        lastResponseTombstoneLimitedCount = (int) response.header.params().getOrDefault(ParamType.TOMBSTONE_PAGE_CHECKPOINT, 0);
+        return UnfilteredPartitionIterators.getOnlyElement(response.payload.makeIterator(command), cmd);
     }
 
     private SinglePartitionReadCommand makeFetchAdditionalRowsReadCommand(int toQuery)
