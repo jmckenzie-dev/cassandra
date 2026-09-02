@@ -887,7 +887,7 @@ public class SSTableCursorReader implements AutoCloseable
             {
                 dataReader.readFully(transferBuffer, 0, chunk);
             }
-            catch (Exception e)
+            catch (IOException e)
             {
                 corruptSSTable(e);
             }
