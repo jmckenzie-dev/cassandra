@@ -151,9 +151,9 @@ public class DeserializationHelper
     }
 
     /**
-     * The drop rule: discard anything written at or before the column's drop time. The single
-     * definition of the rule. Every other form here resolves a {@link DroppedColumn} and defers
-     * to this, except {@link #isDroppedAtHorizon}, which cannot because it holds only the time.
+     * The drop rule: discard anything written at or before the column's drop time.
+     * Every other form here resolves a {@link DroppedColumn} and defers * to this,
+     * except {@link #isDroppedAtHorizon}, which cannot because it holds only the time.
      *
      * @param dropped the cell's column's drop record, or null if it has none
      */

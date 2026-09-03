@@ -429,12 +429,10 @@ public class ComplexColumnCursorReadTest extends CQLTester
     }
 
     /**
-     * Pins the setter's own contract: a caller that explicitly enables
-     * {@code pauseAtEmptyComplexColumns} still sees the CPLX record of a deletion-only complex
-     * column. No production caller does this today — {@code StatefulCursor} relies on the field's
-     * default instead, which {@link #deletionOnlyComplexColumnsSurfaceWithoutExplicitPause} pins —
-     * but the setter is public API on the raw reader and must keep working for a caller that uses
-     * it directly.
+     * A caller that explicitly enables {@code pauseAtEmptyComplexColumns} still sees the CPLX record
+     * of a deletion-only complex column. No production caller does this today — {@code StatefulCursor}
+     * relies on the field's default instead, which {@link #deletionOnlyComplexColumnsSurfaceWithoutExplicitPause}
+     * pins — but the setter is public API on the raw reader and must keep working for a caller that uses it directly.
      */
     @Test
     public void deletionOnlyComplexColumns() throws Exception
