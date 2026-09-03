@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+bin="$(cd "$(dirname "$0")" > /dev/null; pwd)"
+home="$(cd "$bin/../.." > /dev/null; pwd)"
+cd "$home"
+
+mkdir -p tmp logs
+launch_log="$home/logs/$(date +%Y%m%d-%H%M%S)-many-tables-launch.log"
+exec > >(tee "$launch_log") 2>&1
+
+jar="$home/build/apache-cassandra-7.0-SNAPSHOT.jar"
+if [[ ! -f "$jar" ]]; then
+  echo "ERROR: $jar is missing; run .build/sh/ai-build first" 1>&2
+  exit 1
+fi
+
+ant_args=(build-test)
+
+# The main repo's .git/hooks may be read-only (git worktree); build.xml's
+# init target force-copies hook scripts there, so stub the installer.
+common_git_dir="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [[ -n "$common_git_dir" && ! -w "$common_git_dir/hooks" ]]; then
+  mkdir -p tmp/ai-ant-stub/git
+  printf '#!/bin/sh\nexit 0\n' > tmp/ai-ant-stub/git/install-git-defaults.sh
+  chmod +x tmp/ai-ant-stub/git/install-git-defaults.sh
+  ant_args+=(-Dant.build.src=tmp/ai-ant-stub)
+fi
+
+# $HOME/.gradle and $HOME/.m2 may be read-only; _build-accord publishes to
+# mavenLocal, so redirect gradle's home and the maven repo into the worktree.
+if [[ ! -w "${HOME}/.gradle" || ! -w "${HOME}/.m2" ]]; then
+  export GRADLE_USER_HOME="$home/tmp/gradle-user-home"
+  mkdir -p "$GRADLE_USER_HOME" "$home/tmp/m2-repository"
+  GRADLE_OPTS="-Dmaven.repo.local=$home/tmp/m2-repository${GRADLE_OPTS:+ $GRADLE_OPTS}"
+  export GRADLE_OPTS
+  ant_args+=(-Dlocal.repository="$home/tmp/m2-repository" -Dmaven.repo.local="$home/tmp/m2-repository")
+fi
+
+ant "${ant_args[@]}"
+
+java_major="$(java -version 2>&1 | sed -n 's/.*version "\([0-9]*\)\..*/\1/p')"
+case "$java_major" in
+  11|17|21) ;;
+  *)
+    echo "ERROR: unsupported java major version: '$java_major'; need 11, 17, or 21" 1>&2
+    exit 1
+    ;;
+esac
+
+# The 8g default supports up to about 1,000 tables. Use MANY_TABLES_XMX=16g
+# for 10,000 tables. A 100,000-table run needs tens of GB and takes hours.
+# Set PROFILE_MAIN_CLASS to run a different harness main class.
+java_opts=(
+  -ea
+  -Xms512m
+  "-Xmx${MANY_TABLES_XMX:-8g}"
+  "-XX:ActiveProcessorCount=${MANY_TABLES_CPUS:-8}"
+  "-javaagent:$home/build/lib/jars/jamm-0.4.0.jar"
+  "-Djava.io.tmpdir=$home/tmp"
+  -Dcassandra.testtag=manytables
+  # Common test-JVM flags. Two deliberate divergences from the ant test JVM:
+  # (a) keep the JVM-default GC instead of the JDK21 test-env ZGC so
+  # heap-residency measurements stay production-like; (b) omit
+  # -Dcassandra.debugrefcount=true and -Dcassandra.strict.runtime.checks=true
+  # because their instrumentation would distort CPU/allocation profiles.
+  -Djava.awt.headless=true
+  -Djava.security.egd=file:/dev/urandom
+  -XX:SoftRefLRUPolicyMSPerMB=0
+  -Djdk.attach.allowAttachSelf=true
+)
+
+# JPMS flags mirror build.xml's _jvmXX_arg_items lists.
+case "$java_major" in
+  21)
+    java_opts+=(
+      -Djava.security.manager=allow
+      "--add-exports" "java.base/java.lang.ref=ALL-UNNAMED"
+      "--add-exports" "java.base/java.lang.reflect=ALL-UNNAMED"
+      "--add-exports" "java.base/jdk.internal.misc=ALL-UNNAMED"
+      "--add-exports" "java.base/jdk.internal.ref=ALL-UNNAMED"
+      "--add-exports" "java.base/sun.nio.ch=ALL-UNNAMED"
+      "--add-exports" "java.management.rmi/com.sun.jmx.remote.internal.rmi=ALL-UNNAMED"
+      "--add-exports" "java.rmi/sun.rmi.registry=ALL-UNNAMED"
+      "--add-exports" "java.rmi/sun.rmi.server=ALL-UNNAMED"
+      "--add-exports" "java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED"
+      "--add-exports" "java.sql/java.sql=ALL-UNNAMED"
+      "--add-exports" "jdk.unsupported/sun.misc=ALL-UNNAMED"
+      "--add-exports" "jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED"
+      "--add-exports" "jdk.attach/sun.tools.attach=ALL-UNNAMED"
+      "--add-opens" "java.base/java.io=ALL-UNNAMED"
+      "--add-opens" "java.base/java.lang=ALL-UNNAMED"
+      "--add-opens" "java.base/java.lang.module=ALL-UNNAMED"
+      "--add-opens" "java.base/java.lang.reflect=ALL-UNNAMED"
+      "--add-opens" "java.base/java.math=ALL-UNNAMED"
+      "--add-opens" "java.base/java.net=ALL-UNNAMED"
+      "--add-opens" "java.base/java.nio=ALL-UNNAMED"
+      "--add-opens" "java.base/java.util=ALL-UNNAMED"
+      "--add-opens" "java.base/java.util.concurrent=ALL-UNNAMED"
+      "--add-opens" "java.base/java.util.concurrent.atomic=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.loader=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.math=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.module=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.ref=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.reflect=ALL-UNNAMED"
+      "--add-opens" "java.base/sun.nio.ch=ALL-UNNAMED"
+      "--add-opens" "java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED"
+      "--add-opens" "jdk.management/com.sun.management=ALL-UNNAMED"
+    )
+    ;;
+  17)
+    java_opts+=(
+      -XX:+UseG1GC
+      -XX:+ParallelRefProcEnabled
+      -XX:MaxTenuringThreshold=1
+      -XX:G1HeapRegionSize=16m
+      "--add-exports" "java.base/jdk.internal.misc=ALL-UNNAMED"
+      "--add-exports" "java.management.rmi/com.sun.jmx.remote.internal.rmi=ALL-UNNAMED"
+      "--add-exports" "java.rmi/sun.rmi.registry=ALL-UNNAMED"
+      "--add-exports" "java.rmi/sun.rmi.server=ALL-UNNAMED"
+      "--add-exports" "java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED"
+      "--add-exports" "java.sql/java.sql=ALL-UNNAMED"
+      "--add-exports" "java.base/java.lang.ref=ALL-UNNAMED"
+      "--add-exports" "jdk.unsupported/sun.misc=ALL-UNNAMED"
+      "--add-exports" "jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED"
+      "--add-exports" "jdk.attach/sun.tools.attach=ALL-UNNAMED"
+      "--add-opens" "java.base/java.lang.module=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.loader=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.ref=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.reflect=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.math=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.module=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.util.jar=ALL-UNNAMED"
+      "--add-opens" "jdk.management/com.sun.management.internal=ALL-UNNAMED"
+      "--add-opens" "java.base/sun.nio.ch=ALL-UNNAMED"
+      "--add-opens" "java.base/java.io=ALL-UNNAMED"
+      "--add-opens" "java.base/java.lang.reflect=ALL-UNNAMED"
+      "--add-opens" "jdk.compiler/com.sun.tools.javac=ALL-UNNAMED"
+      "--add-opens" "java.base/java.lang=ALL-UNNAMED"
+      "--add-opens" "java.base/java.util=ALL-UNNAMED"
+      "--add-opens" "java.base/java.nio=ALL-UNNAMED"
+      "--add-opens" "java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED"
+      "--add-opens" "java.base/java.util.concurrent=ALL-UNNAMED"
+      "--add-opens" "java.base/java.util.concurrent.atomic=ALL-UNNAMED"
+    )
+    ;;
+  11)
+    java_opts+=(
+      -XX:+UseConcMarkSweepGC
+      -XX:+CMSParallelRemarkEnabled
+      -XX:SurvivorRatio=8
+      -XX:MaxTenuringThreshold=1
+      -XX:CMSInitiatingOccupancyFraction=75
+      -XX:+UseCMSInitiatingOccupancyOnly
+      -XX:CMSWaitDuration=10000
+      -XX:+CMSParallelInitialMarkEnabled
+      -XX:+CMSEdenChunksRecordAlways
+      "--add-exports" "java.base/jdk.internal.misc=ALL-UNNAMED"
+      "--add-exports" "java.base/jdk.internal.ref=ALL-UNNAMED"
+      "--add-exports" "java.base/sun.nio.ch=ALL-UNNAMED"
+      "--add-exports" "java.management.rmi/com.sun.jmx.remote.internal.rmi=ALL-UNNAMED"
+      "--add-exports" "java.rmi/sun.rmi.registry=ALL-UNNAMED"
+      "--add-exports" "java.rmi/sun.rmi.server=ALL-UNNAMED"
+      "--add-exports" "java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED"
+      "--add-exports" "java.sql/java.sql=ALL-UNNAMED"
+      "--add-opens" "java.base/java.lang.module=ALL-UNNAMED"
+      "--add-opens" "java.base/java.net=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.loader=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.ref=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.reflect=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.math=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.module=ALL-UNNAMED"
+      "--add-opens" "java.base/jdk.internal.util.jar=ALL-UNNAMED"
+      "--add-opens" "jdk.management/com.sun.management.internal=ALL-UNNAMED"
+    )
+    ;;
+esac
+
+classpath="$jar:$home/build/test/classes:$home/build/classes:$home/conf:$home/test/conf:$home/build/lib/jars/*:$home/build/test/lib/jars/*"
+
+MAIN_CLASS="${PROFILE_MAIN_CLASS:-org.apache.cassandra.distributed.test.ManyTablesProfileHarness}"
+
+java "${java_opts[@]}" -cp "$classpath" "$MAIN_CLASS" "$@"
