@@ -1,0 +1,13 @@
+ref*
+*tmp*
+*cache*
+*wt_*
+*packages*
+*node_modules*
+*archive*
+.npm
+.cache
+.local
+venv
+.venv
+vllm

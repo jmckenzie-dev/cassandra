@@ -1,0 +1,2235 @@
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing,
+  software distributed under the License is distributed on an
+  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  KIND, either express or implied.  See the License for the
+  specific language governing permissions and limitations
+  under the License.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#071013">
+  <title>Short Read Protection | Apache Cassandra</title>
+  <style>
+    :root {
+      --bg: #071013;
+      --bg-deep: #03080a;
+      --surface: #0c171a;
+      --surface-raised: #112126;
+      --surface-soft: #0a1417;
+      --ink: #ece6d8;
+      --ink-strong: #fffaf0;
+      --muted: #98aaa7;
+      --quiet: #627572;
+      --line: rgba(154, 190, 183, 0.16);
+      --line-strong: rgba(154, 190, 183, 0.32);
+      --signal: #62e6d2;
+      --signal-soft: rgba(98, 230, 210, 0.13);
+      --amber: #ffb15c;
+      --amber-soft: rgba(255, 177, 92, 0.12);
+      --danger: #ff6c70;
+      --danger-soft: rgba(255, 108, 112, 0.12);
+      --blue: #7eb8ff;
+      --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Charter, Georgia, serif;
+      --mono: "Berkeley Mono", "IBM Plex Mono", "Cascadia Code", "DejaVu Sans Mono", monospace;
+      --sans: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      --shadow: 0 24px 90px rgba(0, 0, 0, 0.46);
+      --radius: 18px;
+      --rail: 260px;
+    }
+
+    body[data-palette="ember"] {
+      --bg: #110c08;
+      --bg-deep: #070402;
+      --surface: #1b120c;
+      --surface-raised: #271911;
+      --surface-soft: #160e09;
+      --ink: #f1e4d2;
+      --muted: #b4a08d;
+      --quiet: #7e6957;
+      --line: rgba(229, 178, 126, 0.16);
+      --line-strong: rgba(229, 178, 126, 0.34);
+      --signal: #ffb15c;
+      --signal-soft: rgba(255, 177, 92, 0.14);
+      --amber: #ff795f;
+      --amber-soft: rgba(255, 121, 95, 0.14);
+      --blue: #f0d28b;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--bg-deep);
+    }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 72% 8%, rgba(98, 230, 210, 0.08), transparent 30rem),
+        radial-gradient(circle at 14% 45%, rgba(255, 177, 92, 0.05), transparent 34rem),
+        linear-gradient(180deg, var(--bg), var(--bg-deep) 78%);
+      font-family: var(--sans);
+      line-height: 1.65;
+      transition: background 240ms ease, color 240ms ease;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: -1;
+      opacity: 0.18;
+      background-image:
+        linear-gradient(var(--line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: linear-gradient(to bottom, black, transparent 68%);
+    }
+
+    ::selection {
+      color: var(--bg-deep);
+      background: var(--signal);
+    }
+
+    a { color: inherit; }
+    button, input { font: inherit; }
+    button { color: inherit; }
+
+    .skip-link {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 1000;
+      padding: 10px 14px;
+      border-radius: 8px;
+      color: var(--bg);
+      background: var(--signal);
+      transform: translateY(-150%);
+      transition: transform 160ms ease;
+    }
+
+    .skip-link:focus { transform: translateY(0); }
+
+    .progress {
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 100;
+      width: 100%;
+      height: 3px;
+      background: transparent;
+    }
+
+    .progress > span {
+      display: block;
+      width: 0;
+      height: 100%;
+      background: linear-gradient(90deg, var(--signal), var(--amber));
+      box-shadow: 0 0 18px var(--signal);
+    }
+
+    .rail {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 20;
+      width: var(--rail);
+      padding: 32px 24px;
+      overflow-y: auto;
+      border-right: 1px solid var(--line);
+      background: rgba(5, 12, 14, 0.84);
+      backdrop-filter: blur(18px);
+    }
+
+    body[data-palette="ember"] .rail { background: rgba(13, 8, 5, 0.88); }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 42px;
+      text-decoration: none;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 50%;
+      color: var(--signal);
+      background: var(--signal-soft);
+      font: 700 18px/1 var(--mono);
+      box-shadow: inset 0 0 18px rgba(98, 230, 210, 0.06);
+    }
+
+    .brand-copy strong,
+    .brand-copy span { display: block; }
+
+    .brand-copy strong {
+      color: var(--ink-strong);
+      font: 700 13px/1.2 var(--mono);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .brand-copy span {
+      margin-top: 5px;
+      color: var(--quiet);
+      font: 11px/1 var(--mono);
+    }
+
+    .rail-label {
+      margin: 0 0 12px;
+      color: var(--quiet);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .nav-list,
+    .quick-list {
+      padding: 0;
+      margin: 0;
+      list-style: none;
+    }
+
+    .nav-list { margin-bottom: 32px; }
+
+    .nav-list a {
+      position: relative;
+      display: block;
+      padding: 8px 10px 8px 18px;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      text-decoration: none;
+      transition: color 160ms ease, background 160ms ease;
+    }
+
+    .nav-list a::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 3px;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--quiet);
+      transform: translateY(-50%);
+      transition: transform 160ms ease, background 160ms ease;
+    }
+
+    .nav-list a:hover,
+    .nav-list a.active {
+      color: var(--ink-strong);
+      background: var(--signal-soft);
+    }
+
+    .nav-list a.active::before {
+      background: var(--signal);
+      box-shadow: 0 0 10px var(--signal);
+      transform: translateY(-50%) scale(1.45);
+    }
+
+    .rail-actions {
+      display: grid;
+      gap: 8px;
+    }
+
+    .utility-button {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 11px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+      transition: border 160ms ease, color 160ms ease, background 160ms ease;
+    }
+
+    .utility-button:hover {
+      color: var(--ink-strong);
+      border-color: var(--line-strong);
+      background: var(--surface-raised);
+    }
+
+    kbd {
+      padding: 2px 6px;
+      border: 1px solid var(--line-strong);
+      border-bottom-width: 2px;
+      border-radius: 5px;
+      color: var(--quiet);
+      background: var(--surface-soft);
+      font: 10px/1.5 var(--mono);
+    }
+
+    main {
+      width: calc(100% - var(--rail));
+      margin-left: var(--rail);
+    }
+
+    section {
+      position: relative;
+      width: min(1180px, calc(100% - 80px));
+      margin: 0 auto;
+      padding: 104px 0;
+      scroll-margin-top: 20px;
+    }
+
+    section + section { border-top: 1px solid var(--line); }
+
+    .hero {
+      min-height: 100vh;
+      display: grid;
+      align-content: center;
+      padding-top: 80px;
+      padding-bottom: 80px;
+      border-top: 0;
+    }
+
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 18px;
+      color: var(--signal);
+      font: 700 11px/1.3 var(--mono);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 28px;
+      height: 1px;
+      background: var(--signal);
+      box-shadow: 0 0 10px var(--signal);
+    }
+
+    h1, h2, h3, h4, p { margin-top: 0; }
+
+    h1 {
+      max-width: 980px;
+      margin-bottom: 24px;
+      color: var(--ink-strong);
+      font: 500 clamp(4rem, 8vw, 8.8rem)/0.88 var(--serif);
+      letter-spacing: -0.065em;
+    }
+
+    h1 em {
+      color: var(--signal);
+      font-style: italic;
+      font-weight: 400;
+    }
+
+    h2 {
+      max-width: 840px;
+      margin-bottom: 20px;
+      color: var(--ink-strong);
+      font: 500 clamp(2.5rem, 5vw, 5.2rem)/0.98 var(--serif);
+      letter-spacing: -0.045em;
+    }
+
+    h3 {
+      color: var(--ink-strong);
+      font: 600 1.35rem/1.25 var(--serif);
+    }
+
+    h4 {
+      color: var(--ink-strong);
+      font: 700 0.78rem/1.3 var(--mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .hero-deck {
+      max-width: 780px;
+      margin-bottom: 32px;
+      color: var(--muted);
+      font: 1.18rem/1.75 var(--sans);
+    }
+
+    .hero-deck strong { color: var(--ink-strong); }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      margin-bottom: 42px;
+    }
+
+    .tag {
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(8, 19, 21, 0.62);
+      font: 11px/1 var(--mono);
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.45fr 0.55fr;
+      gap: 16px;
+    }
+
+    .thesis,
+    .stat-stack > article,
+    .panel,
+    .class-card,
+    .integration-card,
+    .finding,
+    .risk-card {
+      border: 1px solid var(--line);
+      background: linear-gradient(145deg, rgba(17, 33, 38, 0.84), rgba(7, 16, 19, 0.88));
+      box-shadow: var(--shadow);
+    }
+
+    body[data-palette="ember"] .thesis,
+    body[data-palette="ember"] .stat-stack > article,
+    body[data-palette="ember"] .panel,
+    body[data-palette="ember"] .class-card,
+    body[data-palette="ember"] .integration-card,
+    body[data-palette="ember"] .finding,
+    body[data-palette="ember"] .risk-card {
+      background: linear-gradient(145deg, rgba(38, 24, 15, 0.9), rgba(15, 9, 5, 0.9));
+    }
+
+    .thesis {
+      position: relative;
+      min-height: 260px;
+      padding: 32px;
+      overflow: hidden;
+      border-radius: var(--radius);
+    }
+
+    .thesis::after {
+      content: "LIMIT";
+      position: absolute;
+      right: -8px;
+      bottom: -28px;
+      color: rgba(98, 230, 210, 0.04);
+      font: 900 7rem/1 var(--mono);
+      letter-spacing: -0.08em;
+    }
+
+    .thesis .number {
+      display: block;
+      margin-bottom: 42px;
+      color: var(--signal);
+      font: 12px/1 var(--mono);
+    }
+
+    .thesis blockquote {
+      position: relative;
+      z-index: 1;
+      margin: 0;
+      color: var(--ink-strong);
+      font: 500 clamp(1.55rem, 3vw, 2.5rem)/1.25 var(--serif);
+    }
+
+    .stat-stack {
+      display: grid;
+      gap: 16px;
+    }
+
+    .stat-stack > article {
+      padding: 22px;
+      border-radius: var(--radius);
+    }
+
+    .stat-stack strong,
+    .stat-stack span { display: block; }
+
+    .stat-stack strong {
+      color: var(--amber);
+      font: 500 2.6rem/1 var(--serif);
+    }
+
+    .stat-stack span {
+      margin-top: 9px;
+      color: var(--muted);
+      font: 11px/1.4 var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 0.45fr);
+      gap: 48px;
+      align-items: end;
+      margin-bottom: 54px;
+    }
+
+    .section-head p {
+      margin-bottom: 6px;
+      color: var(--muted);
+    }
+
+    .source {
+      display: block;
+      margin-top: 15px;
+      color: var(--quiet);
+      font: 10px/1.55 var(--mono);
+      overflow-wrap: anywhere;
+    }
+
+    .source::before {
+      content: "↳ ";
+      color: var(--signal);
+    }
+
+    .simulator {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .replica {
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-soft);
+    }
+
+    .replica-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+
+    .replica-name {
+      font: 700 12px/1 var(--mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .replica-state {
+      color: var(--quiet);
+      font: 10px/1 var(--mono);
+    }
+
+    .row-track {
+      display: flex;
+      min-height: 54px;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .data-row {
+      position: relative;
+      display: grid;
+      width: 46px;
+      height: 46px;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      color: var(--ink-strong);
+      background: var(--surface-raised);
+      font: 700 12px/1 var(--mono);
+      transition: opacity 260ms ease, transform 260ms ease, border 260ms ease;
+    }
+
+    .data-row.tombstone {
+      color: var(--danger);
+      border-color: rgba(255, 108, 112, 0.44);
+      background: var(--danger-soft);
+    }
+
+    .data-row.tombstone::after {
+      content: "";
+      position: absolute;
+      width: 70%;
+      height: 1px;
+      background: var(--danger);
+      transform: rotate(-40deg);
+    }
+
+    .data-row.hidden-row {
+      opacity: 0.16;
+      border-style: dashed;
+      transform: scale(0.92);
+    }
+
+    .data-row.eliminated {
+      opacity: 0.2;
+      transform: scale(0.84);
+      text-decoration: line-through;
+    }
+
+    .sim-output {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 22px 26px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--surface-raised);
+    }
+
+    .stage-number {
+      display: grid;
+      width: 48px;
+      height: 48px;
+      place-items: center;
+      border-radius: 50%;
+      color: var(--bg-deep);
+      background: var(--signal);
+      font: 800 13px/1 var(--mono);
+    }
+
+    .sim-output strong,
+    .sim-output span { display: block; }
+
+    .sim-output strong {
+      color: var(--ink-strong);
+      font-family: var(--serif);
+      font-size: 1.2rem;
+    }
+
+    .sim-output span {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .button-row { display: flex; gap: 8px; }
+
+    .action {
+      padding: 10px 14px;
+      border: 1px solid var(--line-strong);
+      border-radius: 9px;
+      color: var(--ink-strong);
+      background: transparent;
+      cursor: pointer;
+      font: 700 11px/1 var(--mono);
+      letter-spacing: 0.04em;
+      transition: transform 160ms ease, border 160ms ease, background 160ms ease;
+    }
+
+    .action:hover {
+      border-color: var(--signal);
+      background: var(--signal-soft);
+      transform: translateY(-1px);
+    }
+
+    .action.primary {
+      color: var(--bg-deep);
+      border-color: var(--signal);
+      background: var(--signal);
+    }
+
+    .architecture {
+      display: grid;
+      gap: 10px;
+      padding: 34px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-soft);
+      overflow-x: auto;
+    }
+
+    .flow-row {
+      display: flex;
+      min-width: 720px;
+      align-items: stretch;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .flow-node {
+      position: relative;
+      display: grid;
+      min-width: 170px;
+      min-height: 64px;
+      place-items: center;
+      padding: 12px 16px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      color: var(--muted);
+      background: var(--surface-raised);
+      font: 700 11px/1.45 var(--mono);
+      text-align: center;
+    }
+
+    .flow-node.signal {
+      color: var(--ink-strong);
+      border-color: rgba(98, 230, 210, 0.42);
+      background: var(--signal-soft);
+    }
+
+    .flow-node.warning {
+      color: var(--ink-strong);
+      border-color: rgba(255, 177, 92, 0.44);
+      background: var(--amber-soft);
+    }
+
+    .flow-arrow {
+      display: grid;
+      min-height: 24px;
+      place-items: center;
+      color: var(--signal);
+      font: 16px/1 var(--mono);
+    }
+
+    .replica-row .flow-node { min-width: 210px; }
+
+    .loop-note {
+      width: min(620px, 100%);
+      margin: 5px auto 0;
+      padding: 11px 14px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 9px;
+      color: var(--amber);
+      font: 11px/1.5 var(--mono);
+      text-align: center;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 24px;
+    }
+
+    .tab-list {
+      display: grid;
+      align-content: start;
+      gap: 7px;
+    }
+
+    .tab-button {
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: 11px;
+      align-items: center;
+      width: 100%;
+      padding: 13px;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+      transition: background 160ms ease, border 160ms ease, color 160ms ease;
+    }
+
+    .tab-button .index {
+      display: grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      color: var(--quiet);
+      font: 10px/1 var(--mono);
+    }
+
+    .tab-button strong {
+      font: 700 12px/1.3 var(--mono);
+      letter-spacing: 0.03em;
+    }
+
+    .tab-button:hover,
+    .tab-button[aria-selected="true"] {
+      color: var(--ink-strong);
+      border-color: var(--line);
+      background: var(--surface-raised);
+    }
+
+    .tab-button[aria-selected="true"] .index {
+      color: var(--bg-deep);
+      border-color: var(--signal);
+      background: var(--signal);
+    }
+
+    .panel {
+      min-height: 390px;
+      padding: 34px;
+      border-radius: var(--radius);
+    }
+
+    .panel[hidden] { display: none; }
+
+    .panel p { color: var(--muted); }
+
+    .panel ul,
+    .finding ul,
+    .integration-card ul {
+      padding-left: 20px;
+      color: var(--muted);
+    }
+
+    .panel li + li,
+    .finding li + li,
+    .integration-card li + li { margin-top: 8px; }
+
+    .counter-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin: 24px 0;
+    }
+
+    .counter {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface-soft);
+    }
+
+    .counter code {
+      color: var(--signal);
+      font: 700 11px/1.4 var(--mono);
+    }
+
+    .counter p {
+      margin: 9px 0 0;
+      font-size: 13px;
+    }
+
+    .code-strip {
+      margin-top: 22px;
+      padding: 17px 19px;
+      overflow-x: auto;
+      border-left: 2px solid var(--signal);
+      color: var(--muted);
+      background: var(--surface-soft);
+      font: 11px/1.65 var(--mono);
+      white-space: pre;
+    }
+
+    .class-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .class-card {
+      position: relative;
+      min-height: 210px;
+      padding: 24px;
+      overflow: hidden;
+      border-radius: 15px;
+      transition: transform 180ms ease, border 180ms ease;
+    }
+
+    .class-card:hover {
+      border-color: var(--line-strong);
+      transform: translateY(-3px);
+    }
+
+    .class-card::after {
+      content: attr(data-index);
+      position: absolute;
+      right: 10px;
+      bottom: -28px;
+      color: rgba(236, 230, 216, 0.035);
+      font: 800 6rem/1 var(--mono);
+    }
+
+    .class-card .type {
+      display: block;
+      margin-bottom: 18px;
+      color: var(--signal);
+      font: 10px/1 var(--mono);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .class-card h3 {
+      position: relative;
+      z-index: 1;
+      font-family: var(--mono);
+      font-size: 0.95rem;
+      overflow-wrap: anywhere;
+    }
+
+    .class-card p {
+      position: relative;
+      z-index: 1;
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .integration-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    .integration-card {
+      padding: 28px;
+      border-radius: var(--radius);
+    }
+
+    .integration-card.featured {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 0.8fr 1.2fr;
+      gap: 36px;
+      border-color: rgba(98, 230, 210, 0.34);
+    }
+
+    .integration-card .badge,
+    .risk-card .badge {
+      display: inline-block;
+      margin-bottom: 15px;
+      padding: 5px 8px;
+      border-radius: 5px;
+      color: var(--signal);
+      background: var(--signal-soft);
+      font: 700 9px/1 var(--mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .integration-card p { color: var(--muted); }
+
+    .timeline-shell {
+      display: grid;
+      grid-template-columns: 290px 1fr;
+      gap: 28px;
+    }
+
+    .timeline-list {
+      position: relative;
+      display: grid;
+      gap: 4px;
+      align-content: start;
+    }
+
+    .timeline-list::before {
+      content: "";
+      position: absolute;
+      top: 18px;
+      bottom: 18px;
+      left: 55px;
+      width: 1px;
+      background: var(--line-strong);
+    }
+
+    .time-button {
+      position: relative;
+      display: grid;
+      grid-template-columns: 50px 1fr;
+      gap: 20px;
+      align-items: center;
+      padding: 12px 10px;
+      border: 0;
+      border-radius: 10px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .time-button::after {
+      content: "";
+      position: absolute;
+      left: 51px;
+      width: 9px;
+      height: 9px;
+      border: 2px solid var(--surface);
+      border-radius: 50%;
+      background: var(--quiet);
+    }
+
+    .time-button span {
+      font: 700 11px/1 var(--mono);
+    }
+
+    .time-button strong {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .time-button:hover,
+    .time-button[aria-selected="true"] {
+      color: var(--ink-strong);
+      background: var(--surface-raised);
+    }
+
+    .time-button[aria-selected="true"]::after {
+      background: var(--signal);
+      box-shadow: 0 0 14px var(--signal);
+    }
+
+    .timeline-panel {
+      min-height: 430px;
+      padding: 38px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-soft);
+    }
+
+    .timeline-panel[hidden] { display: none; }
+
+    .timeline-panel .year {
+      display: block;
+      margin-bottom: 34px;
+      color: var(--signal);
+      font: 500 clamp(3.2rem, 7vw, 7rem)/0.8 var(--serif);
+      letter-spacing: -0.06em;
+    }
+
+    .timeline-panel p,
+    .timeline-panel li { color: var(--muted); }
+
+    .commit {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 7px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--amber);
+      background: var(--surface-raised);
+      font: 10px/1 var(--mono);
+    }
+
+    .findings-grid { display: grid; gap: 22px; }
+
+    .finding {
+      position: relative;
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 30px;
+      padding: 34px;
+      overflow: hidden;
+      border-radius: var(--radius);
+    }
+
+    .finding.critical { border-color: rgba(255, 108, 112, 0.38); }
+
+    .finding-index {
+      color: var(--danger);
+      font: 500 5rem/0.9 var(--serif);
+    }
+
+    .finding h3 { font-size: 1.75rem; }
+
+    .finding p { color: var(--muted); }
+
+    .causal-chain {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 22px 0;
+    }
+
+    .causal-chain span {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--muted);
+      background: var(--surface-soft);
+      font: 10px/1.4 var(--mono);
+    }
+
+    .causal-chain span + span::before {
+      content: "→ ";
+      color: var(--danger);
+    }
+
+    .verdict {
+      margin-top: 22px;
+      padding: 16px 18px;
+      border-left: 2px solid var(--danger);
+      color: var(--ink-strong);
+      background: var(--danger-soft);
+      font-size: 13px;
+    }
+
+    .risk-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .filter-button {
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .filter-button:hover,
+    .filter-button[aria-pressed="true"] {
+      color: var(--bg-deep);
+      border-color: var(--signal);
+      background: var(--signal);
+    }
+
+    .risk-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .risk-card {
+      min-height: 230px;
+      padding: 24px;
+      border-radius: 15px;
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    .risk-card.filtered-out { display: none; }
+
+    .risk-card[data-level="critical"] .badge {
+      color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    .risk-card[data-level="high"] .badge {
+      color: var(--amber);
+      background: var(--amber-soft);
+    }
+
+    .risk-card p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .checklist {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checklist li {
+      position: relative;
+      padding: 16px 18px 16px 48px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      color: var(--muted);
+      background: var(--surface-soft);
+      font-size: 13px;
+    }
+
+    .checklist li::before {
+      content: "?";
+      position: absolute;
+      top: 16px;
+      left: 17px;
+      display: grid;
+      width: 20px;
+      height: 20px;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 50%;
+      color: var(--signal);
+      font: 700 10px/1 var(--mono);
+    }
+
+    .closing {
+      min-height: 78vh;
+      display: grid;
+      align-content: center;
+    }
+
+    .closing-statement {
+      max-width: 1000px;
+      color: var(--ink-strong);
+      font: 500 clamp(2.4rem, 5.5vw, 5.8rem)/1.03 var(--serif);
+      letter-spacing: -0.045em;
+    }
+
+    .closing-statement em {
+      color: var(--signal);
+      font-style: italic;
+    }
+
+    .closing-meta {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin-top: 48px;
+    }
+
+    .closing-meta div {
+      padding-top: 14px;
+      border-top: 1px solid var(--line-strong);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .closing-meta strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--signal);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .quick-dialog {
+      width: min(620px, calc(100% - 32px));
+      padding: 0;
+      border: 1px solid var(--line-strong);
+      border-radius: 16px;
+      color: var(--ink);
+      background: var(--surface);
+      box-shadow: 0 38px 120px rgba(0, 0, 0, 0.72);
+    }
+
+    .quick-dialog::backdrop {
+      background: rgba(1, 5, 6, 0.78);
+      backdrop-filter: blur(5px);
+    }
+
+    .quick-input-wrap {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      padding: 17px 19px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .quick-input-wrap span {
+      color: var(--signal);
+      font: 700 16px/1 var(--mono);
+    }
+
+    #quick-input {
+      width: 100%;
+      border: 0;
+      outline: 0;
+      color: var(--ink-strong);
+      background: transparent;
+      font: 14px/1.4 var(--mono);
+    }
+
+    #quick-input::placeholder { color: var(--quiet); }
+
+    .quick-list {
+      max-height: 360px;
+      padding: 10px;
+      overflow-y: auto;
+    }
+
+    .quick-list a {
+      display: flex;
+      justify-content: space-between;
+      padding: 11px 12px;
+      border-radius: 8px;
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .quick-list a:hover,
+    .quick-list a:focus {
+      color: var(--ink-strong);
+      outline: 0;
+      background: var(--signal-soft);
+    }
+
+    .quick-list small {
+      color: var(--quiet);
+      font: 9px/1.7 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .quick-empty {
+      padding: 22px;
+      color: var(--quiet);
+      text-align: center;
+      font: 12px/1.5 var(--mono);
+    }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity 600ms ease, transform 600ms ease;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 1050px) {
+      :root { --rail: 210px; }
+      .rail { padding-inline: 18px; }
+      section { width: min(100% - 48px, 1000px); }
+      .hero-grid, .section-head { grid-template-columns: 1fr; }
+      .class-grid, .risk-grid { grid-template-columns: repeat(2, 1fr); }
+      .integration-card.featured { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      :root { --rail: 0px; }
+      .rail {
+        inset: auto 12px 12px 12px;
+        width: auto;
+        padding: 8px;
+        border: 1px solid var(--line-strong);
+        border-radius: 13px;
+        box-shadow: var(--shadow);
+      }
+      .brand, .rail-label, .rail-actions { display: none; }
+      .nav-list {
+        display: flex;
+        margin: 0;
+        gap: 2px;
+        overflow-x: auto;
+      }
+      .nav-list li { flex: 0 0 auto; }
+      .nav-list a {
+        padding: 9px 11px;
+        font-size: 11px;
+      }
+      .nav-list a::before { display: none; }
+      main { width: 100%; margin: 0; }
+      section { width: calc(100% - 32px); padding: 76px 0; }
+      .hero { padding-top: 50px; }
+      h1 { font-size: clamp(3.4rem, 17vw, 5.6rem); }
+      .simulator,
+      .tabs,
+      .timeline-shell,
+      .finding,
+      .counter-pair,
+      .closing-meta { grid-template-columns: 1fr; }
+      .sim-output { grid-template-columns: auto 1fr; }
+      .sim-output .button-row { grid-column: 1 / -1; }
+      .class-grid,
+      .integration-grid,
+      .risk-grid,
+      .checklist { grid-template-columns: 1fr; }
+      .integration-card.featured { grid-column: auto; }
+      .finding-index { font-size: 3rem; }
+      .tab-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .tab-button { grid-template-columns: 28px 1fr; padding: 9px; }
+      .tab-button .index { width: 27px; height: 27px; }
+      .architecture { padding: 22px 14px; }
+      .timeline-list {
+        grid-template-columns: repeat(3, 1fr);
+      }
+      .timeline-list::before,
+      .time-button::after { display: none; }
+      .time-button { grid-template-columns: 1fr; gap: 4px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+      }
+      .reveal { opacity: 1; transform: none; }
+    }
+  </style>
+</head>
+<body data-palette="signal">
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
+
+  <aside class="rail" aria-label="Presentation navigation">
+    <a class="brand" href="index.html" aria-label="Read Path Atlas overview">
+      <span class="brand-mark">C*</span>
+      <span class="brand-copy">
+        <strong>Read Path Atlas</strong>
+        <span>Cassandra / coordinator</span>
+      </span>
+    </a>
+    <p class="rail-label">Chapters</p>
+    <nav>
+      <ol class="nav-list" id="nav-list">
+        <li><a href="#top">Thesis</a></li>
+        <li><a href="#problem">The short read</a></li>
+        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#mechanics">Mechanics</a></li>
+        <li><a href="#classes">Class map</a></li>
+        <li><a href="#integrations">Dependencies</a></li>
+        <li><a href="#history">History</a></li>
+        <li><a href="#findings">Current findings</a></li>
+        <li><a href="#risks">Risk map</a></li>
+        <li><a href="#review">Review checklist</a></li>
+      </ol>
+    </nav>
+    <p class="rail-label">Controls</p>
+    <div class="rail-actions">
+      <button class="utility-button" type="button" id="quick-open">
+        <span>Quick jump</span><kbd>/</kbd>
+      </button>
+      <button class="utility-button" type="button" id="palette-toggle">
+        <span>Palette</span><span id="palette-name">signal</span>
+      </button>
+    </div>
+  </aside>
+
+  <main id="main-content">
+    <section class="hero" id="top" data-title="Thesis">
+      <div class="reveal">
+        <p class="eyebrow">Apache Cassandra · coordinator read path</p>
+        <h1>Short Read <em>Protection</em></h1>
+        <p class="hero-deck">
+          A lazy source-completion layer inside reconciliation. It exists so a
+          finite multi-replica read still returns the right number of live rows
+          after tombstones, liveness, and filtering have had their say.
+        </p>
+        <div class="tag-row" aria-label="Topic tags">
+          <span class="tag">DataResolver</span>
+          <span class="tag">reconciliation</span>
+          <span class="tag">DataLimits</span>
+          <span class="tag">same-replica continuation</span>
+          <span class="tag">since 2011</span>
+        </div>
+      </div>
+      <div class="hero-grid reveal">
+        <article class="thesis">
+          <span class="number">CORE INVARIANT / 01</span>
+          <blockquote>
+            A replica filling its own limit does not prove the reconciled
+            result will fill the client's limit.
+          </blockquote>
+        </article>
+        <div class="stat-stack">
+          <article>
+            <strong>2</strong>
+            <span>continuation levels<br>rows + partitions</span>
+          </article>
+          <article>
+            <strong>1</strong>
+            <span>shared request deadline<br>initial + every retry</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="problem" data-title="The short read">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">Start with the failure mode</p>
+          <h2>Two full replicas. Zero live rows.</h2>
+        </div>
+        <p>
+          Step through a `LIMIT 2` read. Replica A meets its local limit.
+          Replica B owns newer tombstones. The coordinator must continue A's
+          exact stream from its established source cursor.
+        </p>
+      </div>
+
+      <div class="simulator reveal" aria-label="Interactive short read simulation">
+        <article class="replica">
+          <div class="replica-head">
+            <span class="replica-name">Replica A · live data</span>
+            <span class="replica-state" id="state-a">returned 2 / has 4</span>
+          </div>
+          <div class="row-track" id="rows-a">
+            <span class="data-row" data-row="1">r1</span>
+            <span class="data-row" data-row="2">r2</span>
+            <span class="data-row hidden-row" data-row="3">r3</span>
+            <span class="data-row hidden-row" data-row="4">r4</span>
+          </div>
+        </article>
+        <article class="replica">
+          <div class="replica-head">
+            <span class="replica-name">Replica B · newer deletes</span>
+            <span class="replica-state">unfiltered response</span>
+          </div>
+          <div class="row-track">
+            <span class="data-row tombstone">r1</span>
+            <span class="data-row tombstone">r2</span>
+          </div>
+        </article>
+        <div class="sim-output" aria-live="polite">
+          <span class="stage-number" id="sim-number">01</span>
+          <div>
+            <strong id="sim-title">Each replica satisfies its command</strong>
+            <span id="sim-copy">A returns two live rows; B returns the tombstones needed for reconciliation.</span>
+          </div>
+          <div class="button-row">
+            <button class="action" type="button" id="sim-reset">Reset</button>
+            <button class="action primary" type="button" id="sim-next">Reconcile →</button>
+          </div>
+        </div>
+      </div>
+      <span class="source reveal">src/java/org/apache/cassandra/service/reads/ShortReadProtection.java:30-38</span>
+    </section>
+
+    <section id="architecture" data-title="Architecture">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">Placement is the design</p>
+          <h2>Inside the merge, not around it.</h2>
+        </div>
+        <p>
+          SRP wraps raw unfiltered replica iterators before reconciliation.
+          Appended content retains tombstones, crosses the outer read-repair
+          listener, and is counted only after final liveness and filtering.
+        </p>
+      </div>
+
+      <div class="architecture reveal" role="img" aria-label="Coordinator read flow showing Short Read Protection inside DataResolver">
+        <div class="flow-row">
+          <div class="flow-node">CQL / pager / SERIAL</div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-row">
+          <div class="flow-node">point data + digests</div>
+          <div class="flow-node">range full data</div>
+        </div>
+        <div class="flow-arrow">↓ mismatch / reconciliation required ↓</div>
+        <div class="flow-row">
+          <div class="flow-node signal">DataResolver</div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-row replica-row">
+          <div class="flow-node">source A<br>MorePartitions → MoreRows → counter</div>
+          <div class="flow-node">source B<br>MorePartitions → MoreRows → counter</div>
+          <div class="flow-node">source C<br>MorePartitions → MoreRows → counter</div>
+        </div>
+        <div class="flow-arrow">↓ unfiltered merge ↓</div>
+        <div class="flow-row">
+          <div class="flow-node warning">read-repair listener</div>
+          <div class="flow-node warning">liveness + tombstone filter</div>
+          <div class="flow-node warning">RFP post-filter</div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-row">
+          <div class="flow-node signal">merged-result counter</div>
+          <div class="flow-node signal">client page / result</div>
+        </div>
+        <div class="loop-note">↖ underfilled merge + source looked full → CL.ONE continuation to that same replica</div>
+      </div>
+      <span class="source reveal">src/java/org/apache/cassandra/service/reads/DataResolver.java:183-216,294-326</span>
+    </section>
+
+    <section id="mechanics" data-title="Mechanics">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">Execution path</p>
+          <h2>Seven moving parts, one lazy stream.</h2>
+        </div>
+        <p>
+          Select a stage to inspect the state and invariant it contributes.
+          Most historical SRP bugs came from breaking one of these boundaries.
+        </p>
+      </div>
+
+      <div class="tabs reveal">
+        <div class="tab-list" role="tablist" aria-label="Short Read Protection mechanics">
+          <button class="tab-button" role="tab" aria-selected="true" aria-controls="mechanic-1" id="mechanic-tab-1">
+            <span class="index">01</span><strong>Activation</strong>
+          </button>
+          <button class="tab-button" role="tab" aria-selected="false" aria-controls="mechanic-2" id="mechanic-tab-2" tabindex="-1">
+            <span class="index">02</span><strong>Dual counters</strong>
+          </button>
+          <button class="tab-button" role="tab" aria-selected="false" aria-controls="mechanic-3" id="mechanic-tab-3" tabindex="-1">
+            <span class="index">03</span><strong>Transform order</strong>
+          </button>
+          <button class="tab-button" role="tab" aria-selected="false" aria-controls="mechanic-4" id="mechanic-tab-4" tabindex="-1">
+            <span class="index">04</span><strong>Row refill</strong>
+          </button>
+          <button class="tab-button" role="tab" aria-selected="false" aria-controls="mechanic-5" id="mechanic-tab-5" tabindex="-1">
+            <span class="index">05</span><strong>Partition refill</strong>
+          </button>
+          <button class="tab-button" role="tab" aria-selected="false" aria-controls="mechanic-6" id="mechanic-tab-6" tabindex="-1">
+            <span class="index">06</span><strong>Child request</strong>
+          </button>
+          <button class="tab-button" role="tab" aria-selected="false" aria-controls="mechanic-7" id="mechanic-tab-7" tabindex="-1">
+            <span class="index">07</span><strong>Final count</strong>
+          </button>
+        </div>
+
+        <article class="panel" role="tabpanel" id="mechanic-1" aria-labelledby="mechanic-tab-1">
+          <p class="eyebrow">ResolveContext</p>
+          <h3>Install only where reconciliation can create a short read.</h3>
+          <p>SRP is enabled when more than one data response is reconciled, the command has a finite limit, and the query is not top-K.</p>
+          <ul>
+            <li>Matching point-read digests normally bypass `DataResolver`.</li>
+            <li>Digest mismatch and range reads enter full-data resolution.</li>
+            <li>Classic SRP has no separate runtime feature flag.</li>
+          </ul>
+          <div class="code-strip">needShortReadProtection = replicas.size() &gt; 1
+                          &amp;&amp; !command.limits().isUnlimited()
+                          &amp;&amp; !command.isTopK();</div>
+          <span class="source">DataResolver.java:98-130,183-216</span>
+        </article>
+
+        <article class="panel" role="tabpanel" id="mechanic-2" aria-labelledby="mechanic-tab-2" hidden>
+          <p class="eyebrow">Accounting model</p>
+          <h3>The source and the result answer different questions.</h3>
+          <div class="counter-pair">
+            <div class="counter">
+              <code>singleResultCounter</code>
+              <p>Counts each replica before reconciliation. It understands tombstones and observes without stopping.</p>
+            </div>
+            <div class="counter">
+              <code>mergedResultCounter</code>
+              <p>Counts live reconciled output and enforces the client's total and per-partition limits.</p>
+            </div>
+          </div>
+          <p>A source that looked full while the merged counter remains underfilled is the signal that a continuation may be required.</p>
+          <span class="source">ShortReadProtection.java:42-61 · DataLimits.java:244-264</span>
+        </article>
+
+        <article class="panel" role="tabpanel" id="mechanic-3" aria-labelledby="mechanic-tab-3" hidden>
+          <p class="eyebrow">Composition invariant</p>
+          <h3>Extension first. Protection second. Counting last.</h3>
+          <p>The iterator is composed in this order so the first element of every appended continuation passes through all trackers and counters.</p>
+          <div class="code-strip">MorePartitions.extend(source)
+  → ShortReadPartitionsProtection.applyTo(partition)
+      → MoreRows.extend(rows)
+      → ShortReadRowsProtection
+  → singleResultCounter</div>
+          <p>Reordering these transformations has caused real correctness regressions.</p>
+          <span class="source">ShortReadProtection.java:63-82</span>
+        </article>
+
+        <article class="panel" role="tabpanel" id="mechanic-4" aria-labelledby="mechanic-tab-4" hidden>
+          <p class="eyebrow">Within one partition</p>
+          <h3>Resume exclusively after the last clustering.</h3>
+          <p>The row protector stores the last unfiltered clustering and constructs a new `SinglePartitionReadCommand` when the source ends before the merged limit is satisfied.</p>
+          <ul>
+            <li>Skinny tables terminate at `Clustering.EMPTY`.</li>
+            <li>A previous underfilled retry proves natural exhaustion.</li>
+            <li>The command retains ordering, filters, index plan, limits, and `nowInSec`.</li>
+            <li>It deliberately overfetches to reduce repeated round trips.</li>
+          </ul>
+          <span class="source">ShortReadRowsProtection.java:76-188</span>
+        </article>
+
+        <article class="panel" role="tabpanel" id="mechanic-5" aria-labelledby="mechanic-tab-5" hidden>
+          <p class="eyebrow">Across a token range</p>
+          <h3>Resume after the last partition key.</h3>
+          <p>Range SRP constructs a new data range with an exclusive left boundary and the original right boundary. Every appended partition gets a fresh row protector.</p>
+          <p>Single-partition commands and index commands restricted to one partition omit this outer continuation layer.</p>
+          <span class="source">ShortReadPartitionsProtection.java:87-179 · ShortReadProtection.java:75-80</span>
+        </article>
+
+        <article class="panel" role="tabpanel" id="mechanic-6" aria-labelledby="mechanic-tab-6" hidden>
+          <p class="eyebrow">Network semantics</p>
+          <h3>One replica. No speculation. No nested repair.</h3>
+          <p>The continuation targets the exact source that produced the cursor. It uses a synthetic CL.ONE plan and `NoopReadRepair`, preserves transient status, and shares the initial request deadline.</p>
+          <p>The raw response iterator is returned to the outer merge so continuation tombstones remain visible.</p>
+          <span class="source">ReplicaPlans.java:835-873 · ShortReadPartitionsProtection.java:182-204</span>
+        </article>
+
+        <article class="panel" role="tabpanel" id="mechanic-7" aria-labelledby="mechanic-tab-7" hidden>
+          <p class="eyebrow">Output pipeline</p>
+          <h3>Merge → filter → post-filter → count → discard empties.</h3>
+          <p>The merged enforcing counter must see only final live rows. Counting before tombstone reconciliation or replica-filter completion would let discarded rows consume the client's limit.</p>
+          <div class="code-strip">unfiltered merge
+  → reconciliation + liveness filter
+  → RFP completion / row filter (when needed)
+  → merged DataLimits.Counter
+  → EmptyPartitionsDiscarder</div>
+          <span class="source">DataResolver.java:294-326</span>
+        </article>
+      </div>
+    </section>
+
+    <section id="classes" data-title="Class map">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">Class constellation</p>
+          <h2>The small core and its supporting cast.</h2>
+        </div>
+        <p>
+          Three SRP classes hold the continuation logic; their correctness
+          depends on counters, lazy transforms, replica planning, reconciliation,
+          and range-tombstone stream repair.
+        </p>
+      </div>
+      <div class="class-grid">
+        <article class="class-card reveal" data-index="01">
+          <span class="type">orchestrator</span>
+          <h3>DataResolver</h3>
+          <p>Selects SRP, snapshots participants, owns the merged counter, and coordinates merge, read repair, and RFP.</p>
+        </article>
+        <article class="class-card reveal" data-index="02">
+          <span class="type">composer</span>
+          <h3>ShortReadProtection</h3>
+          <p>Builds the source-side transformation stack in the only safe order.</p>
+        </article>
+        <article class="class-card reveal" data-index="03">
+          <span class="type">row cursor</span>
+          <h3>ShortReadRowsProtection</h3>
+          <p>Tracks the last clustering and resumes a source partition when reconciliation remains hungry.</p>
+        </article>
+        <article class="class-card reveal" data-index="04">
+          <span class="type">range cursor + dispatch</span>
+          <h3>ShortReadPartitionsProtection</h3>
+          <p>Tracks the last partition and dispatches both row and partition continuation commands.</p>
+        </article>
+        <article class="class-card reveal" data-index="05">
+          <span class="type">accounting</span>
+          <h3>DataLimits</h3>
+          <p>Defines total, per-partition, paging, DISTINCT, and GROUP BY accounting and retry limits.</p>
+        </article>
+        <article class="class-card reveal" data-index="06">
+          <span class="type">lazy extension</span>
+          <h3>MoreRows / MorePartitions</h3>
+          <p>Append iterators only when the current source is consumed, keeping network work demand-driven.</p>
+        </article>
+        <article class="class-card reveal" data-index="07">
+          <span class="type">routing</span>
+          <h3>ReplicaPlans / ReadCallback</h3>
+          <p>Provide exact-source routing, deadline enforcement, and normal read failure propagation.</p>
+        </article>
+        <article class="class-card reveal" data-index="08">
+          <span class="type">recursion guard</span>
+          <h3>NoopReadRepair</h3>
+          <p>Keeps each child fetch from opening an independent nested read-repair operation.</p>
+        </article>
+        <article class="class-card reveal" data-index="09">
+          <span class="type">tombstone integrity</span>
+          <h3>RTBoundCloser</h3>
+          <p>Closes open range-tombstone markers at limits so concatenated continuations remain valid.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="integrations" data-title="Dependencies">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">Dependent mechanisms</p>
+          <h2>Where SRP's contract propagates.</h2>
+        </div>
+        <p>
+          These features either consume SRP directly or alter the meaning of
+          completion, ordering, and counting around it.
+        </p>
+      </div>
+      <div class="integration-grid">
+        <article class="integration-card featured reveal">
+          <div>
+            <span class="badge">direct dependency</span>
+            <h3>Replica Filtering Protection</h3>
+          </div>
+          <div>
+            <p>RFP's first phase is lazy and SRP-protected. Rows that might be incomplete are then fetched by primary key from silent replicas, reconciled again, re-filtered, and only then counted.</p>
+            <ul>
+              <li>Replica-side filtering can become stale after cross-replica reconciliation.</li>
+              <li>RFP may consume more of the first-phase stream after completing a candidate row.</li>
+              <li>A 2025 fix explicitly avoided unnecessary SRP after a satisfied single-partition limit.</li>
+            </ul>
+            <span class="source">ReplicaFilteringProtection.java:81-94,384-437 · DataResolver.java:234-276</span>
+          </div>
+        </article>
+        <article class="integration-card reveal">
+          <span class="badge">finite page limits</span>
+          <h3>Protocol paging</h3>
+          <p>SRP fills the current page. The pager records the last reconciled key and clustering for the next client round trip.</p>
+          <span class="source">AbstractQueryPager.java:92-105</span>
+        </article>
+        <article class="integration-card reveal">
+          <span class="badge">counter specialization</span>
+          <h3>GROUP BY / aggregation</h3>
+          <p>Group limits count groups and raw rows. SRP retries must reason in rows, not emitted groups.</p>
+          <span class="source">DataLimits.java:648-717</span>
+        </article>
+        <article class="integration-card reveal">
+          <span class="badge">explicit exclusion</span>
+          <h3>Top-K and vector search</h3>
+          <p>Cursor append does not preserve global candidate order. Top-K disables ordinary SRP and read repair.</p>
+          <span class="source">DataResolver.java:165-193</span>
+        </article>
+        <article class="integration-card reveal">
+          <span class="badge">transaction context</span>
+          <h3>Accord interop</h3>
+          <p>ReadCoordinator routes classic reconciliation and SRP inside the correct Accord command-store context.</p>
+          <span class="source">cql-on-accord.adoc:444-454</span>
+        </article>
+        <article class="integration-card reveal">
+          <span class="badge">replica identity</span>
+          <h3>Transient replication</h3>
+          <p>Transient data can force reconciliation even on matching full-replica digests. The child plan retains transient status.</p>
+          <span class="source">DigestResolver.java:70-102 · ShortReadPartitionsProtection.java:189-198</span>
+        </article>
+      </div>
+    </section>
+
+    <section id="history" data-title="History">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">Fifteen years of pressure testing</p>
+          <h2>From eager loop to lazy source completion.</h2>
+        </div>
+        <p>
+          Select an era. The evolution reads like a catalog of the boundaries
+          that make distributed limited reads difficult.
+        </p>
+      </div>
+      <div class="timeline-shell reveal">
+        <div class="timeline-list" role="tablist" aria-label="Short Read Protection history">
+          <button class="time-button" role="tab" aria-selected="true" aria-controls="era-2011" id="era-tab-2011"><span>2011</span><strong>Origin</strong></button>
+          <button class="time-button" role="tab" aria-selected="false" aria-controls="era-2015" id="era-tab-2015" tabindex="-1"><span>2015</span><strong>Lazy redesign</strong></button>
+          <button class="time-button" role="tab" aria-selected="false" aria-controls="era-2017" id="era-tab-2017" tabindex="-1"><span>2016–17</span><strong>Hardening</strong></button>
+          <button class="time-button" role="tab" aria-selected="false" aria-controls="era-2018" id="era-tab-2018" tabindex="-1"><span>2018</span><strong>Class structure</strong></button>
+          <button class="time-button" role="tab" aria-selected="false" aria-controls="era-2020" id="era-tab-2020" tabindex="-1"><span>2020–21</span><strong>Filtering</strong></button>
+          <button class="time-button" role="tab" aria-selected="false" aria-controls="era-2022" id="era-tab-2022" tabindex="-1"><span>2022–25</span><strong>Transactions</strong></button>
+          <button class="time-button" role="tab" aria-selected="false" aria-controls="era-2026" id="era-tab-2026" tabindex="-1"><span>2026</span><strong>New boundary</strong></button>
+        </div>
+
+        <article class="timeline-panel" role="tabpanel" id="era-2011" aria-labelledby="era-tab-2011">
+          <span class="year">2011</span>
+          <h3>CASSANDRA-2643: fix “short reads” in [multi]get</h3>
+          <p>The first implementation lived as an eager coordinator loop in `StorageProxy`: reconcile, calculate the deficit, retry with a larger count, then trim.</p>
+          <p>Immediate follow-ups fixed wrong multiget commands, result overrun, retry sizing, zero-live division, CQL3 counting, and consistency guarantees after digest mismatch.</p>
+          <span class="commit">388c690c228b3e93ca870d5f6bdfe3554bd5c6e0</span>
+        </article>
+        <article class="timeline-panel" role="tabpanel" id="era-2015" aria-labelledby="era-tab-2015" hidden>
+          <span class="year">2015</span>
+          <h3>CASSANDRA-8099: the modern design appears</h3>
+          <p>SRP moved from an outer eager loop into lazy per-replica iterators in `DataResolver`. `DataLimits.forShortReadRetry` gave continuation commands their own accounting semantics.</p>
+          <p>CASSANDRA-9975 then placed lazy continuation on the iterator transformation framework that now exposes `MoreRows`.</p>
+          <span class="commit">a991b64811f4d6adb6c7b31c0df52288eb06cf19</span>
+        </article>
+        <article class="timeline-panel" role="tabpanel" id="era-2017" aria-labelledby="era-tab-2017" hidden>
+          <span class="year">2017</span>
+          <h3>Timeout, order, accounting, and partitions</h3>
+          <ul>
+            <li>One deadline for initial and continuation requests.</li>
+            <li>Correct merge → filter → count ordering.</li>
+            <li>Correct extension → transform → counter composition.</li>
+            <li>Skinny table and per-partition-limit handling.</li>
+            <li>CASSANDRA-13595 extended SRP across partition boundaries.</li>
+          </ul>
+          <span class="commit">68a67469f8b25534d086b29b8fe0fa4ec3f9d1ec</span>
+        </article>
+        <article class="timeline-panel" role="tabpanel" id="era-2018" aria-labelledby="era-tab-2018" hidden>
+          <span class="year">2018</span>
+          <h3>The three current SRP classes are extracted</h3>
+          <p>CASSANDRA-14058 refactored read execution and repair, producing `ShortReadProtection`, `ShortReadRowsProtection`, and `ShortReadPartitionsProtection`.</p>
+          <p>Range-tombstone boundary fixes and transient-replication integration followed.</p>
+          <span class="commit">39807ba48ed2e02223014fbf47dce21d4124b380</span>
+        </article>
+        <article class="timeline-panel" role="tabpanel" id="era-2020" aria-labelledby="era-tab-2020" hidden>
+          <span class="year">2020</span>
+          <h3>Replica filtering and GROUP BY join the contract</h3>
+          <p>RFP introduced a two-phase read whose first phase must remain SRP-protected. Subsequent fixes made it lazy, hardened response lifecycle handling, and corrected GROUP BY row-versus-group accounting and pager behavior.</p>
+          <span class="commit">dd255ffa… · 86a9261f… · f258ae67…</span>
+        </article>
+        <article class="timeline-panel" role="tabpanel" id="era-2022" aria-labelledby="era-tab-2022" hidden>
+          <span class="year">2022–25</span>
+          <h3>Paxos, SAI, deadlines, and Accord</h3>
+          <p>CEP-14 added a Paxos read-safety callback. SAI plans began propagating into child commands; top-K was explicitly excluded. Native request deadlines and Accord routing were integrated.</p>
+          <p>A 2025 RFP fix again adjusted consumption specifically to avoid unnecessary SRP requests.</p>
+          <span class="commit">d2923275… · 949b760f… · dc17c297… · e5c10167…</span>
+        </article>
+        <article class="timeline-panel" role="tabpanel" id="era-2026" aria-labelledby="era-tab-2026" hidden>
+          <span class="year">2026</span>
+          <h3>CASSANDRA-18424 creates a new completion state</h3>
+          <p>Graceful tombstone paging leaves the SRP classes unchanged and lets a replica deliberately return an under-limit result. That breaks SRP's historic assumption unless completion state crosses the wire.</p>
+          <span class="commit">95ba53bcc81666d32b3353b03bf351ec47fda10b</span>
+        </article>
+      </div>
+    </section>
+
+    <section id="findings" data-title="Current findings">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">Current worktree · static analysis</p>
+          <h2>Two contracts are presently out of alignment.</h2>
+        </div>
+        <p>
+          The implementation wiring is confirmed. The precise user-visible
+          failures remain to be demonstrated with focused distributed tests.
+        </p>
+      </div>
+      <div class="findings-grid">
+        <article class="finding critical reveal">
+          <div class="finding-index">01</div>
+          <div>
+            <p class="eyebrow">CASSANDRA-18424 · default disabled</p>
+            <h3>Graceful tombstone paging loses completion state at the wire.</h3>
+            <p>A replica stores `tombstoneLimitedRow` only on its mutable local command. `ReadResponse` carries no equivalent flag or resume position, so a remote coordinator sees an ordinary under-limit response.</p>
+            <div class="causal-chain" aria-label="Causal chain">
+              <span>replica truncates</span>
+              <span>wire loses marker</span>
+              <span>SRP infers exhaustion</span>
+              <span>pager may end</span>
+            </div>
+            <ul>
+              <li>An all-tombstone short page counts zero live rows, another explicit SRP stop condition.</li>
+              <li>Range pagers do not retain page-command objects for local marker inspection.</li>
+              <li>The configured numeric paging threshold currently behaves only as an enable sentinel; the cutoff uses `tombstone_failure_threshold`.</li>
+              <li>Matching truncated digests can bypass `DataResolver`.</li>
+            </ul>
+            <div class="verdict"><strong>Static verdict:</strong> high-confidence response-contract gap. Keep `tombstone_paging_threshold: -1` until remote completion semantics and distributed coverage exist.</div>
+            <span class="source">ReadCommand.java:650-769 · ReadResponse.java:359-401 · ShortReadRowsProtection.java:89-115</span>
+          </div>
+        </article>
+
+        <article class="finding critical reveal">
+          <div class="finding-index">02</div>
+          <div>
+            <p class="eyebrow">Paxos v2 · conditional on configuration</p>
+            <h3>The short-read callback is both incomplete and too late.</h3>
+            <p>Paxos passes a callback because an extra ordinary replica read can invalidate a prepare's optimistic linearizability decision. Yet only partition continuation invokes it; Paxos reads are single-partition and use row continuation.</p>
+            <div class="causal-chain" aria-label="Causal chain">
+              <span>resolve returns lazy iterator</span>
+              <span>Paxos checks flag</span>
+              <span>CQL consumes later</span>
+              <span>row SRP fires unseen</span>
+            </div>
+            <p>Even adding a callback to `ShortReadRowsProtection` would not solve the timing defect: `Paxos.begin()` reads the flag before the lazy merge advances any source.</p>
+            <div class="verdict"><strong>Static verdict:</strong> confirmed wiring and timing defect; a barrier-controlled concurrent Paxos-v2 test is required to prove a concrete linearizability anomaly. The local default remains Paxos v1.</div>
+            <span class="source">Paxos.java:1127-1146 · ShortReadPartitionsProtection.java:156-163 · MergeIterator.java:170-192</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="risks" data-title="Risk map">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">Change-impact map</p>
+          <h2>Where to expect the next collision.</h2>
+        </div>
+        <p>Filter the map by severity. Risk tracks how directly a change can challenge SRP's completion, cursor, or counting contracts.</p>
+      </div>
+      <div class="risk-controls reveal" role="group" aria-label="Filter risks by severity">
+        <button class="filter-button" type="button" data-filter="all" aria-pressed="true">All</button>
+        <button class="filter-button" type="button" data-filter="critical" aria-pressed="false">Critical</button>
+        <button class="filter-button" type="button" data-filter="high" aria-pressed="false">High</button>
+        <button class="filter-button" type="button" data-filter="medium" aria-pressed="false">Medium</button>
+      </div>
+      <div class="risk-grid">
+        <article class="risk-card reveal" data-level="critical">
+          <span class="badge">critical</span>
+          <h3>Alternative termination</h3>
+          <p>Any scan budget, cancellation, tombstone cutoff, or partial-response mode that makes under-limit mean something other than exhaustion.</p>
+        </article>
+        <article class="risk-card reveal" data-level="critical">
+          <span class="badge">critical</span>
+          <h3>DataLimits and paging</h3>
+          <p>Total, per-partition, DISTINCT, GROUP BY, and page counters define every SRP trigger and stop condition.</p>
+        </article>
+        <article class="risk-card reveal" data-level="high">
+          <span class="badge">high</span>
+          <h3>Filter order</h3>
+          <p>Moving liveness, tombstone, row-filter, RFP, or empty-partition stages changes what may consume the final limit.</p>
+        </article>
+        <article class="risk-card reveal" data-level="high">
+          <span class="badge">high</span>
+          <h3>Indexes and RFP</h3>
+          <p>Index candidate semantics may require more than cursor append. RFP directly controls demand on an SRP stream.</p>
+        </article>
+        <article class="risk-card reveal" data-level="high">
+          <span class="badge">high</span>
+          <h3>Range cursors</h3>
+          <p>Reverse order, inclusive bounds, partition transitions, skinny rows, and range tombstones determine safe progress.</p>
+        </article>
+        <article class="risk-card reveal" data-level="high">
+          <span class="badge">high</span>
+          <h3>Transactions</h3>
+          <p>Paxos and Accord need child reads in the right context and cannot finalize safety before lazy continuation is known.</p>
+        </article>
+        <article class="risk-card reveal" data-level="high">
+          <span class="badge">high</span>
+          <h3>Wire and mixed versions</h3>
+          <p>Every deliberate incomplete response needs explicit, versioned completion metadata and a complete resume position.</p>
+        </article>
+        <article class="risk-card reveal" data-level="medium">
+          <span class="badge">medium</span>
+          <h3>Replica planning</h3>
+          <p>Topology, transient status, and routing changes must preserve the exact logical source and original request deadline.</p>
+        </article>
+        <article class="risk-card reveal" data-level="medium">
+          <span class="badge">medium</span>
+          <h3>Resource accounting</h3>
+          <p>Repaired-data overreads, response buffering, and child read-size meters interact with repeated continuations.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="review" data-title="Review checklist">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">For the next read-path change</p>
+          <h2>A compact SRP review checklist.</h2>
+        </div>
+        <p>Use these questions whenever a patch touches limits, filtering, paging, replica completion, or transaction routing.</p>
+      </div>
+      <ul class="checklist reveal">
+        <li>Can a replica now stop before natural exhaustion?</li>
+        <li>Can the coordinator distinguish every termination reason?</li>
+        <li>Is the resume boundary complete for point, range, and reverse reads?</li>
+        <li>Are continuations exclusive and guaranteed to progress?</li>
+        <li>Does the source counter observe every appended row and partition?</li>
+        <li>Does the merged counter run only after final filtering?</li>
+        <li>Can per-partition draining bypass a counter or transform?</li>
+        <li>Are range-tombstone opens and closes balanced at boundaries?</li>
+        <li>Does the child retain filters, index plan, `nowInSec`, replica type, transaction context, and deadline?</li>
+        <li>Does outer read repair see continuations without nested repair?</li>
+        <li>Is transactional safety decided only after lazy resolution is known?</li>
+        <li>Do tests force remote, local, mixed-version, and non-replica coordinators?</li>
+      </ul>
+    </section>
+
+    <section class="closing" id="closing" data-title="Conclusion">
+      <p class="eyebrow reveal">The durable mental model</p>
+      <p class="closing-statement reveal">
+        SRP is a <em>lazy source-completion layer</em> embedded inside
+        reconciliation.
+      </p>
+      <div class="closing-meta reveal">
+        <div><strong>Contract 01</strong>Completion must be explicit whenever under-limit no longer means exhaustion.</div>
+        <div><strong>Contract 02</strong>Continue the same source exclusively after its last observed cursor.</div>
+        <div><strong>Contract 03</strong>Merge, filter, repair, then count every original and appended element.</div>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="quick-dialog" id="quick-dialog" aria-labelledby="quick-title">
+    <div class="quick-input-wrap">
+      <span aria-hidden="true">⌕</span>
+      <input id="quick-input" type="search" placeholder="Jump to a chapter…" autocomplete="off" aria-label="Filter chapters">
+    </div>
+    <p id="quick-title" class="rail-label" style="padding: 15px 22px 0; margin: 0;">Chapters</p>
+    <ul class="quick-list" id="quick-list"></ul>
+    <p class="quick-empty" id="quick-empty" hidden>No matching chapter</p>
+  </dialog>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const body = document.body;
+      const progressBar = document.getElementById("progress-bar");
+      const navLinks = [...document.querySelectorAll("#nav-list a")];
+      const sections = [...document.querySelectorAll("main section[id]")];
+
+      const updateProgress = () => {
+        const scrollable = document.documentElement.scrollHeight - window.innerHeight;
+        const progress = scrollable > 0 ? (window.scrollY / scrollable) * 100 : 0;
+        progressBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
+      };
+      addEventListener("scroll", updateProgress, { passive: true });
+      updateProgress();
+
+      const activeObserver = new IntersectionObserver((entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (!visible) return;
+        navLinks.forEach((link) => {
+          link.classList.toggle("active", link.getAttribute("href") === `#${visible.target.id}`);
+        });
+      }, { rootMargin: "-18% 0px -62% 0px", threshold: [0, 0.2, 0.5] });
+      sections.forEach((section) => activeObserver.observe(section));
+
+      const revealObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add("visible");
+          observer.unobserve(entry.target);
+        });
+      }, { threshold: 0.08 });
+      document.querySelectorAll(".reveal").forEach((element, index) => {
+        element.style.transitionDelay = `${Math.min(index % 4, 3) * 55}ms`;
+        revealObserver.observe(element);
+      });
+
+      const paletteButton = document.getElementById("palette-toggle");
+      const paletteName = document.getElementById("palette-name");
+      const storedPalette = localStorage.getItem("srp-palette");
+      if (storedPalette === "ember") {
+        body.dataset.palette = "ember";
+        paletteName.textContent = "ember";
+      }
+      paletteButton.addEventListener("click", () => {
+        const next = body.dataset.palette === "ember" ? "signal" : "ember";
+        body.dataset.palette = next;
+        paletteName.textContent = next;
+        localStorage.setItem("srp-palette", next);
+      });
+
+      const simStages = [
+        {
+          number: "01",
+          title: "Each replica satisfies its command",
+          copy: "A returns two live rows; B returns the tombstones needed for reconciliation.",
+          button: "Reconcile →"
+        },
+        {
+          number: "02",
+          title: "Reconciliation removes both rows",
+          copy: "Replica A looked full. The merged live count is zero. This is the short read.",
+          button: "Protect →"
+        },
+        {
+          number: "03",
+          title: "SRP resumes replica A after r2",
+          copy: "The child request targets that same source at CL.ONE and returns raw unfiltered content.",
+          button: "Merge →"
+        },
+        {
+          number: "04",
+          title: "The final limit is satisfied",
+          copy: "Rows r3 and r4 pass through the original reconciliation pipeline and fill LIMIT 2.",
+          button: "Again ↺"
+        }
+      ];
+      let simStage = 0;
+      const simNumber = document.getElementById("sim-number");
+      const simTitle = document.getElementById("sim-title");
+      const simCopy = document.getElementById("sim-copy");
+      const simNext = document.getElementById("sim-next");
+      const simReset = document.getElementById("sim-reset");
+      const stateA = document.getElementById("state-a");
+      const rowsA = [...document.querySelectorAll("#rows-a .data-row")];
+
+      const renderSim = () => {
+        const stage = simStages[simStage];
+        simNumber.textContent = stage.number;
+        simTitle.textContent = stage.title;
+        simCopy.textContent = stage.copy;
+        simNext.textContent = stage.button;
+        rowsA.forEach((row, index) => {
+          row.classList.toggle("eliminated", simStage >= 1 && index < 2);
+          row.classList.toggle("hidden-row", simStage < 2 && index >= 2);
+        });
+        stateA.textContent = simStage < 2 ? "returned 2 / has 4" : "continued after r2";
+      };
+      simNext.addEventListener("click", () => {
+        simStage = simStage === simStages.length - 1 ? 0 : simStage + 1;
+        renderSim();
+      });
+      simReset.addEventListener("click", () => {
+        simStage = 0;
+        renderSim();
+      });
+
+      const activateTab = (button, buttons) => {
+        buttons.forEach((candidate) => {
+          const selected = candidate === button;
+          candidate.setAttribute("aria-selected", String(selected));
+          candidate.tabIndex = selected ? 0 : -1;
+          const panel = document.getElementById(candidate.getAttribute("aria-controls"));
+          panel.hidden = !selected;
+        });
+      };
+
+      const wireTabs = (selector) => {
+        const buttons = [...document.querySelectorAll(selector)];
+        buttons.forEach((button, index) => {
+          button.addEventListener("click", () => activateTab(button, buttons));
+          button.addEventListener("keydown", (event) => {
+            if (!["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            let nextIndex;
+            if (event.key === "Home") nextIndex = 0;
+            else if (event.key === "End") nextIndex = buttons.length - 1;
+            else if (["ArrowDown", "ArrowRight"].includes(event.key)) nextIndex = (index + 1) % buttons.length;
+            else nextIndex = (index - 1 + buttons.length) % buttons.length;
+            activateTab(buttons[nextIndex], buttons);
+            buttons[nextIndex].focus();
+          });
+        });
+      };
+      wireTabs(".tab-button");
+      wireTabs(".time-button");
+
+      const filterButtons = [...document.querySelectorAll(".filter-button")];
+      const riskCards = [...document.querySelectorAll(".risk-card")];
+      filterButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const filter = button.dataset.filter;
+          filterButtons.forEach((candidate) => candidate.setAttribute("aria-pressed", String(candidate === button)));
+          riskCards.forEach((card) => {
+            card.classList.toggle("filtered-out", filter !== "all" && card.dataset.level !== filter);
+          });
+        });
+      });
+
+      const dialog = document.getElementById("quick-dialog");
+      const quickOpen = document.getElementById("quick-open");
+      const quickInput = document.getElementById("quick-input");
+      const quickList = document.getElementById("quick-list");
+      const quickEmpty = document.getElementById("quick-empty");
+      const quickEntries = sections
+        .filter((section) => section.id !== "closing")
+        .map((section, index) => ({
+          title: section.dataset.title || section.id,
+          href: `#${section.id}`,
+          order: String(index + 1).padStart(2, "0")
+        }));
+
+      const renderQuick = (query = "") => {
+        const normalized = query.trim().toLowerCase();
+        const matches = quickEntries.filter((entry) => entry.title.toLowerCase().includes(normalized));
+        quickList.replaceChildren(...matches.map((entry) => {
+          const item = document.createElement("li");
+          const link = document.createElement("a");
+          const title = document.createElement("span");
+          const order = document.createElement("small");
+          title.textContent = entry.title;
+          order.textContent = entry.order;
+          link.href = entry.href;
+          link.append(title, order);
+          link.addEventListener("click", () => dialog.close());
+          item.append(link);
+          return item;
+        }));
+        quickEmpty.hidden = matches.length > 0;
+      };
+
+      const openQuick = () => {
+        renderQuick("");
+        quickInput.value = "";
+        dialog.showModal();
+        requestAnimationFrame(() => quickInput.focus());
+      };
+      quickOpen.addEventListener("click", openQuick);
+      quickInput.addEventListener("input", () => renderQuick(quickInput.value));
+      document.addEventListener("keydown", (event) => {
+        const target = event.target;
+        const isTyping = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+        if (event.key === "/" && !isTyping && !dialog.open) {
+          event.preventDefault();
+          openQuick();
+        }
+      });
+      dialog.addEventListener("click", (event) => {
+        const box = dialog.getBoundingClientRect();
+        const outside = event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+        if (outside) dialog.close();
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,436 @@
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements. See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership. The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License. You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing,
+  software distributed under the License is distributed on an
+  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  KIND, either express or implied. See the License for the
+  specific language governing permissions and limitations
+  under the License.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#071316">
+  <title>Cassandra Read Path Atlas | Branch Overview</title>
+  <link rel="stylesheet" href="read-path-atlas.css">
+  <script src="read-path-atlas.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <div class="reading-progress" aria-hidden="true"><span></span></div>
+
+  <aside class="site-rail" aria-label="Read Path Atlas navigation">
+    <a class="rail-brand" href="#top">
+      <span class="brand-mark">C*</span>
+      <span class="brand-copy">
+        <strong>Read Path Atlas</strong>
+        <span>CASSANDRA-18424 dossier</span>
+      </span>
+    </a>
+
+    <p class="rail-label">Dossier</p>
+    <nav aria-label="Dossier pages">
+      <ol class="suite-nav">
+        <li><a href="index.html" aria-current="page"><span class="nav-index">00</span><span class="nav-title">Atlas overview</span></a></li>
+        <li><a href="short-read-protection.html"><span class="nav-index">01</span><span class="nav-title">Short Read Protection</span></a></li>
+        <li><a href="paging_across_tombstones.html"><span class="nav-index">02</span><span class="nav-title">Paging across tombstones</span></a></li>
+        <li><a href="srp_toe_intersect.html"><span class="nav-index">03</span><span class="nav-title">Contract intersection</span></a></li>
+      </ol>
+    </nav>
+
+    <p class="rail-label">Overview</p>
+    <nav aria-label="Overview chapters">
+      <ol class="toc-nav">
+        <li><a href="#top" data-section="top">Branch thesis</a></li>
+        <li><a href="#dossier" data-section="dossier">Three-page dossier</a></li>
+        <li><a href="#path" data-section="path">Shared read path</a></li>
+        <li><a href="#srp" data-section="srp">Feature 01</a></li>
+        <li><a href="#tombstones" data-section="tombstones">Feature 02</a></li>
+        <li><a href="#intersection" data-section="intersection">Feature 03</a></li>
+        <li><a href="#status" data-section="status">Branch status</a></li>
+        <li><a href="#reading" data-section="reading">Reading guide</a></li>
+      </ol>
+    </nav>
+
+    <p class="rail-note">Prepared from the current branch at commit 95ba53bcc81666d32b3353b03bf351ec47fda10b. Source citations refer to that snapshot.</p>
+  </aside>
+
+  <main class="page-shell" id="main-content">
+    <section class="page-section masthead" id="top">
+      <div class="reveal">
+        <p class="kicker">Apache Cassandra · read path architecture</p>
+        <h1>Limits, Tombstones, and <em>Completion</em></h1>
+        <p class="lede">
+          This branch brings two read-path mechanisms into the same execution path. Short Read
+          Protection completes finite multi-replica results after reconciliation. CASSANDRA-18424
+          lets a replica stop a dense tombstone scan and carry its progress into another page. Their
+          intersection turns replica completion state into a distributed correctness requirement.
+        </p>
+        <div class="tag-row" aria-label="Topic tags">
+          <span class="tag">coordinator reconciliation</span>
+          <span class="tag">replica scan safety</span>
+          <span class="tag">protocol paging</span>
+          <span class="tag">completion semantics</span>
+          <span class="tag">current branch</span>
+        </div>
+      </div>
+
+      <div class="hero-grid reveal">
+        <article class="thesis-card" data-watermark="READ">
+          <span class="card-label">Branch thesis / 00</span>
+          <blockquote>
+            A finite distributed read is complete only when every participating source has an explicit and trustworthy completion state.
+          </blockquote>
+        </article>
+        <div class="meta-stack">
+          <article>
+            <strong>2</strong>
+            <span>features profiled<br>one shared read path</span>
+          </article>
+          <article>
+            <strong>1</strong>
+            <span>response contract<br>requiring alignment</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="page-section" id="dossier">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Three connected analyses</p>
+          <h2>Read each feature, then follow the boundary between them.</h2>
+        </div>
+        <p>
+          The first two pages explain ownership and mechanics. The third traces the exact source,
+          response, and pager states that meet when both mechanisms are active.
+        </p>
+      </div>
+
+      <div class="feature-grid reveal">
+        <a class="feature-card" href="short-read-protection.html">
+          <span class="number">FEATURE / 01</span>
+          <h3>Short Read Protection</h3>
+          <p>
+            A coordinator-side source-completion layer inside reconciliation. It fetches more rows or
+            partitions from the same replica when tombstones and filtering leave the merged result underfilled.
+          </p>
+          <span class="read-link">Open deep dive →</span>
+        </a>
+        <a class="feature-card" href="paging_across_tombstones.html">
+          <span class="number">FEATURE / 02</span>
+          <h3>Paging across tombstones</h3>
+          <p>
+            An opt-in replica checkpoint at the tombstone failure threshold. It records a stopping row
+            and lets a local single-partition pager continue after that clustering.
+          </p>
+          <span class="read-link">Open commit analysis →</span>
+        </a>
+        <a class="feature-card intersection" href="srp_toe_intersect.html">
+          <span class="number">INTERSECTION / 03</span>
+          <h3>Replica checkpoints meet coordinator completion</h3>
+          <p>
+            SRP treats an under-limit source as exhausted under specific counter conditions. Graceful
+            tombstone paging can deliberately create an under-limit source with more content reachable.
+            The stopping reason remains on the replica command at this SHA.
+          </p>
+          <span class="read-link">Trace the contract →</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="page-section" id="path">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Shared architecture</p>
+          <h2>One page spans replica work, coordinator work, and client state.</h2>
+        </div>
+        <p>
+          Placement explains the interaction. Tombstone paging begins at the replica scan. SRP begins
+          at coordinator reconciliation. Protocol paging records the final result position.
+        </p>
+      </div>
+
+      <div class="diagram reveal" role="img" aria-label="Read path showing tombstone paging, Short Read Protection, and protocol paging">
+        <div class="flow">
+          <div class="flow-node">client<br>page request</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node warning">replica scan<br>tombstone checkpoint</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node">ReadResponse<br>unfiltered payload</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node signal">DataResolver<br>SRP + merge</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node">final counter<br>PagingState</div>
+        </div>
+      </div>
+
+      <div class="three-up reveal" style="margin-top: 18px;">
+        <article class="compact-card">
+          <span class="eyebrow">Replica owns</span>
+          <h3>Scan safety</h3>
+          <p>Raw tombstone count, current storage position, unfiltered stream validity, and the decision to stop one command.</p>
+        </article>
+        <article class="compact-card">
+          <span class="eyebrow">Coordinator owns</span>
+          <h3>Source completeness</h3>
+          <p>Exact-source continuation, multi-replica merge, read repair, liveness, filtering, and final live-row limits.</p>
+        </article>
+        <article class="compact-card">
+          <span class="eyebrow">Client pager owns</span>
+          <h3>Request continuity</h3>
+          <p>Final partition and clustering cursor, remaining limits, empty-page progress, and the next protocol request.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="page-section" id="srp">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Feature 01 · coordinator</p>
+          <h2>SRP fills a result that reconciliation made short.</h2>
+        </div>
+        <p>
+          A replica can satisfy its own finite command and still contribute too few final rows. Newer
+          tombstones, liveness, row filtering, and replica filtering can remove candidates during merge.
+        </p>
+      </div>
+
+      <div class="two-up reveal">
+        <article class="panel">
+          <span class="eyebrow">Core trigger</span>
+          <h3>A full source and a hungry merge</h3>
+          <p>
+            SRP compares a per-source counter with a merged-result counter. A source that appeared to
+            fill its limit can receive a continuation when the merged counter still needs rows.
+          </p>
+          <div class="code-path">source A count = requested count
+merged live count &lt; client limit
+  → resume source A
+  → merge appended unfiltered content
+  → filter and count again</div>
+        </article>
+        <article class="panel">
+          <span class="eyebrow">Core invariants</span>
+          <h3>Same source, same pipeline, one deadline</h3>
+          <ul>
+            <li>Resume exclusively after the last observed row or partition.</li>
+            <li>Target the replica that owns the cursor.</li>
+            <li>Keep continuation tombstones visible to outer reconciliation.</li>
+            <li>Apply the final counter after reconciliation and filtering.</li>
+            <li>Share the original request deadline across child reads.</li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="callout reveal">
+        <strong>Activation:</strong>
+        current <code>DataResolver</code> installs SRP for finite, non-top-K resolution with more than
+        one participating response. Matching point-read digests commonly bypass full-data resolution.
+      </div>
+    </section>
+
+    <section class="page-section" id="tombstones">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Feature 02 · replica and pager</p>
+          <h2>CASSANDRA-18424 turns TOE into a page checkpoint.</h2>
+        </div>
+        <p>
+          Commit <code>95ba53bcc81666d32b3353b03bf351ec47fda10b</code> keeps legacy failure
+          behavior as the default and introduces a configured graceful path.
+        </p>
+      </div>
+
+      <div class="diagram reveal" role="img" aria-label="Tombstone checkpoint state flow">
+        <div class="flow vertical">
+          <div class="flow-node">scan unfiltered rows and range tombstone markers</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-node warning">count becomes greater than tombstone_failure_threshold</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-node signal">stop after current ordinary row and save the whole row</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-node">local single-partition pager records RowMark</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-node signal">next client page resumes exclusively after the saved clustering</div>
+        </div>
+      </div>
+
+      <div class="three-up reveal" style="margin-top: 18px;">
+        <article class="compact-card">
+          <span class="eyebrow">Default</span>
+          <h3><code>-1</code> keeps TOE</h3>
+          <p>The new feature is disabled by default, preserving the parent branch's failure behavior.</p>
+        </article>
+        <article class="compact-card">
+          <span class="eyebrow">Current setting model</span>
+          <h3>Any other integer enables</h3>
+          <p>The configured field acts as a sentinel. The actual cutoff count still comes from <code>tombstone_failure_threshold</code>.</p>
+        </article>
+        <article class="compact-card">
+          <span class="eyebrow">Page result</span>
+          <h3>Zero live rows is valid</h3>
+          <p>A page can contain no live rows and still carry progress through a local <code>PagingState.RowMark</code>.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="page-section" id="intersection">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Feature 03 · response boundary</p>
+          <h2>The branch adds a completion state without a wire field.</h2>
+        </div>
+        <p>
+          The local pager can inspect the same command object that stopped. A remote coordinator sees
+          serialized result bytes from a different command object in the replica process.
+        </p>
+      </div>
+
+      <div class="before-after reveal">
+        <article class="panel">
+          <span class="eyebrow">Historical SRP inference</span>
+          <h3>Under-limit retry means source exhaustion.</h3>
+          <p>
+            <code>ShortReadRowsProtection</code> records how many rows it requested and how many the
+            source returned. A later extension ends when <code>lastFetched &lt; lastQueried</code>.
+          </p>
+          <span class="source">ShortReadRowsProtection.java:124-129</span>
+        </article>
+        <div class="divider" aria-hidden="true">+</div>
+        <article class="panel">
+          <span class="eyebrow">New replica behavior</span>
+          <h3>Under-limit can mean checkpoint.</h3>
+          <p>
+            A graceful scan can stop before later live rows or later reconciliation tombstones. The
+            response serializer carries no stop reason and no field designating a tombstone cursor.
+          </p>
+          <span class="source">ReadCommand.java:730-780 · ReadResponse.java:359-401</span>
+        </article>
+      </div>
+
+      <div class="callout danger reveal">
+        <strong>Current static conclusion:</strong>
+        a remote graceful stop can satisfy SRP's natural-exhaustion shape with content still present
+        on that source. This creates a credible short-result path and a credible reconciliation gap.
+        Focused distributed reproducers are required for runtime confirmation.
+      </div>
+
+      <div class="panel reveal" style="margin-top: 20px;">
+        <span class="eyebrow">Needed contract</span>
+        <h3>Completion reason plus a complete source cursor</h3>
+        <p>
+          A final design needs versioned response metadata that identifies deliberate interruption,
+          carries direction-aware resume state, and lets SRP continue the same source under the
+          original request deadline before final result counting.
+        </p>
+      </div>
+    </section>
+
+    <section class="page-section" id="status">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Branch snapshot</p>
+          <h2>What is established, and what still needs evidence.</h2>
+        </div>
+        <p>
+          The dossier separates source-confirmed behavior from static inference and test gaps. No
+          runtime validation is claimed by these pages.
+        </p>
+      </div>
+
+      <div class="three-up reveal">
+        <article class="compact-card">
+          <span class="evidence-label">Established in source</span>
+          <h3>Local cursor mechanics</h3>
+          <p>The replica stops after the current row, stores the row, and a local single-partition pager records an exclusive continuation.</p>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label">Established in source</span>
+          <h3>Transport omission</h3>
+          <p><code>ReadResponse</code> and <code>PagingState</code> retain their established wire shapes. The new stopping reason is absent.</p>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label inference">Static inference</span>
+          <h3>Distributed completion gap</h3>
+          <p>SRP and outer paging can classify a deliberately shortened remote result as natural exhaustion.</p>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label">Strong test coverage</span>
+          <h3>RF1 page traversal</h3>
+          <p>Unit and long-running tests cover many tombstone shapes, page sizes, sparse data sets, collections, and range deletions.</p>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label gap">Coverage gap</span>
+          <h3>Distributed composition</h3>
+          <p>No active test combines remote graceful stopping, multiple full replica responses, reconciliation, and SRP continuation.</p>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label">Operational guard</span>
+          <h3>Default disabled</h3>
+          <p><code>tombstone_paging_threshold: -1</code> retains TOE behavior and avoids the graceful path until configured.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="page-section" id="reading">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Reading guide</p>
+          <h2>Choose the page that matches the decision at hand.</h2>
+        </div>
+        <p>
+          Each page stands alone and uses the same source snapshot. The intersection page is the
+          shortest path to branch-level design and validation questions.
+        </p>
+      </div>
+
+      <div class="feature-grid reveal">
+        <a class="feature-card" href="short-read-protection.html">
+          <span class="number">ARCHITECTURE</span>
+          <h3>Reviewing reconciliation, limits, or read repair?</h3>
+          <p>Start with the SRP page for transformation order, counters, child routing, class structure, and historical invariants.</p>
+          <span class="read-link">Read feature 01 →</span>
+        </a>
+        <a class="feature-card" href="paging_across_tombstones.html">
+          <span class="number">COMMIT</span>
+          <h3>Reviewing CASSANDRA-18424 itself?</h3>
+          <p>Use the commit page for before and after behavior, stopping mechanics, configuration semantics, file map, and test assessment.</p>
+          <span class="read-link">Read feature 02 →</span>
+        </a>
+        <a class="feature-card intersection" href="srp_toe_intersect.html">
+          <span class="number">INTEGRATION</span>
+          <h3>Deciding what the branch needs next?</h3>
+          <p>Use the intersection page for process boundaries, SRP retry behavior, response metadata requirements, adjacent read paths, and the focused validation matrix.</p>
+          <span class="read-link">Read feature 03 →</span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <div class="next-grid">
+      <a class="next-link" href="short-read-protection.html">
+        <small>Begin with feature 01</small>
+        <strong>Short Read Protection</strong>
+      </a>
+      <a class="next-link" href="paging_across_tombstones.html">
+        <small>Begin with feature 02</small>
+        <strong>Paging across tombstones</strong>
+      </a>
+    </div>
+  </footer>
+</body>
+</html>

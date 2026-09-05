@@ -1,0 +1,598 @@
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements. See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership. The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License. You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing,
+  software distributed under the License is distributed on an
+  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  KIND, either express or implied. See the License for the
+  specific language governing permissions and limitations
+  under the License.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#071316">
+  <title>SRP and Tombstone Paging | Cassandra Read Path Atlas</title>
+  <link rel="stylesheet" href="read-path-atlas.css">
+  <script src="read-path-atlas.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <div class="reading-progress" aria-hidden="true"><span></span></div>
+
+  <aside class="site-rail" aria-label="Read Path Atlas navigation">
+    <a class="rail-brand" href="index.html">
+      <span class="brand-mark">C*</span>
+      <span class="brand-copy">
+        <strong>Read Path Atlas</strong>
+        <span>CASSANDRA-18424 dossier</span>
+      </span>
+    </a>
+
+    <p class="rail-label">Dossier</p>
+    <nav aria-label="Dossier pages">
+      <ol class="suite-nav">
+        <li><a href="index.html"><span class="nav-index">00</span><span class="nav-title">Atlas overview</span></a></li>
+        <li><a href="short-read-protection.html"><span class="nav-index">01</span><span class="nav-title">Short Read Protection</span></a></li>
+        <li><a href="paging_across_tombstones.html"><span class="nav-index">02</span><span class="nav-title">Paging across tombstones</span></a></li>
+        <li><a href="srp_toe_intersect.html" aria-current="page"><span class="nav-index">03</span><span class="nav-title">Contract intersection</span></a></li>
+      </ol>
+    </nav>
+
+    <p class="rail-label">On this page</p>
+    <nav aria-label="Page chapters">
+      <ol class="toc-nav">
+        <li><a href="#top" data-section="top">Intersection thesis</a></li>
+        <li><a href="#contracts" data-section="contracts">Two contracts</a></li>
+        <li><a href="#path" data-section="path">End-to-end path</a></li>
+        <li><a href="#scenario" data-section="scenario">Failure sequence</a></li>
+        <li><a href="#state" data-section="state">Counters and cursors</a></li>
+        <li><a href="#boundaries" data-section="boundaries">Process boundaries</a></li>
+        <li><a href="#surfaces" data-section="surfaces">Adjacent surfaces</a></li>
+        <li><a href="#alignment" data-section="alignment">Alignment requirements</a></li>
+        <li><a href="#evidence" data-section="evidence">Evidence matrix</a></li>
+      </ol>
+    </nav>
+
+    <p class="rail-note">TOE refers to TombstoneOverwhelmingException. Graceful tombstone paging is disabled by default at the inspected SHA.</p>
+  </aside>
+
+  <main class="page-shell" id="main-content">
+    <section class="page-section masthead" id="top">
+      <div class="reveal">
+        <p class="kicker">Coordinator completion meets replica scan control</p>
+        <h1>Where SRP Meets <em>Tombstone Paging</em></h1>
+        <p class="lede">
+          Short Read Protection assumes that replica limits explain an underfilled source. Graceful
+          tombstone paging introduces a second explanation: the replica deliberately stopped its scan
+          with more content still reachable. The current branch stores that explanation on the replica
+          command and omits it from the response contract.
+        </p>
+        <div class="tag-row" aria-label="Topic tags">
+          <span class="tag">source completion</span>
+          <span class="tag">under-limit response</span>
+          <span class="tag">ReadResponse</span>
+          <span class="tag">DataResolver</span>
+          <span class="tag">static analysis</span>
+        </div>
+      </div>
+
+      <div class="hero-grid reveal">
+        <article class="thesis-card" data-watermark="STATE">
+          <span class="card-label">Intersection thesis / 03</span>
+          <blockquote>
+            Once under-limit can mean deliberate interruption, completion reason becomes part of reconciliation correctness.
+          </blockquote>
+        </article>
+        <div class="meta-stack">
+          <article>
+            <strong>4</strong>
+            <span>independent counters<br>in one client page</span>
+          </article>
+          <article>
+            <strong>0</strong>
+            <span>stop fields serialized<br>in ReadResponse</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="page-section" id="contracts">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">The semantic collision</p>
+          <h2>Two correct local decisions need one shared completion model.</h2>
+        </div>
+        <p>
+          Each feature solves a different source of read underfill. Their composition turns a local
+          stopping optimization into coordinator-visible state.
+        </p>
+      </div>
+
+      <div class="two-up reveal">
+        <article class="panel">
+          <span class="eyebrow">Coordinator contract</span>
+          <h3>Short Read Protection completes replica streams.</h3>
+          <p>
+            A replica that filled its command limit may have more rows. Reconciliation can discard
+            some returned rows through newer tombstones, liveness, or filtering. SRP resumes that
+            exact replica after its last observed clustering or partition key.
+          </p>
+          <ul>
+            <li>Per-source counters observe the replica before reconciliation.</li>
+            <li>A merged counter observes final live output.</li>
+            <li>An underfilled retry means natural exhaustion when it returns fewer rows than requested.</li>
+          </ul>
+          <span class="source">ShortReadProtection.java:30-82 · ShortReadRowsProtection.java:76-171</span>
+        </article>
+        <article class="panel">
+          <span class="eyebrow">Replica contract</span>
+          <h3>Graceful tombstone paging bounds one scan.</h3>
+          <p>
+            A configured replica stops a row iterator after the tombstone failure count is exceeded.
+            It records the current row so a pager can resume beyond that clustering on another command.
+          </p>
+          <ul>
+            <li>The response can contain fewer live rows than requested.</li>
+            <li>More live rows and reconciliation tombstones may remain in storage.</li>
+            <li>The stop reason and stopping row live on the replica command.</li>
+          </ul>
+          <span class="source">ReadCommand.java:650-780 · AbstractQueryPager.java:219-275</span>
+        </article>
+      </div>
+
+      <div class="callout danger reveal">
+        <strong>Shared implication:</strong>
+        SRP interprets a short source response as exhaustion. Graceful tombstone paging can produce
+        the same response shape as an intentional checkpoint. A response completion field must make
+        those states distinguishable.
+      </div>
+    </section>
+
+    <section class="page-section" id="path">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">End-to-end execution</p>
+          <h2>The stopping state crosses three ownership domains.</h2>
+        </div>
+        <p>
+          Protocol paging owns the client cursor, <code>DataResolver</code> owns reconciliation and SRP,
+          and each replica owns tombstone scanning. The current implementation completes the local
+          handoff from replica command to local pager.
+        </p>
+      </div>
+
+      <div class="diagram reveal" role="img" aria-label="Client, coordinator, and replica lanes for a paged reconciled read">
+        <div class="lane-map">
+          <div class="lane">
+            <div class="lane-name">Client pager</div>
+            <div class="lane-step signal">request page N</div>
+            <div class="lane-step empty">wait</div>
+            <div class="lane-step empty">wait</div>
+            <div class="lane-step">consume live rows</div>
+            <div class="lane-step signal">store PagingState</div>
+          </div>
+          <div class="lane">
+            <div class="lane-name">Coordinator</div>
+            <div class="lane-step">finite ReadCommand</div>
+            <div class="lane-step">collect responses</div>
+            <div class="lane-step signal">SRP wrap + merge</div>
+            <div class="lane-step">filter + count</div>
+            <div class="lane-step warning">decide exhausted</div>
+          </div>
+          <div class="lane">
+            <div class="lane-name">Replica</div>
+            <div class="lane-step">scan unfiltered</div>
+            <div class="lane-step warning">cross tombstone F</div>
+            <div class="lane-step signal">save stop row</div>
+            <div class="lane-step danger">serialize rows only</div>
+            <div class="lane-step empty">marker stays local</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel reveal" style="margin-top: 22px;">
+        <span class="eyebrow">Coordinator resolution order</span>
+        <h3>SRP extends raw sources inside reconciliation.</h3>
+        <div class="code-path">replica ReadResponse iterators
+  → per-source ShortReadProtection extension
+  → unfiltered merge and read-repair listener
+  → tombstone and liveness filtering
+  → Replica Filtering Protection completion when applicable
+  → merged live-result counter
+  → empty-partition discard
+  → AbstractQueryPager live-row counter
+  → protocol page and PagingState</div>
+        <p style="margin-top: 18px;">
+          Continuation rows must re-enter before merge so their tombstones can shadow content from
+          other replicas. A client-level retry after reconciliation is too late for that source-completion work.
+        </p>
+        <span class="source">DataResolver.java:203-327 · ShortReadProtection.java:42-82</span>
+      </div>
+    </section>
+
+    <section class="page-section" id="scenario">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Concrete composition</p>
+          <h2>An SRP refill reaches a tombstone checkpoint.</h2>
+        </div>
+        <p>
+          This sequence follows the current source control flow. The final user-visible truncation
+          remains a high-confidence static inference pending a focused distributed reproducer.
+        </p>
+      </div>
+
+      <div class="steps reveal">
+        <article class="step">
+          <div>
+            <h3>Replica A fills the original limit</h3>
+            <p>For a page limit of 2, A returns live rows <code>c1</code> and <code>c2</code>. More content follows on A.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Replica B supplies a newer delete</h3>
+            <p>B returns a tombstone for <code>c1</code>. Reconciliation removes that row, leaving one live row in the merged page.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>SRP resumes A after c2</h3>
+            <p>The source had filled its original command and the merged counter remains hungry. <code>ShortReadRowsProtection</code> sends a CL.ONE child read to A.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>A crosses the tombstone failure threshold</h3>
+            <p>The child command encounters <code>F + 1</code> tombstones before the next live row <code>cN</code>. Graceful mode stops and stores its local stopping row.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>The response omits the completion reason</h3>
+            <p><code>ReadResponse</code> carries the shortened unfiltered payload. Its data may include the checkpoint row, with no field designating that row as a checkpoint. The child command and its <code>tombstoneLimitedRow</code> stay in the replica process.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>SRP classifies the source as consumed</h3>
+            <p>The retry returned fewer rows than <code>lastQueried</code>. <code>ShortReadRowsProtection.moreContents()</code> returns <code>null</code> on the next extension check.</p>
+          </div>
+        </article>
+      </div>
+
+      <div class="diagram reveal" style="margin-top: 22px;" role="img" aria-label="Source contents around an SRP retry and tombstone checkpoint">
+        <div class="flow">
+          <div class="flow-node signal">c1 live<br>shadowed by B</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node signal">c2 live<br>last observed</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node warning">F + 1 tombstones<br>child stops</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node danger">cN live<br>unreached</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node">source reported<br>under-limit</div>
+        </div>
+      </div>
+
+      <div class="two-up reveal" style="margin-top: 18px;">
+        <article class="compact-card">
+          <span class="evidence-label inference">Result-size inference</span>
+          <h3>The client page can finish short.</h3>
+          <p>The merged counter remains below its target and SRP has no continuation signal for A. The outer pager sees an ordinary short result.</p>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label inference">Reconciliation inference</span>
+          <h3>A later tombstone can remain unseen.</h3>
+          <p>A continuation may contain a tombstone needed to suppress older data from another replica. Premature source completion can expose that older row.</p>
+        </article>
+      </div>
+
+      <div class="callout danger reveal">
+        The reconciliation risk follows an explicit SRP design requirement: continuation content may
+        carry tombstones that shadow rows or partitions returned by another source. Runtime confirmation
+        should assert both result cardinality and row contents.
+      </div>
+    </section>
+
+    <section class="page-section" id="state">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Accounting model</p>
+          <h2>Four counters answer four different questions.</h2>
+        </div>
+        <p>
+          No counter in this path can infer the replica stop reason from its numeric value. The reason
+          needs an explicit state channel.
+        </p>
+      </div>
+
+      <div class="fact-table-wrap reveal">
+        <table class="fact-table">
+          <thead>
+            <tr><th>State</th><th>Owner</th><th>Question answered</th><th>Shared across boundary</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>MetricRecording.tombstones</td>
+              <td>Replica ReadCommand</td>
+              <td>How many countable tombstones has this command scanned?</td>
+              <td>No. Each initial read, SRP retry, and client page starts a new command count.</td>
+            </tr>
+            <tr>
+              <td>singleResultCounter</td>
+              <td>SRP source wrapper</td>
+              <td>How many live rows did one replica source supply across its original and appended iterators?</td>
+              <td>Shared across SRP extensions for one source in one resolve.</td>
+            </tr>
+            <tr>
+              <td>mergedResultCounter</td>
+              <td>DataResolver.ResolveContext</td>
+              <td>How many live rows survived reconciliation and post-filtering?</td>
+              <td>Shared by all source protectors in one resolution context.</td>
+            </tr>
+            <tr>
+              <td>Pager.rowCounter</td>
+              <td>AbstractQueryPager</td>
+              <td>How many final live rows belong to this client page?</td>
+              <td>Feeds protocol remaining counts and paging state.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="fact-table-wrap reveal" style="margin-top: 20px;">
+        <table class="fact-table">
+          <thead>
+            <tr><th>Cursor</th><th>Owner</th><th>Resume semantics</th><th>Transport</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>tombstoneLimitedRow</td><td>Replica command</td><td>Ordinary row where graceful stopping became visible.</td><td>Local object only.</td></tr>
+            <tr><td>lastClustering</td><td>ShortReadRowsProtection</td><td>Exclusive continuation within one source partition.</td><td>Rebuilt into an SRP child command.</td></tr>
+            <tr><td>lastPartitionKey</td><td>ShortReadPartitionsProtection</td><td>Continuation after one source partition in a range.</td><td>Rebuilt into an SRP child range.</td></tr>
+            <tr><td>PagingState.RowMark</td><td>Protocol pager</td><td>Exclusive continuation for a later client request.</td><td>Serialized to the client.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout reveal">
+        <strong>Key distinction:</strong>
+        the SRP cursor tracks the last row the coordinator actually received from one source. The
+        tombstone paging cursor tracks the row where the replica checkpointed, which may be absent
+        from live output. A complete response model needs to communicate that later progress safely.
+      </div>
+    </section>
+
+    <section class="page-section" id="boundaries">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Local identity and transport</p>
+          <h2>The same command object exists only for a local read.</h2>
+        </div>
+        <p>
+          RF1 tests exercise a coordinator and data replica in one Cassandra process. Remote execution
+          creates a distinct command object inside the replica verb handler.
+        </p>
+      </div>
+
+      <div class="before-after reveal">
+        <article class="panel">
+          <span class="eyebrow">Local data replica</span>
+          <h3>Object identity carries the marker.</h3>
+          <p>
+            <code>StorageProxy.LocalReadRunnable</code> executes the coordinator's command object. The
+            pager retains that query and can later inspect <code>tombstoneLimitedRow</code> directly.
+          </p>
+          <p>This is the successful path exercised by the main RF1 native-protocol suite.</p>
+          <span class="source">StorageProxy.java:2722-2756 · SinglePartitionPager.java:88-101</span>
+        </article>
+        <div class="divider" aria-hidden="true">→</div>
+        <article class="panel">
+          <span class="eyebrow">Remote data replica</span>
+          <h3>Serialization ends object identity.</h3>
+          <p>
+            <code>ReadCommandVerbHandler</code> executes the deserialized request payload. The response
+            serializer emits result bytes and repaired-data metadata. The replica command then leaves scope.
+          </p>
+          <p>The coordinator's retained query object never receives the remote command's <code>tombstoneLimitedRow</code> field.</p>
+          <span class="source">ReadCommandVerbHandler.java:68-103 · ReadResponse.java:359-401</span>
+        </article>
+      </div>
+
+      <div class="three-up reveal" style="margin-top: 18px;">
+        <article class="compact-card">
+          <span class="eyebrow">Digest match</span>
+          <h3>DataResolver can be absent</h3>
+          <p>Matching digest reads return the selected data response directly. SRP has no role in that completion decision.</p>
+        </article>
+        <article class="compact-card">
+          <span class="eyebrow">Digest mismatch</span>
+          <h3>Full responses enter SRP</h3>
+          <p>Read repair gathers full responses through <code>DataResolver</code>, where every finite multi-source result can receive SRP wrappers.</p>
+        </article>
+        <article class="compact-card">
+          <span class="eyebrow">Mixed configuration</span>
+          <h3>Replicas can terminate differently</h3>
+          <p>An old or disabled replica throws TOE at <code>F + 1</code>. An enabled replica returns a shortened success response with the same wire shape as natural exhaustion.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="page-section" id="surfaces">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Adjacent read-path surfaces</p>
+          <h2>The completion state propagates beyond ordinary row refill.</h2>
+        </div>
+        <p>
+          These surfaces consume the same lazy source iterators or make safety decisions around their
+          completion. Each needs explicit treatment in a final design.
+        </p>
+      </div>
+
+      <div class="three-up reveal">
+        <article class="compact-card">
+          <span class="evidence-label inference">Static inference</span>
+          <h3>Partition SRP</h3>
+          <p>Range continuation uses the last observed partition key and a new single-replica range plan. A stopped interior partition needs row-level position as well as a partition key.</p>
+          <span class="source">ShortReadPartitionsProtection.java:115-203</span>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label">Verified wiring</span>
+          <h3>Replica Filtering Protection</h3>
+          <p>RFP's first phase is unlimited at the merged counter and still SRP-protected. A source checkpoint can limit candidate discovery before row completion and re-filtering.</p>
+          <span class="source">DataResolver.java:234-276</span>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label inference">Static inference</span>
+          <h3>Range protocol paging</h3>
+          <p>The range pager does not retain page commands. A stop within one partition can be followed by later partitions, moving the protocol cursor past an omitted suffix.</p>
+          <span class="source">PartitionRangeQueryPager.java:84-127</span>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label">Verified wiring</span>
+          <h3>Non-paged commands</h3>
+          <p>Replica execution reads the global graceful setting even when the coordinator has no protocol pager. A complete-result query has no later page to carry the cursor.</p>
+          <span class="source">ReadCommand.java:510-537</span>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label inference">Pre-existing seam</span>
+          <h3>Paxos v2 callback</h3>
+          <p>Only partition SRP invokes the prefetch callback. Paxos checks its flag before the lazy result is consumed. Single-partition row refill can therefore occur after the safety decision.</p>
+          <span class="source">Paxos.java:1127-1146 · ShortReadPartitionsProtection.java:156-163</span>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label">Verified transport</span>
+          <h3>Wire compatibility</h3>
+          <p><code>PagingState</code> and <code>ReadResponse</code> retain their wire shapes. Existing peers can decode them, and neither shape names the new replica completion state.</p>
+          <span class="source">PagingState.java:58-144 · ReadResponse.java:359-401</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="page-section" id="alignment">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Design requirements</p>
+          <h2>Align the response contract before enabling the feature.</h2>
+        </div>
+        <p>
+          The smallest durable model carries completion reason, progress, and continuation ownership
+          through every layer that can consume an under-limit response.
+        </p>
+      </div>
+
+      <div class="steps reveal">
+        <article class="step">
+          <div>
+            <h3>Name replica completion explicitly</h3>
+            <p>A response must distinguish natural exhaustion, row-limit exhaustion, tombstone checkpoint, cancellation, and any future bounded-scan state that permits more content.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Carry a complete resume position</h3>
+            <p>Single-partition and range reads need direction-aware clustering, partition identity, and exclusivity. Range tombstone boundaries need a stream-safe representation.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Let SRP consume replica completion</h3>
+            <p>A tombstone checkpoint should trigger another exact-source child read under the original deadline. It must avoid the natural-exhaustion shortcuts in row and partition protection.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Preserve reconciliation placement</h3>
+            <p>Continuation payloads stay unfiltered until they re-enter the outer merge, read-repair listener, liveness filtering, RFP, and final counter.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Keep protocol paging as the outer cursor</h3>
+            <p>The client receives a page only after coordinator source completion reaches a stable page boundary. Empty pages still require guaranteed forward progress and a bounded request policy.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Negotiate mixed-version behavior</h3>
+            <p>A capability or version rule must prevent semantic disagreement between peers that throw TOE and peers that emit checkpointed responses.</p>
+          </div>
+        </article>
+      </div>
+
+      <div class="quote-card reveal" style="margin-top: 24px;">
+        <span class="eyebrow">Proposed invariant</span>
+        <h3>Every incomplete replica response carries enough state to continue that source exactly once.</h3>
+        <p>
+          The coordinator retains ownership of reconciliation and final page completeness. The replica
+          retains ownership of scan safety. Explicit completion metadata joins those responsibilities
+          without moving either feature out of its natural layer.
+        </p>
+      </div>
+    </section>
+
+    <section class="page-section" id="evidence">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Required validation</p>
+          <h2>A focused matrix can close the evidence gap.</h2>
+        </div>
+        <p>
+          Result equality alone is insufficient. Tests should assert response completion state,
+          continuation target, page count, request count, and reconciliation contents.
+        </p>
+      </div>
+
+      <div class="fact-table-wrap reveal">
+        <table class="fact-table">
+          <thead>
+            <tr><th>Dimension</th><th>Required cases</th><th>Primary assertion</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Replica placement</td><td>Coordinator local, coordinator remote, non-replica coordinator</td><td>Identical completion and result semantics across object and wire boundaries.</td></tr>
+            <tr><td>Resolution</td><td>Digest match, digest mismatch, full range data, read repair</td><td>No truncated success path bypasses required source completion.</td></tr>
+            <tr><td>SRP level</td><td>Row refill, partition refill, repeated refill</td><td>Every checkpoint resumes the exact source with monotonic progress.</td></tr>
+            <tr><td>Tombstone shape</td><td>Row, cell, collection element, partition, range open, range close</td><td>All required tombstones reach reconciliation and stream boundaries remain valid.</td></tr>
+            <tr><td>Ordering</td><td>Ascending, descending, slice bounds, inclusive and exclusive edges</td><td>No duplicate, omission, or cursor regression.</td></tr>
+            <tr><td>Query shape</td><td>Single partition, partition range, filtering, RFP, no protocol paging</td><td>Every query has an owner for continuation state.</td></tr>
+            <tr><td>Cluster mode</td><td>All enabled, all disabled, mixed configuration, mixed version</td><td>Negotiated and deterministic termination behavior.</td></tr>
+            <tr><td>Resource bound</td><td>All-tombstone pages, many empty pages, deadline expiry</td><td>Bounded retries, stable metrics, and useful client warnings.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warning reveal">
+        No test inspected for this analysis combines remote graceful stopping with multi-replica SRP.
+        The current evidence proves local paging behavior, legacy TOE behavior, and selected upgrade
+        paths. It does not establish the composed distributed contract described on this page.
+      </div>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <div class="next-grid">
+      <a class="next-link" href="paging_across_tombstones.html">
+        <small>Feature 02</small>
+        <strong>Paging across tombstones</strong>
+      </a>
+      <a class="next-link" href="index.html">
+        <small>Return to</small>
+        <strong>Atlas overview</strong>
+      </a>
+    </div>
+  </footer>
+</body>
+</html>

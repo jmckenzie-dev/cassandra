@@ -1,0 +1,590 @@
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements. See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership. The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License. You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing,
+  software distributed under the License is distributed on an
+  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  KIND, either express or implied. See the License for the
+  specific language governing permissions and limitations
+  under the License.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#071316">
+  <title>Paging Across Tombstones | Cassandra Read Path Atlas</title>
+  <link rel="stylesheet" href="read-path-atlas.css">
+  <script src="read-path-atlas.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <div class="reading-progress" aria-hidden="true"><span></span></div>
+
+  <aside class="site-rail" aria-label="Read Path Atlas navigation">
+    <a class="rail-brand" href="index.html">
+      <span class="brand-mark">C*</span>
+      <span class="brand-copy">
+        <strong>Read Path Atlas</strong>
+        <span>CASSANDRA-18424 dossier</span>
+      </span>
+    </a>
+
+    <p class="rail-label">Dossier</p>
+    <nav aria-label="Dossier pages">
+      <ol class="suite-nav">
+        <li><a href="index.html"><span class="nav-index">00</span><span class="nav-title">Atlas overview</span></a></li>
+        <li><a href="short-read-protection.html"><span class="nav-index">01</span><span class="nav-title">Short Read Protection</span></a></li>
+        <li><a href="paging_across_tombstones.html" aria-current="page"><span class="nav-index">02</span><span class="nav-title">Paging across tombstones</span></a></li>
+        <li><a href="srp_toe_intersect.html"><span class="nav-index">03</span><span class="nav-title">Contract intersection</span></a></li>
+      </ol>
+    </nav>
+
+    <p class="rail-label">On this page</p>
+    <nav aria-label="Page chapters">
+      <ol class="toc-nav">
+        <li><a href="#top" data-section="top">Commit thesis</a></li>
+        <li><a href="#failure" data-section="failure">Original failure</a></li>
+        <li><a href="#mechanism" data-section="mechanism">New mechanism</a></li>
+        <li><a href="#accounting" data-section="accounting">State and accounting</a></li>
+        <li><a href="#implementation" data-section="implementation">Implementation map</a></li>
+        <li><a href="#tests" data-section="tests">Test evidence</a></li>
+        <li><a href="#findings" data-section="findings">Current findings</a></li>
+        <li><a href="#review" data-section="review">Review guide</a></li>
+      </ol>
+    </nav>
+
+    <p class="rail-note">Source snapshot: commit 95ba53bcc81666d32b3353b03bf351ec47fda10b at HEAD. Runtime behavior is identified explicitly where test execution would still be required.</p>
+  </aside>
+
+  <main class="page-shell" id="main-content">
+    <section class="page-section masthead" id="top">
+      <div class="reveal">
+        <p class="kicker">Apache Cassandra · CASSANDRA-18424 · commit deep dive</p>
+        <h1>Paging Across <em>Tombstones</em></h1>
+        <p class="lede">
+          Commit <code>95ba53bcc81666d32b3353b03bf351ec47fda10b</code> adds an opt-in
+          replica stop condition for dense tombstone scans. A local single-partition pager can turn
+          the stopping row into an exclusive continuation and continue the read on a later page.
+        </p>
+        <div class="tag-row" aria-label="Topic tags">
+          <span class="tag">ReadCommand</span>
+          <span class="tag">StoppingTransformation</span>
+          <span class="tag">AbstractQueryPager</span>
+          <span class="tag">PagingState.RowMark</span>
+          <span class="tag">default disabled</span>
+        </div>
+      </div>
+
+      <div class="hero-grid reveal">
+        <article class="thesis-card" data-watermark="PAGE">
+          <span class="card-label">Commit thesis / 02</span>
+          <blockquote>
+            Convert a fatal tombstone scan into a resumable page boundary, preserving the row that establishes forward progress.
+          </blockquote>
+        </article>
+        <div class="meta-stack">
+          <article>
+            <strong>22</strong>
+            <span>files changed<br>4,071 insertions</span>
+          </article>
+          <article>
+            <strong>F + 1</strong>
+            <span>first tombstone count<br>past the failure threshold</span>
+          </article>
+        </div>
+      </div>
+
+      <div class="callout reveal">
+        <strong>Commit record:</strong>
+        authored by Josh McKenzie on 2026-07-23, parent
+        <code>e805b8aa320bbeb444f0894ce3ed4fd6123df0ea</code>, and currently checked out
+        at <code>HEAD</code>. The commit message identifies CASSANDRA-18424 and records the reviewer as TBD.
+      </div>
+    </section>
+
+    <section class="page-section" id="failure">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">The user-visible pressure point</p>
+          <h2>A dense delete run ended the query.</h2>
+        </div>
+        <p>
+          Cassandra keeps tombstones in the unfiltered replica stream because reconciliation may
+          need them to suppress older data from another replica. A large scan therefore carries a
+          real memory and latency cost at the replica and coordinator.
+        </p>
+      </div>
+
+      <div class="before-after reveal">
+        <article class="panel">
+          <span class="eyebrow">Parent commit</span>
+          <h3>Failure at the safety boundary</h3>
+          <p>
+            The replica counted tombstones in <code>ReadCommand.MetricRecording</code>. Count
+            <code>F + 1</code> incremented the failure metric, attached failure metadata when
+            warnings were requested, and threw <code>TombstoneOverwhelmingException</code>.
+          </p>
+          <p>A protocol client received <code>READ_TOO_MANY_TOMBSTONES</code> and no continuation for the scan.</p>
+          <span class="source">Parent ReadCommand.java, former withMetricsRecording implementation</span>
+        </article>
+        <div class="divider" aria-hidden="true">→</div>
+        <article class="panel">
+          <span class="eyebrow">Target commit</span>
+          <h3>Page boundary at the same count</h3>
+          <p>
+            A configured replica signals <code>stopInPartition()</code>, completes the current row,
+            records that row in <code>tombstoneLimitedRow</code>, and closes the current row iterator.
+          </p>
+          <p>A local single-partition pager converts the recorded row into the next paging cursor.</p>
+          <span class="source">ReadCommand.java:650-780 · AbstractQueryPager.java:207-275</span>
+        </article>
+      </div>
+
+      <div class="callout warning reveal">
+        <strong>Configuration semantics at this SHA:</strong>
+        <code>tombstone_paging_threshold</code> acts as an enable sentinel. Value <code>-1</code>
+        selects the exception path. Every other integer selects graceful stopping. The count that
+        ends the page comes from <code>tombstone_failure_threshold</code>.
+      </div>
+    </section>
+
+    <section class="page-section" id="mechanism">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Replica to protocol cursor</p>
+          <h2>One stopping row carries progress.</h2>
+        </div>
+        <p>
+          The implementation places tombstone counting before row filtering and replica limits.
+          The saved row can therefore describe progress through content that never becomes a live
+          result row.
+        </p>
+      </div>
+
+      <div class="diagram reveal" role="img" aria-label="Flow from storage scan to continuation paging state">
+        <div class="flow">
+          <div class="flow-node">storage iterator<br>unfiltered rows</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node warning">tombstone count<br>crosses F</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node signal">stop after current row<br>save whole row</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node">liveness filter<br>page may be empty</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node signal">RowMark<br>exclusive resume</div>
+        </div>
+      </div>
+
+      <div class="steps reveal" style="margin-top: 22px;">
+        <article class="step">
+          <div>
+            <h3>Select the graceful path</h3>
+            <p><code>ReadCommand.executeLocally</code> passes the configured integer into metrics recording. Exact value <code>-1</code> retains TOE behavior.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Count raw tombstone-bearing content</h3>
+            <p>Dead cells, qualifying row deletions, and range tombstone markers contribute before the row filter and replica <code>DataLimits</code> run.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Stop after one complete row item</h3>
+            <p><code>StoppingTransformation</code> returns the currently processed item and then ends the row iterator. <code>MetricRecording.applyToRow</code> stores the whole row.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Close stream boundaries</h3>
+            <p><code>RTBoundCloser</code> keeps the unfiltered stream structurally valid when a stopping transformation closes an iterator inside an open range tombstone.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Translate replica state into pager state</h3>
+            <p><code>AbstractQueryPager.Pager.onClose</code> finds the stopping row on retained page commands, records its clustering, preserves remaining live-row counts, and keeps the pager open.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Resume exclusively</h3>
+            <p><code>SinglePartitionReadCommand.forPaging</code> starts after the saved clustering. The next request can cross the tombstone run without returning a row twice.</p>
+          </div>
+        </article>
+      </div>
+
+      <div class="panel reveal" style="margin-top: 22px;">
+        <span class="eyebrow">Concrete sequence</span>
+        <h3>Page size 2, failure threshold 3</h3>
+        <div class="code-path">partition p
+  c0 tombstone
+  c1 tombstone
+  c2 tombstone
+  c3 tombstone  ← count 4, stop row, save c3
+  c4 live
+  c5 live
+
+page request 1 → empty live page + RowMark(c3) + remaining 2
+page request 2 → start after c3 → return c4, c5 → remaining 0</div>
+        <p style="margin-top: 18px;">
+          An empty page with a continuation is legal in the pager abstraction. Driver behavior now
+          determines whether the client advances automatically, exposes the empty page, or applies
+          its own time and request budget.
+        </p>
+      </div>
+    </section>
+
+    <section class="page-section" id="accounting">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">State scopes</p>
+          <h2>Tombstones set the cursor. Live rows set the limit.</h2>
+        </div>
+        <p>
+          The feature joins two accounting domains. Replica tombstone counting chooses a safe break
+          point. Pager row counting tracks the live result contract visible to CQL.
+        </p>
+      </div>
+
+      <div class="fact-table-wrap reveal">
+        <table class="fact-table">
+          <thead>
+            <tr><th>State</th><th>Scope</th><th>Meaning</th><th>Boundary rule</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>MetricRecording.tombstones</td>
+              <td>One replica command</td>
+              <td>Raw tombstone items observed after purgeable tombstones are removed.</td>
+              <td>Graceful action begins when count is greater than the failure threshold.</td>
+            </tr>
+            <tr>
+              <td>ReadCommand.tombstoneLimitedRow</td>
+              <td>One mutable command object</td>
+              <td>The ordinary row being processed when the stop signal is visible.</td>
+              <td>The full row is saved, including a row with live and deleted collection elements.</td>
+            </tr>
+            <tr>
+              <td>Pager.rowCounter</td>
+              <td>One coordinator page</td>
+              <td>Live rows exposed after filtering and reconciliation.</td>
+              <td>An empty tombstone-limited page subtracts zero from rows remaining.</td>
+            </tr>
+            <tr>
+              <td>PagingState.RowMark</td>
+              <td>Protocol continuation</td>
+              <td>Clustering position used by the next single-partition page.</td>
+              <td>Continuation starts exclusively after the recorded clustering.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="three-up reveal" style="margin-top: 18px;">
+        <article class="compact-card">
+          <span class="eyebrow">Row granularity</span>
+          <h3>One cell can stop a whole row</h3>
+          <p>Each dead cell contributes independently. The iterator finishes and records the complete row, preserving any live cells in the same logical row.</p>
+        </article>
+        <article class="compact-card">
+          <span class="eyebrow">Range markers</span>
+          <h3>A marker is never the cursor</h3>
+          <p>An over-threshold bound or boundary logs and continues. A later ordinary row that contributes a tombstone can signal the stop. A fully live row does not call the stopping counter.</p>
+        </article>
+        <article class="compact-card">
+          <span class="eyebrow">Query budget</span>
+          <h3>Each command starts at zero</h3>
+          <p>The tombstone count belongs to one replica command. Client pages and coordinator continuation commands each receive a fresh count.</p>
+        </article>
+      </div>
+
+      <div class="callout reveal">
+        Local system keyspaces remain exempt from tombstone thresholds. Failure metrics continue to
+        increment after the threshold for every later counted tombstone in a scan that has not yet
+        found an ordinary stopping row.
+      </div>
+    </section>
+
+    <section class="page-section" id="implementation">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Production change map</p>
+          <h2>Twelve files span configuration, iteration, and paging.</h2>
+        </div>
+        <p>
+          The release note, configuration, management surface, query abstraction, replica iterator,
+          and pager all change. The core state remains concentrated in <code>ReadCommand</code> and
+          <code>AbstractQueryPager</code>.
+        </p>
+      </div>
+
+      <div class="fact-table-wrap reveal">
+        <table class="fact-table">
+          <thead>
+            <tr><th>File or symbol</th><th>Responsibility introduced by the commit</th><th>Review significance</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>CHANGES.txt</td><td>Adds the CASSANDRA-18424 entry for the 7.0 line.</td><td>Names the user-visible behavior in the release record.</td></tr>
+            <tr><td>Config.java</td><td>Adds <code>TOMBSTONE_PAGING_DISABLED</code> and a default value of <code>-1</code>.</td><td>Preserves legacy behavior after upgrade.</td></tr>
+            <tr><td>cassandra.yaml</td><td>Documents short pages, empty pages, and client auto-fetch behavior.</td><td>The prose describes a numeric threshold; current code uses the field as an enable sentinel.</td></tr>
+            <tr><td>DatabaseDescriptor</td><td>Exposes a getter and setter for the raw integer.</td><td>No value validation is present in this path.</td></tr>
+            <tr><td>StorageService</td><td>Implements runtime get and set operations through <code>DatabaseDescriptor</code>.</td><td>Allows feature state to change without restart.</td></tr>
+            <tr><td>StorageServiceMBean</td><td>Publishes an integer property named <code>TombstonePagingEnabled</code>.</td><td>The public name and numeric type communicate different configuration models.</td></tr>
+            <tr><td>ReadQuery</td><td>Adds execution overloads and a <code>tombstoneLimitedRow()</code> hook.</td><td>New completion state enters the read-query abstraction.</td></tr>
+            <tr><td>ReadCommand</td><td>Counts, stops, records a row, emits warnings, and preserves TOE behavior under <code>-1</code>.</td><td>This is the replica-side source of truth.</td></tr>
+            <tr><td>SinglePartitionReadQuery.Group</td><td>Propagates the configured sentinel through grouped local and internal execution.</td><td>Every child command must use one termination model.</td></tr>
+            <tr><td>StoppingTransformation</td><td>Exposes <code>isStopped()</code> to a subclass after a stop signal.</td><td>The current item remains available for cursor capture.</td></tr>
+            <tr><td>AbstractQueryPager</td><td>Separates <code>rowsRemaining</code>, inspects retained commands, records the stopping row, and changes exhaustion handling.</td><td>This is the local completion-state consumer.</td></tr>
+            <tr><td>SinglePartitionPager</td><td>Retains every page query and uses the last row mark for the next command.</td><td>Only this pager populates <code>pageQueries</code> at this SHA.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel reveal" style="margin-top: 20px;">
+        <span class="eyebrow">Replica transformation order</span>
+        <h3>The cursor is captured before result filtering.</h3>
+        <div class="code-path">queryStorage or index search
+  → query size tracking
+  → cancellation
+  → purgeable tombstone removal
+  → MetricRecording and graceful stop
+  → row filtering
+  → replica DataLimits
+  → RTBoundCloser
+  → ReadResponse</div>
+        <span class="source">ReadCommand.java:565-610</span>
+      </div>
+    </section>
+
+    <section class="page-section" id="tests">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Evidence supplied by the commit</p>
+          <h2>RF1 coverage is broad. Distributed coverage is incomplete.</h2>
+        </div>
+        <p>
+          The largest test investment is a native-protocol validator running in the same Cassandra
+          process as its replica. That shape exercises local command identity and the local cursor path.
+        </p>
+      </div>
+
+      <div class="two-up reveal">
+        <article class="panel">
+          <span class="eyebrow">PagingAcrossTombstonesTest</span>
+          <h3>Primary regression suite</h3>
+          <ul>
+            <li>Parameterized sync and async access paths.</li>
+            <li>Forward and reverse parameter labels.</li>
+            <li>Row, cell, static, collection, and range tombstones.</li>
+            <li>Sparse live data and threshold/page exhaustion overlap.</li>
+            <li>Warning presence and randomized state generation.</li>
+          </ul>
+          <p>The keyspace uses replication factor 1, so the coordinator and data replica share the command object that holds the stopping row.</p>
+          <span class="source">PagingAcrossTombstonesTest.java:73-706</span>
+        </article>
+        <article class="panel">
+          <span class="eyebrow">PagingFuzzTest</span>
+          <h3>Seeded long-running exploration</h3>
+          <ul>
+            <li>Random page sizes and failure thresholds.</li>
+            <li>Point, cell, row, static, and range deletion mixes.</li>
+            <li>Deterministic seeds and operation histories for reproduction.</li>
+            <li>Sync and async gathering for three minutes each by default.</li>
+          </ul>
+          <p>This also runs in the RF1 <code>CQLTester</code> environment.</p>
+          <span class="source">PagingFuzzTest.java:52-403</span>
+        </article>
+      </div>
+
+      <div class="three-up reveal" style="margin-top: 18px;">
+        <article class="compact-card">
+          <span class="evidence-label">Verified test intent</span>
+          <h3>Legacy TOE boundary</h3>
+          <p><code>TombstonesTest</code> forces <code>-1</code>, verifies success at exactly <code>F</code>, and verifies TOE at <code>F + 1</code>.</p>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label inference">Coverage qualification</span>
+          <h3>Sync reverse label</h3>
+          <p>The sync validator builds a fixed ascending statement. Reverse ordering is applied by the async query generator.</p>
+        </article>
+        <article class="compact-card">
+          <span class="evidence-label gap">Coverage gap</span>
+          <h3>Remote completion</h3>
+          <p>No active test combines remote data replicas, graceful stopping, reconciliation, and coordinator Short Read Protection.</p>
+        </article>
+      </div>
+
+      <div class="callout danger reveal">
+        <strong>Distributed scaffold status:</strong>
+        <code>MixedConfigPagingAcrossTombstonesTest</code> leaves six tombstone test bodies empty,
+        leaves two reference methods without <code>@Test</code>, and starts a cluster without applying
+        its parameterized version or feature configuration. The mixed-version subclass inherits that
+        builder. The meaningful old-node case verifies propagation of <code>READ_TOO_MANY_TOMBSTONES</code>.
+      </div>
+
+      <div class="fact-table-wrap reveal" style="margin-top: 20px;">
+        <table class="fact-table">
+          <thead>
+            <tr><th>Changed test file</th><th>Role in the commit</th><th>Evidence quality at this SHA</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>AbstractCluster.java</td><td>Propagates Jamm instrumentation across distributed-test instance classloaders.</td><td>Test infrastructure with no direct completion-state assertion.</td></tr>
+            <tr><td>MixedConfigPagingAcrossTombstonesTest.java</td><td>Defines a three-node mixed-configuration harness and liveness model.</td><td>Two active basic tests; feature configuration and six tombstone cases remain incomplete.</td></tr>
+            <tr><td>MixedModePagingAcrossTombstonesTest.java</td><td>Covers selected upgrade and read-repair paths.</td><td>One meaningful old-node TOE case; one empty feature case; remaining tests use the default-disabled path.</td></tr>
+            <tr><td>MixedVersionPagingAcrossTombstonesTest.java</td><td>Supplies parameter sets for the mixed-version harness.</td><td>All listed versions are 4.0.5 and the inherited builder ignores the parameters.</td></tr>
+            <tr><td>PagingFuzzTest.java</td><td>Generates seeded RF1 paging workloads for a fixed duration.</td><td>Broad local exploration with reproducible histories.</td></tr>
+            <tr><td>TombstonesTest.java</td><td>Forces <code>-1</code> around legacy failure assertions.</td><td>Strong boundary evidence for success at F and failure at F + 1.</td></tr>
+            <tr><td>AbstractPagingValidator.java</td><td>Models expected liveness and drives sync or async protocol paging.</td><td>Central result oracle for the RF1 suite.</td></tr>
+            <tr><td>AbstractPagingValidatorTest.java</td><td>Tests the model, timestamp reconciliation, generators, and range deletion logic.</td><td>Validates the oracle; these methods do not execute production paging.</td></tr>
+            <tr><td>PagingAcrossTombstonesTest.java</td><td>Exercises production paging over row, cell, static, collection, and range tombstones.</td><td>Strong local single-partition coverage.</td></tr>
+            <tr><td>RandomHelpers.java</td><td>Adds deterministic random values, ranges, subsets, and seeded utilities.</td><td>Supports validator and fuzz reproducibility.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="page-section" id="findings">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Current branch · static analysis</p>
+          <h2>The local cursor path is real. Its completion contract stops at process boundaries.</h2>
+        </div>
+        <p>
+          These findings follow directly from source wiring. User-visible distributed outcomes remain
+          candidates for focused runtime reproducers.
+        </p>
+      </div>
+
+      <div class="findings">
+        <article class="finding critical reveal">
+          <div class="finding-index">01</div>
+          <div>
+            <span class="evidence-label">Verified wiring</span>
+            <h3>The stopping row is local object state.</h3>
+            <p>
+              <code>ReadCommand.tombstoneLimitedRow</code> stays on the mutable command that executed
+              at the replica. <code>ReadResponse.Serializer</code> writes digest data, repaired-data
+              metadata, and result bytes. It writes no field that identifies a graceful stop or
+              designates a clustering as its resume cursor.
+            </p>
+            <p>A remote coordinator receives a valid-looking under-limit result with no explicit continuation signal.</p>
+            <span class="source">ReadCommand.java:163-167 · ReadResponse.java:359-401</span>
+          </div>
+        </article>
+
+        <article class="finding critical reveal">
+          <div class="finding-index">02</div>
+          <div>
+            <span class="evidence-label inference">High-confidence inference</span>
+            <h3>Single-partition local paging is the only integrated pager path.</h3>
+            <p>
+              <code>SinglePartitionPager</code> populates <code>pageQueries</code> for later marker
+              inspection. <code>PartitionRangeQueryPager</code> creates page commands without retaining
+              them. A range command can stop one partition iterator and continue with later partitions.
+            </p>
+            <p>The current range cursor can advance beyond an omitted suffix of the stopped partition.</p>
+            <span class="source">SinglePartitionPager.java:88-101 · PartitionRangeQueryPager.java:84-118</span>
+          </div>
+        </article>
+
+        <article class="finding high reveal">
+          <div class="finding-index">03</div>
+          <div>
+            <span class="evidence-label">Verified execution path</span>
+            <h3>Non-paged replica reads also select graceful stopping.</h3>
+            <p>
+              The default <code>ReadCommand.executeLocally</code> overload reads the global setting.
+              Replica handlers use that overload. A request that bypasses protocol paging has no
+              <code>AbstractQueryPager</code> available to consume the stopping row.
+            </p>
+            <span class="source">ReadCommand.java:510-537 · ReadCommandVerbHandler.java:56-103</span>
+          </div>
+        </article>
+
+        <article class="finding high reveal">
+          <div class="finding-index">04</div>
+          <div>
+            <span class="evidence-label inference">High-confidence inference</span>
+            <h3>Long-lived local pagers retain prior page commands.</h3>
+            <p>
+              <code>pageQueries</code> is append-only and <code>Pager.onClose</code> scans from the first
+              entry. Reusing one pager across many fetches can rediscover an earlier stopping row.
+              Internal pager consumers deserve a focused regression test around repeated empty pages.
+            </p>
+            <span class="source">AbstractQueryPager.java:219-257 · SinglePartitionPager.java:88-101</span>
+          </div>
+        </article>
+      </div>
+
+      <div class="callout warning reveal">
+        <strong>Operational posture at this SHA:</strong>
+        the feature defaults to <code>-1</code>. The default preserves TOE behavior and avoids all
+        graceful-stop paths described in these findings.
+      </div>
+    </section>
+
+    <section class="page-section" id="review">
+      <div class="section-head reveal">
+        <div>
+          <p class="kicker">Committer review guide</p>
+          <h2>Evidence needed for a complete paging contract.</h2>
+        </div>
+        <p>
+          The feature needs the same completion semantics across local and remote execution, point
+          and range reads, protocol pages, coordinator continuations, and mixed-version clusters.
+        </p>
+      </div>
+
+      <ul class="checklist reveal">
+        <li>Define the public meaning and valid range of <code>tombstone_paging_threshold</code>.</li>
+        <li>Carry an explicit stopping reason and complete resume position across <code>ReadResponse</code>.</li>
+        <li>Prove that a remote coordinator can issue the next page after an empty stopped response.</li>
+        <li>Keep ordinary non-paged reads on a complete-result contract.</li>
+        <li>Integrate partition-range paging with an interior-partition stop cursor.</li>
+        <li>Exercise ascending and descending clustering order through independent query builders.</li>
+        <li>Exercise range tombstone open, boundary, and close positions around every stop.</li>
+        <li>Verify collection rows with mixed live and dead cells at the stopping threshold.</li>
+        <li>Apply feature settings and versions in every mixed-configuration test fixture.</li>
+        <li>Assert page counts, empty-page progress, request bounds, warnings, and metrics.</li>
+        <li>Test matching digest, digest mismatch, read repair, and transient replica paths.</li>
+        <li>Combine graceful stopping with SRP row and partition continuation.</li>
+      </ul>
+
+      <div class="quote-card reveal" style="margin-top: 24px;">
+        <span class="eyebrow">Durable model</span>
+        <h3>A deliberate partial response needs an explicit completion state.</h3>
+        <p>
+          A cursor identifies where work may resume. A completion state explains why work stopped.
+          Cassandra needs both pieces anywhere an under-limit response can still have live rows or
+          reconciliation tombstones beyond its current boundary.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <div class="next-grid">
+      <a class="next-link" href="short-read-protection.html">
+        <small>Feature 01</small>
+        <strong>Short Read Protection</strong>
+      </a>
+      <a class="next-link" href="srp_toe_intersect.html">
+        <small>Continue to feature 03</small>
+        <strong>The contract intersection</strong>
+      </a>
+    </div>
+  </footer>
+</body>
+</html>
