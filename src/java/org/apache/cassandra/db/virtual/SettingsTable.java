@@ -124,30 +124,9 @@ public final class SettingsTable extends AbstractMutableVirtualTable
         DatabaseDescriptor.setTombstoneCompactionQueueCapacity(capacity);
     }
 
-    @Override
-    protected void applyPartitionDeletion(ColumnValues partitionKey)
-    {
-        throw invalidRequest("Settings cannot be deleted");
-    }
-
-    @Override
-    protected void applyRowDeletion(ColumnValues partitionKey, ColumnValues clusteringColumns)
-    {
-        throw invalidRequest("Settings cannot be deleted");
-    }
-
-    @Override
-    protected void applyColumnDeletion(ColumnValues partitionKey, ColumnValues clusteringColumns, String columnName)
-    {
-        throw invalidRequest("Settings cannot be deleted");
-    }
-
     @VisibleForTesting
     String getValue(Property prop)
     {
-        if (TOMBSTONE_COMPACTION_QUEUE_CAPACITY.equals(prop.getName()))
-            return Integer.toString(DatabaseDescriptor.getTombstoneCompactionQueueCapacity());
-
         Redacted maybeCredential = prop.getAnnotation(Redacted.class);
         if (maybeCredential != null)
             return maybeCredential.redactedValue();

@@ -1365,8 +1365,8 @@ public class CompactionManager implements CompactionManagerMBean, ICompactionMan
         }
     }
 
-    private TombstoneTriggeredCompactionManager.ExecutionResult executeTombstoneTriggeredCompaction(TableId tableId,
-                                                                                                     DecoratedKey key)
+    TombstoneTriggeredCompactionManager.ExecutionResult executeTombstoneTriggeredCompaction(TableId tableId,
+                                                                                             DecoratedKey key)
     {
         ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreInstance(tableId);
         if (cfs == null)

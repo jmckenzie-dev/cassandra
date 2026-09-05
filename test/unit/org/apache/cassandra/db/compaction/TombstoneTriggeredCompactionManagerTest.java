@@ -19,16 +19,22 @@ package org.apache.cassandra.db.compaction;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntSupplier;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.quicktheories.WithQuickTheories;
+import org.quicktheories.core.Gen;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
@@ -47,7 +53,7 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-public class TombstoneTriggeredCompactionManagerTest
+public class TombstoneTriggeredCompactionManagerTest implements WithQuickTheories
 {
     private static final TableId TABLE_ID = TableId.generate();
 
@@ -231,6 +237,89 @@ public class TombstoneTriggeredCompactionManagerTest
     }
 
     @Test
+    public void queuedAdmissionsMatchCapacityDeduplicationAndFifoContract()
+    {
+        qt().withFixedSeed(0x5EEDC0DEL)
+            .withExamples(1000)
+            .withShrinkCycles(100)
+            .forAll(lists().of(queueOperationGenerator()).ofSizeBetween(1, 64))
+            .checkAssert(this::assertQueuedAdmissions);
+    }
+
+    @Test
+    public void acceptedRequestOwnsKeyCopy()
+    {
+        ManualExecutor executor = new ManualExecutor();
+        List<DecoratedKey> executed = new ArrayList<>();
+        TombstoneTriggeredCompactionManager manager = newManager(() -> 1, (table, key) -> {
+            executed.add(key);
+            return COMPLETED;
+        }, executor);
+        DecoratedKey submitted = key("owned");
+        DecoratedKey expected = key("owned");
+        try
+        {
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, submitted));
+            submitted.getKey().put(0, (byte) 'X');
+            executor.runAll();
+
+            assertEquals(Collections.singletonList(expected), executed);
+        }
+        finally
+        {
+            manager.shutdown(true);
+        }
+    }
+
+    @Test
+    public void sameKeyInDifferentTablesUsesSeparateCapacity()
+    {
+        ManualExecutor executor = new ManualExecutor();
+        List<TableId> executed = new ArrayList<>();
+        TableId otherTable = TableId.generate();
+        TombstoneTriggeredCompactionManager manager = newManager(() -> 2, (table, key) -> {
+            executed.add(table);
+            return COMPLETED;
+        }, executor);
+        try
+        {
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("same")));
+            assertEquals(ACCEPTED, manager.enqueue(otherTable, key("same")));
+            assertEquals(DUPLICATE, manager.enqueue(otherTable, key("same")));
+            assertEquals(FULL, manager.enqueue(TABLE_ID, key("different")));
+            executor.runAll();
+            assertEquals(List.of(TABLE_ID, otherTable), executed);
+        }
+        finally
+        {
+            manager.shutdown(true);
+        }
+    }
+
+    @Test
+    public void executorRejectionReleasesRequest()
+    {
+        ManualExecutor executor = new ManualExecutor();
+        executor.shutdown();
+        TombstoneTriggeredCompactionManager manager = newManager(() -> 1, (table, key) -> COMPLETED, executor);
+        assertEquals(TombstoneTriggeredCompactionManager.AdmissionResult.SHUTDOWN,
+                     manager.enqueue(TABLE_ID, key("rejected")));
+        assertEquals(0, manager.outstandingTasks());
+        assertTrue(!manager.hasTasks());
+    }
+
+    @Test
+    public void forcedShutdownBeforeWorkerStartsClearsTaskState()
+    {
+        ManualExecutor executor = new ManualExecutor();
+        TombstoneTriggeredCompactionManager manager = newManager(() -> 1, (table, key) -> COMPLETED, executor);
+        assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("queued")));
+        manager.shutdown(true);
+        assertEquals(0, manager.outstandingTasks());
+        assertTrue(!manager.hasTasks());
+    }
+
+    @Test
     public void testGracefulShutdownDrainsAcceptedWork() throws Exception
     {
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -246,6 +335,39 @@ public class TombstoneTriggeredCompactionManagerTest
         assertEquals(2, completed.get());
         assertEquals(TombstoneTriggeredCompactionManager.AdmissionResult.SHUTDOWN,
                      manager.enqueue(TABLE_ID, key("three")));
+    }
+
+    @Test
+    public void testGracefulShutdownDropsBusyRetry() throws Exception
+    {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger attempts = new AtomicInteger();
+        TombstoneTriggeredCompactionManager manager = newManager(() -> 1, (table, key) -> {
+            attempts.incrementAndGet();
+            started.countDown();
+            assertTrue(release.await(5, SECONDS));
+            return BUSY;
+        }, executor);
+        try
+        {
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("busy")));
+            assertTrue(started.await(5, SECONDS));
+            manager.shutdown(false);
+            release.countDown();
+
+            assertTrue(manager.awaitTermination(5, SECONDS));
+            assertEquals(1, attempts.get());
+            assertEquals(0, manager.outstandingTasks());
+            assertEquals(TombstoneTriggeredCompactionManager.AdmissionResult.SHUTDOWN,
+                         manager.enqueue(TABLE_ID, key("later")));
+        }
+        finally
+        {
+            release.countDown();
+            manager.shutdown(true);
+        }
     }
 
     @Test
@@ -284,6 +406,165 @@ public class TombstoneTriggeredCompactionManagerTest
     private static DecoratedKey key(String value)
     {
         return Murmur3Partitioner.instance.decorateKey(bytes(value));
+    }
+
+    private void assertQueuedAdmissions(List<QueueOperation> operations)
+    {
+        AtomicInteger capacity = new AtomicInteger(2);
+        ManualExecutor executor = new ManualExecutor();
+        List<DecoratedKey> executed = new ArrayList<>();
+        TombstoneTriggeredCompactionManager manager = newManager(capacity::get, (table, key) -> {
+            executed.add(key);
+            return COMPLETED;
+        }, executor);
+        Set<DecoratedKey> accepted = new LinkedHashSet<>();
+        List<DecoratedKey> expectedExecuted = new ArrayList<>();
+
+        try
+        {
+            for (QueueOperation operation : operations)
+            {
+                if (!operation.isCapacityUpdate() && operation.value == -1)
+                {
+                    expectedExecuted.addAll(accepted);
+                    accepted.clear();
+                    executor.runAll();
+                    assertEquals(expectedExecuted, executed);
+                    assertEquals(0, manager.outstandingTasks());
+                    continue;
+                }
+                if (operation.isCapacityUpdate())
+                {
+                    capacity.set(operation.value);
+                    continue;
+                }
+
+                DecoratedKey key = key("property-" + operation.value);
+                TombstoneTriggeredCompactionManager.AdmissionResult expected = expectedAdmission(capacity.get(), accepted, key);
+                assertEquals(expected, manager.enqueue(TABLE_ID, key));
+                if (expected == ACCEPTED)
+                    accepted.add(key);
+                assertEquals(accepted.size(), manager.outstandingTasks());
+            }
+
+            expectedExecuted.addAll(accepted);
+            executor.runAll();
+            assertEquals(expectedExecuted, executed);
+            assertEquals(0, manager.outstandingTasks());
+            assertTrue(!manager.hasTasks());
+        }
+        finally
+        {
+            manager.shutdown(true);
+        }
+    }
+
+    private static TombstoneTriggeredCompactionManager.AdmissionResult expectedAdmission(int capacity,
+                                                                                          Set<DecoratedKey> accepted,
+                                                                                          DecoratedKey key)
+    {
+        if (capacity == 0)
+            return DISABLED;
+        if (accepted.contains(key))
+            return DUPLICATE;
+        if (accepted.size() >= capacity)
+            return FULL;
+        return ACCEPTED;
+    }
+
+    private Gen<QueueOperation> queueOperationGenerator()
+    {
+        return integers().between(0, 20)
+                         .map(value -> value == 20 ? QueueOperation.enqueue(-1)
+                                                  : value < 5 ? QueueOperation.capacity(value)
+                                                 : QueueOperation.enqueue((value - 5) % 8))
+                         .describedAs(QueueOperation::toString);
+    }
+
+    private static final class QueueOperation
+    {
+        private final boolean capacityUpdate;
+        private final int value;
+
+        private QueueOperation(boolean capacityUpdate, int value)
+        {
+            this.capacityUpdate = capacityUpdate;
+            this.value = value;
+        }
+
+        private static QueueOperation capacity(int value)
+        {
+            return new QueueOperation(true, value);
+        }
+
+        private static QueueOperation enqueue(int value)
+        {
+            return new QueueOperation(false, value);
+        }
+
+        private boolean isCapacityUpdate()
+        {
+            return capacityUpdate;
+        }
+
+        @Override
+        public String toString()
+        {
+            return capacityUpdate ? "capacity(" + value + ')' : value == -1 ? "drain" : "enqueue(" + value + ')';
+        }
+    }
+
+    private static final class ManualExecutor extends AbstractExecutorService
+    {
+        private final List<Runnable> queued = new ArrayList<>();
+        private boolean shutdown;
+
+        @Override
+        public void execute(Runnable command)
+        {
+            if (shutdown)
+                throw new RejectedExecutionException();
+            queued.add(command);
+        }
+
+        @Override
+        public void shutdown()
+        {
+            shutdown = true;
+        }
+
+        @Override
+        public List<Runnable> shutdownNow()
+        {
+            shutdown = true;
+            List<Runnable> notStarted = new ArrayList<>(queued);
+            queued.clear();
+            return notStarted;
+        }
+
+        @Override
+        public boolean isShutdown()
+        {
+            return shutdown;
+        }
+
+        @Override
+        public boolean isTerminated()
+        {
+            return shutdown && queued.isEmpty();
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit)
+        {
+            return isTerminated();
+        }
+
+        private void runAll()
+        {
+            while (!queued.isEmpty())
+                queued.remove(0).run();
+        }
     }
 
     private static TombstoneTriggeredCompactionManager newManager(IntSupplier capacity,

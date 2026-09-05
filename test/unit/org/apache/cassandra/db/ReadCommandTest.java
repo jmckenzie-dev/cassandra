@@ -38,6 +38,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -45,6 +46,7 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.compaction.AbstractCompactionStrategy;
 import org.apache.cassandra.db.compaction.CompactionPipelineCounts;
 import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -69,11 +71,13 @@ import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
+import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.QueryCancelledException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.io.sstable.format.big.BigFormat;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.WrappedDataOutputStreamPlus;
@@ -86,9 +90,11 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.repair.consistent.LocalSessionAccessor;
 import org.apache.cassandra.schema.CachingParams;
+import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.SchemaTestUtil;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableParams;
@@ -762,14 +768,26 @@ public class ReadCommandTest
     @Test
     public void testPurgeableTombstonesTriggerPartitionCompaction() throws Exception
     {
-        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF10);
+        Assume.assumeTrue("cursor compaction requires the BIG sstable format", BigFormat.isSelected());
+        String table = "cursor_trigger";
+        SchemaTestUtil.announceNewTable(TableMetadata.builder(KEYSPACE, table)
+                                                    .partitioner(Murmur3Partitioner.instance)
+                                                    .addPartitionKeyColumn("key", BytesType.instance)
+                                                    .addClusteringColumn("col", AsciiType.instance)
+                                                    .addRegularColumn("a", AsciiType.instance)
+                                                    .build());
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(table);
         int previousThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
         int previousCapacity = DatabaseDescriptor.getTombstoneCompactionQueueCapacity();
         Config.TombstonesMetricGranularity previousGranularity = DatabaseDescriptor.getPurgeableTobmstonesMetricGranularity();
         boolean previousCursorSetting = DatabaseDescriptor.cursorCompactionEnabled();
+        TableMetadata previousMetadata = cfs.metadata();
         cfs.disableAutoCompaction();
         try
         {
+            Map<String, String> compactionOptions = new HashMap<>(cfs.metadata().params.compaction.options());
+            compactionOptions.put(CompactionParams.Option.PROVIDE_OVERLAPPING_TOMBSTONES.toString(), "NONE");
+            SchemaTestUtil.announceTableUpdate(cfs.metadata().unbuild().compaction(CompactionParams.stcs(compactionOptions)).build());
             DatabaseDescriptor.setTombstoneWarnThreshold(1);
             DatabaseDescriptor.setTombstoneCompactionQueueCapacity(10);
             DatabaseDescriptor.setPurgeableTobmstonesMetricGranularity(Config.TombstonesMetricGranularity.disabled);
@@ -789,13 +807,227 @@ public class ReadCommandTest
                 CompactionPipelineCounts pipelines = CompactionPipelineCounts.mark();
                 runPartitionReadCommands(cfs, Collections.singleton(key));
                 await().atMost(30, java.util.concurrent.TimeUnit.SECONDS).until(() -> cfs.getLiveSSTables().isEmpty());
-                CompactionPipelineCounts.assertPipelineRan(false, pipelines);
+                CompactionPipelineCounts.assertPipelineRan(cursorEnabled, pipelines);
             }
+        }
+        finally
+        {
+            SchemaTestUtil.announceTableUpdate(previousMetadata);
+            DatabaseDescriptor.setCursorCompactionEnabled(previousCursorSetting);
+            DatabaseDescriptor.setPurgeableTobmstonesMetricGranularity(previousGranularity);
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(previousCapacity);
+            DatabaseDescriptor.setTombstoneWarnThreshold(previousThreshold);
+            cfs.truncateBlocking();
+            cfs.enableAutoCompaction();
+            SchemaTestUtil.announceTableDrop(KEYSPACE, table);
+        }
+    }
+
+    @Test
+    public void testPurgeableTombstonesTriggerIteratorCompactionForUnsupportedSSTables() throws Exception
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF8);
+        int previousThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
+        int previousCapacity = DatabaseDescriptor.getTombstoneCompactionQueueCapacity();
+        Config.TombstonesMetricGranularity previousGranularity = DatabaseDescriptor.getPurgeableTobmstonesMetricGranularity();
+        boolean previousCursorSetting = DatabaseDescriptor.cursorCompactionEnabled();
+        cfs.disableAutoCompaction();
+        try
+        {
+            DatabaseDescriptor.setTombstoneWarnThreshold(1);
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(10);
+            DatabaseDescriptor.setPurgeableTobmstonesMetricGranularity(Config.TombstonesMetricGranularity.disabled);
+            DatabaseDescriptor.setCursorCompactionEnabled(true);
+            String key = "trigger-unsupported";
+            runWriteOperations(cfs, new TestWriteOperation[] {
+                TestWriteOperation.deleteRow(key, "aa", PURGEABLE_DELETION),
+                TestWriteOperation.deleteRow(key, "bb", PURGEABLE_DELETION)
+            });
+            Util.flush(cfs);
+            assertFalse(cfs.getLiveSSTables().isEmpty());
+
+            CompactionPipelineCounts pipelines = CompactionPipelineCounts.mark();
+            runPartitionReadCommands(cfs, Collections.singleton(key));
+            await().atMost(30, java.util.concurrent.TimeUnit.SECONDS).until(() -> cfs.getLiveSSTables().isEmpty());
+            CompactionPipelineCounts.assertPipelineRan(false, pipelines);
         }
         finally
         {
             DatabaseDescriptor.setCursorCompactionEnabled(previousCursorSetting);
             DatabaseDescriptor.setPurgeableTobmstonesMetricGranularity(previousGranularity);
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(previousCapacity);
+            DatabaseDescriptor.setTombstoneWarnThreshold(previousThreshold);
+            cfs.truncateBlocking();
+            cfs.enableAutoCompaction();
+        }
+    }
+
+    @Test
+    public void testLocalSystemReadPurgesWithoutTriggeringCompaction() throws Exception
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF10);
+        int previousThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
+        int previousCapacity = DatabaseDescriptor.getTombstoneCompactionQueueCapacity();
+        cfs.disableAutoCompaction();
+        try
+        {
+            DatabaseDescriptor.setTombstoneWarnThreshold(0);
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(10);
+            cfs.truncateBlocking();
+
+            String key = "system-policy";
+            SSTableReader sstable = flushOperations(cfs, TestWriteOperation.deletePartition(key, PURGEABLE_DELETION));
+            SinglePartitionReadCommand userCommand = getWholePartitionReadCommand(cfs, key, FBUtilities.nowInSeconds());
+            TableMetadata systemMetadata = TableMetadata.builder(SchemaConstants.SYSTEM_KEYSPACE_NAME, "read_command_test")
+                                                        .addPartitionKeyColumn("key", BytesType.instance)
+                                                        .build();
+            SinglePartitionReadCommand systemCommand = SinglePartitionReadCommand.fullPartitionRead(systemMetadata,
+                                                                                                      userCommand.nowInSec(),
+                                                                                                      userCommand.partitionKey());
+
+            try (ReadExecutionController controller = userCommand.executionController();
+                 UnfilteredPartitionIterator purged = systemCommand.withoutPurgeableTombstones(userCommand.queryStorage(cfs, controller),
+                                                                                                cfs,
+                                                                                                controller))
+            {
+                assertFalse(purged.hasNext());
+            }
+
+            await().pollDelay(1, java.util.concurrent.TimeUnit.SECONDS)
+                   .atMost(5, java.util.concurrent.TimeUnit.SECONDS)
+                   .untilAsserted(() -> assertTrue(cfs.getLiveSSTables().contains(sstable)));
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(previousCapacity);
+            DatabaseDescriptor.setTombstoneWarnThreshold(previousThreshold);
+            cfs.truncateBlocking();
+            cfs.enableAutoCompaction();
+        }
+    }
+
+    @Test
+    public void testRangeReadTombstoneTriggerThresholdAndPartitionAccounting() throws Exception
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF10);
+        int previousThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
+        int previousCapacity = DatabaseDescriptor.getTombstoneCompactionQueueCapacity();
+        cfs.disableAutoCompaction();
+        try
+        {
+            DatabaseDescriptor.setTombstoneWarnThreshold(2);
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(10);
+            cfs.truncateBlocking();
+
+            List<String> keys = new ArrayList<>(List.of("range-a", "range-b", "range-c", "range-d", "range-e"));
+            keys.sort((left, right) -> Util.dk(left).compareTo(Util.dk(right)));
+            String equalityOneKey = keys.get(0);
+            String equalityTwoKey = keys.get(1);
+            String youngKey = keys.get(2);
+            String aboveKey = keys.get(3);
+            String secondAboveKey = keys.get(4);
+
+            SSTableReader equalityOne = flushOperations(cfs,
+                                                         TestWriteOperation.deleteRow(equalityOneKey, "aa", PURGEABLE_DELETION),
+                                                         TestWriteOperation.deleteRow(equalityOneKey, "bb", PURGEABLE_DELETION));
+            SSTableReader equalityTwo = flushOperations(cfs,
+                                                         TestWriteOperation.deleteRow(equalityTwoKey, "aa", PURGEABLE_DELETION),
+                                                         TestWriteOperation.deleteRow(equalityTwoKey, "bb", PURGEABLE_DELETION));
+            SSTableReader young = flushOperations(cfs,
+                                                   TestWriteOperation.deleteRow(youngKey, "aa", NEW_DELETION),
+                                                   TestWriteOperation.deleteRow(youngKey, "bb", NEW_DELETION),
+                                                   TestWriteOperation.deleteRow(youngKey, "cc", NEW_DELETION));
+            SSTableReader above = flushOperations(cfs,
+                                                   TestWriteOperation.deleteRow(aboveKey, "aa", PURGEABLE_DELETION),
+                                                   TestWriteOperation.deleteRow(aboveKey, "bb", PURGEABLE_DELETION),
+                                                   TestWriteOperation.deleteRow(aboveKey, "cc", PURGEABLE_DELETION));
+            SSTableReader secondAbove = flushOperations(cfs,
+                                                         TestWriteOperation.deleteRow(secondAboveKey, "aa", PURGEABLE_DELETION),
+                                                         TestWriteOperation.deleteRow(secondAboveKey, "bb", PURGEABLE_DELETION),
+                                                         TestWriteOperation.deleteRow(secondAboveKey, "cc", PURGEABLE_DELETION));
+
+            executeReadCommand(PartitionRangeReadCommand.allDataRead(cfs.metadata(), FBUtilities.nowInSeconds()));
+
+            await().atMost(30, java.util.concurrent.TimeUnit.SECONDS)
+                   .until(() -> !cfs.getLiveSSTables().contains(above) && !cfs.getLiveSSTables().contains(secondAbove));
+            assertTrue(cfs.getLiveSSTables().contains(equalityOne));
+            assertTrue(cfs.getLiveSSTables().contains(equalityTwo));
+            assertTrue(cfs.getLiveSSTables().contains(young));
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(previousCapacity);
+            DatabaseDescriptor.setTombstoneWarnThreshold(previousThreshold);
+            cfs.truncateBlocking();
+            cfs.enableAutoCompaction();
+        }
+    }
+
+    @Test
+    public void testPartitionCellAndRangeTombstonesTriggerCompaction() throws Exception
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF10);
+        int previousThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
+        int previousCapacity = DatabaseDescriptor.getTombstoneCompactionQueueCapacity();
+        cfs.disableAutoCompaction();
+        try
+        {
+            DatabaseDescriptor.setTombstoneWarnThreshold(0);
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(10);
+
+            assertTombstoneFormTriggers(cfs,
+                                        "partition-trigger",
+                                        TestWriteOperation.deletePartition("partition-trigger", PURGEABLE_DELETION));
+            assertTombstoneFormTriggers(cfs,
+                                        "cell-trigger",
+                                        TestWriteOperation.insert("cell-trigger", "aa", "a"),
+                                        TestWriteOperation.deleteCell("cell-trigger", "aa", "a", PURGEABLE_DELETION));
+            assertTombstoneFormTriggers(cfs,
+                                        "range-trigger",
+                                        TestWriteOperation.deleteRange("range-trigger", "aa", "bb", PURGEABLE_DELETION));
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(previousCapacity);
+            DatabaseDescriptor.setTombstoneWarnThreshold(previousThreshold);
+            cfs.truncateBlocking();
+            cfs.enableAutoCompaction();
+        }
+    }
+
+    @Test
+    public void testOnlyRepairedTombstonesTriggerCompaction() throws Exception
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF10);
+        int previousThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
+        int previousCapacity = DatabaseDescriptor.getTombstoneCompactionQueueCapacity();
+        TableMetadata previousMetadata = cfs.metadata();
+        cfs.disableAutoCompaction();
+        try
+        {
+            Map<String, String> compactionOptions = new HashMap<>(cfs.metadata().params.compaction.options());
+            compactionOptions.put(AbstractCompactionStrategy.ONLY_PURGE_REPAIRED_TOMBSTONES, "true");
+            SchemaTestUtil.announceTableUpdate(cfs.metadata().unbuild().compaction(CompactionParams.stcs(compactionOptions)).build());
+            DatabaseDescriptor.setTombstoneWarnThreshold(0);
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(10);
+            cfs.truncateBlocking();
+
+            String key = "repaired-trigger";
+            SSTableReader sstable = flushOperations(cfs, TestWriteOperation.deleteRow(key, "aa", PURGEABLE_DELETION));
+            runPartitionReadCommands(cfs, Collections.singleton(key));
+            await().pollDelay(1, java.util.concurrent.TimeUnit.SECONDS)
+                   .atMost(5, java.util.concurrent.TimeUnit.SECONDS)
+                   .untilAsserted(() -> assertTrue(cfs.getLiveSSTables().contains(sstable)));
+
+            mutateRepaired(cfs, sstable, FBUtilities.nowInSeconds(), null);
+            cfs.getTracker().notifySSTableRepairedStatusChanged(Collections.singleton(sstable));
+            runPartitionReadCommands(cfs, Collections.singleton(key));
+            await().atMost(30, java.util.concurrent.TimeUnit.SECONDS)
+                   .until(() -> !cfs.getLiveSSTables().contains(sstable));
+        }
+        finally
+        {
+            SchemaTestUtil.announceTableUpdate(previousMetadata);
             DatabaseDescriptor.setTombstoneCompactionQueueCapacity(previousCapacity);
             DatabaseDescriptor.setTombstoneWarnThreshold(previousThreshold);
             cfs.truncateBlocking();
@@ -949,6 +1181,28 @@ public class ReadCommandTest
         executeReadCommands(commands);
     }
 
+    private static SSTableReader flushOperations(ColumnFamilyStore cfs, TestWriteOperation... operations)
+    {
+        Set<SSTableReader> before = new HashSet<>(cfs.getLiveSSTables());
+        runWriteOperations(cfs, operations);
+        Util.flush(cfs);
+        Set<SSTableReader> added = new HashSet<>(cfs.getLiveSSTables());
+        added.removeAll(before);
+        assertEquals(1, added.size());
+        return added.iterator().next();
+    }
+
+    private static void assertTombstoneFormTriggers(ColumnFamilyStore cfs,
+                                                    String partitionKey,
+                                                    TestWriteOperation... operations) throws IOException
+    {
+        cfs.truncateBlocking();
+        SSTableReader sstable = flushOperations(cfs, operations);
+        runPartitionReadCommands(cfs, Collections.singleton(partitionKey));
+        await().atMost(30, java.util.concurrent.TimeUnit.SECONDS)
+               .until(() -> !cfs.getLiveSSTables().contains(sstable));
+    }
+
     private static Set<String> runWriteOperations(ColumnFamilyStore cfs, TestWriteOperation[] operations)
     {
         Set<String> usedPartitionKeys = new HashSet<>();
@@ -1078,6 +1332,19 @@ public class ReadCommandTest
         }
     }
 
+    private static void executeReadCommand(ReadCommand query) throws IOException
+    {
+        try (ReadExecutionController executionController = query.executionController();
+             UnfilteredPartitionIterator iter = query.executeLocally(executionController);
+             DataOutputBuffer buffer = new DataOutputBuffer())
+        {
+            UnfilteredPartitionIterators.serializerForIntraNode().serialize(iter,
+                                                                            query.columnFilter(),
+                                                                            buffer,
+                                                                            MessagingService.current_version);
+        }
+    }
+
     private static SinglePartitionReadCommand getWholePartitionReadCommand(ColumnFamilyStore cfs, String partitionKey, long nowInSeconds)
     {
         ColumnFilter columnFilter = ColumnFilter.allRegularColumnsBuilder(cfs.metadata(), false).build();
@@ -1086,7 +1353,7 @@ public class ReadCommandTest
         ClusteringIndexSliceFilter sliceFilter = new ClusteringIndexSliceFilter(Slices.with(cfs.metadata().comparator, slice), false);
         return SinglePartitionReadCommand.create(cfs.metadata(), nowInSeconds,
                                                  columnFilter, rowFilter,
-                                                 DataLimits.NONE, Util.dk(partitionKey), sliceFilter);
+                                                 DataLimits.NONE, cfs.decorateKey(ByteBufferUtil.bytes(partitionKey)), sliceFilter);
     }
 
     @Test

@@ -2086,6 +2086,9 @@ sstables_per_read_log_threshold: 100
 # scan more tombstones anyway.  These thresholds may also be adjusted at runtime
 # using the StorageService mbean.
 tombstone_warn_threshold: 1000
+# Maximum number of active and queued compactions triggered by reads that purge
+# more tombstones than tombstone_warn_threshold. Set to 0 to disable admission.
+tombstone_compaction_queue_capacity: 10
 tombstone_failure_threshold: 100000
 
 # Controls the granularity of purgeable tombstones reported to PurgeableTombstoneScannedHistogram table metric

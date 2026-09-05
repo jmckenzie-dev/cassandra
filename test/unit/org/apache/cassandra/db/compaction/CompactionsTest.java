@@ -18,6 +18,7 @@
 */
 package org.apache.cassandra.db.compaction;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,7 +30,11 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.After;
 import org.junit.Before;
@@ -90,11 +95,14 @@ import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.SchemaTestUtil;
+import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -733,6 +741,265 @@ public class CompactionsTest
         {
             store.truncateBlocking();
             store.enableAutoCompaction();
+        }
+    }
+
+    @Test
+    public void testTombstoneTriggeredCompactionReleasesPartialReservationAndRetries() throws Exception
+    {
+        ColumnFamilyStore store = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD4);
+        store.truncateBlocking();
+        store.disableAutoCompaction();
+        CountDownLatch allowRetry = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        TombstoneTriggeredCompactionManager manager = null;
+        try
+        {
+            populate(KEYSPACE1, CF_STANDARD4, 0, 0, 0);
+            Util.flush(store);
+            SSTableReader repaired = store.getLiveSSTables().iterator().next();
+            markRepaired(store, repaired);
+
+            Set<SSTableReader> beforeSecondFlush = new HashSet<>(store.getLiveSSTables());
+            populate(KEYSPACE1, CF_STANDARD4, 0, 0, 0);
+            Util.flush(store);
+            Set<SSTableReader> added = new HashSet<>(store.getLiveSSTables());
+            added.removeAll(beforeSecondFlush);
+            assertThat(added).hasSize(1);
+            SSTableReader unrepaired = added.iterator().next();
+            assertThat(repaired.isRepaired()).isTrue();
+            assertThat(unrepaired.isRepaired()).isFalse();
+
+            CountDownLatch firstBusy = new CountDownLatch(1);
+            AtomicInteger attempts = new AtomicInteger();
+            manager = new TombstoneTriggeredCompactionManager(() -> 1, (tableId, key) -> {
+                TombstoneTriggeredCompactionManager.ExecutionResult result =
+                    CompactionManager.instance.executeTombstoneTriggeredCompaction(tableId, key);
+                attempts.incrementAndGet();
+                if (result == TombstoneTriggeredCompactionManager.ExecutionResult.BUSY && firstBusy.getCount() > 0)
+                {
+                    firstBusy.countDown();
+                    if (!allowRetry.await(30, TimeUnit.SECONDS))
+                        throw new IllegalStateException("Timed out waiting to retry tombstone-triggered compaction");
+                }
+                return result;
+            }, executor, 1);
+
+            ILifecycleTransaction owner = store.getTracker().tryModify(Collections.singleton(unrepaired), OperationType.ANTICOMPACTION);
+            assertThat(owner).isNotNull();
+            try (ILifecycleTransaction closeableOwner = owner)
+            {
+                assertThat(manager.enqueue(store.metadata().id, Util.dk("0")))
+                    .isEqualTo(TombstoneTriggeredCompactionManager.AdmissionResult.ACCEPTED);
+                assertTrue(firstBusy.await(30, TimeUnit.SECONDS));
+
+                ILifecycleTransaction released = store.getTracker().tryModify(Collections.singleton(repaired), OperationType.COMPACTION);
+                assertThat(released).isNotNull();
+                try (ILifecycleTransaction closeableReleased = released)
+                {
+                    assertThat(closeableReleased.originals()).containsExactly(repaired);
+                }
+
+                assertThat(closeableOwner.originals()).containsExactly(unrepaired);
+                assertThat(store.getLiveSSTables()).contains(repaired, unrepaired);
+            }
+            allowRetry.countDown();
+
+            await().atMost(30, TimeUnit.SECONDS)
+                   .until(() -> !store.getLiveSSTables().contains(repaired)
+                                && !store.getLiveSSTables().contains(unrepaired));
+            assertThat(attempts.get()).isGreaterThanOrEqualTo(2);
+        }
+        finally
+        {
+            allowRetry.countDown();
+            if (manager != null)
+            {
+                manager.shutdown(true);
+                manager.awaitTermination(30, TimeUnit.SECONDS);
+            }
+            else
+                executor.shutdownNow();
+            store.truncateBlocking();
+            store.enableAutoCompaction();
+        }
+    }
+
+    private static void markRepaired(ColumnFamilyStore store, SSTableReader sstable) throws IOException
+    {
+        sstable.descriptor.getMetadataSerializer().mutateRepairMetadata(sstable.descriptor,
+                                                                        System.currentTimeMillis(),
+                                                                        null,
+                                                                        false);
+        sstable.reloadSSTableMetadata();
+        store.getTracker().notifySSTableRepairedStatusChanged(Collections.singleton(sstable));
+    }
+
+    @Test
+    public void testReactiveCompactionRetainsTombstoneOverOlderData() throws Exception
+    {
+        ColumnFamilyStore store = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD4);
+        store.disableAutoCompaction();
+        try
+        {
+            for (boolean olderDataInMemtable : new boolean[] { true, false })
+            {
+                store.truncateBlocking();
+                new RowUpdateBuilder(store.metadata(), 1L, 2L, ByteBufferUtil.bytes("safety"))
+                    .noRowMarker().clustering("c").delete("val").build().applyUnsafe();
+                Util.flush(store);
+                SSTableReader deletion = store.getLiveSSTables().iterator().next();
+                markRepaired(store, deletion);
+
+                new RowUpdateBuilder(store.metadata(), 0L, ByteBufferUtil.bytes("safety"))
+                    .noRowMarker().clustering("c").add("val", "old").build().applyUnsafe();
+                if (!olderDataInMemtable)
+                    Util.flush(store);
+                Object memtable = store.getTracker().getView().getCurrentMemtable();
+
+                assertEquals(TombstoneTriggeredCompactionManager.ExecutionResult.COMPLETED,
+                             CompactionManager.instance.executeTombstoneTriggeredCompaction(store.metadata().id, Util.dk("safety")));
+                assertThat(store.getTracker().getView().getCurrentMemtable()).isSameAs(memtable);
+                assertThat(store.getLiveSSTables()).doesNotContain(deletion);
+
+                boolean retained = false;
+                for (SSTableReader sstable : store.getLiveSSTables())
+                {
+                    try (ISSTableScanner scanner = sstable.getScanner())
+                    {
+                        while (scanner.hasNext())
+                        {
+                            try (UnfilteredRowIterator partition = scanner.next())
+                            {
+                                while (partition.hasNext())
+                                {
+                                    Unfiltered item = partition.next();
+                                    if (item.isRow())
+                                        for (Cell<?> cell : ((Row) item).cells())
+                                            retained |= cell.isTombstone();
+                                }
+                            }
+                        }
+                    }
+                }
+                assertTrue("Older data must remain covered by a tombstone", retained);
+                Util.assertEmpty(Util.cmd(store, "safety").build());
+            }
+        }
+        finally
+        {
+            store.truncateBlocking();
+            store.enableAutoCompaction();
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testReactiveCapacityAndTaskReporting() throws Exception
+    {
+        ColumnFamilyStore store = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD4);
+        CompactionManager manager = CompactionManager.instance;
+        int previousCapacity = DatabaseDescriptor.getTombstoneCompactionQueueCapacity();
+        store.truncateBlocking();
+        store.disableAutoCompaction();
+        try
+        {
+            populate(KEYSPACE1, CF_STANDARD4, 0, 0, 0);
+            Util.flush(store);
+            SSTableReader first = store.getLiveSSTables().iterator().next();
+            populate(KEYSPACE1, CF_STANDARD4, 1, 1, 0);
+            Util.flush(store);
+            Set<SSTableReader> secondFiles = new HashSet<>(store.getLiveSSTables());
+            secondFiles.remove(first);
+            assertThat(secondFiles).hasSize(1);
+            SSTableReader second = secondFiles.iterator().next();
+            long completed = manager.getCompletedTasks();
+
+            StorageService.instance.setTombstoneCompactionQueueCapacity(1);
+            ILifecycleTransaction owner = store.getTracker().tryModify(Collections.singleton(first), OperationType.ANTICOMPACTION);
+            assertThat(owner).isNotNull();
+            try (ILifecycleTransaction ignored = owner)
+            {
+                manager.submitTombstoneTriggeredCompaction(store, Util.dk("0"), 1001);
+                assertTrue(manager.hasOngoingOrPendingTasks());
+                manager.submitTombstoneTriggeredCompaction(store, Util.dk("0"), 1001);
+                manager.submitTombstoneTriggeredCompaction(store, Util.dk("1"), 1001);
+                StorageService.instance.setTombstoneCompactionQueueCapacity(0);
+                manager.submitTombstoneTriggeredCompaction(store, Util.dk("1"), 1001);
+                assertThat(store.getLiveSSTables()).contains(first, second);
+            }
+
+            await().atMost(30, TimeUnit.SECONDS).until(() -> !manager.hasOngoingOrPendingTasks());
+            assertThat(store.getLiveSSTables()).doesNotContain(first).contains(second);
+            await().atMost(30, TimeUnit.SECONDS).until(() -> manager.getCompletedTasks() > completed);
+
+            StorageService.instance.setTombstoneCompactionQueueCapacity(1);
+            manager.submitTombstoneTriggeredCompaction(store, Util.dk("1"), 1001);
+            await().atMost(30, TimeUnit.SECONDS).until(() -> !manager.hasOngoingOrPendingTasks());
+            assertThat(store.getLiveSSTables()).doesNotContain(second);
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstoneCompactionQueueCapacity(previousCapacity);
+            await().atMost(30, TimeUnit.SECONDS).until(() -> !manager.hasOngoingOrPendingTasks());
+            store.truncateBlocking();
+            store.enableAutoCompaction();
+        }
+    }
+
+    @Test
+    public void testReactiveCompactionIgnoresRecreatedTable() throws Exception
+    {
+        String table = "reactive_recreated";
+        SchemaTestUtil.announceNewTable(SchemaLoader.standardCFMD(KEYSPACE1, table).build());
+        ColumnFamilyStore original = Keyspace.open(KEYSPACE1).getColumnFamilyStore(table);
+        TableId originalId = original.metadata().id;
+        original.disableAutoCompaction();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch started = new CountDownLatch(1);
+        AtomicInteger completed = new AtomicInteger();
+        TombstoneTriggeredCompactionManager manager = new TombstoneTriggeredCompactionManager(() -> 2, (tableId, key) -> {
+            started.countDown();
+            if (!release.await(30, TimeUnit.SECONDS))
+                throw new IllegalStateException("Timed out waiting for table recreation");
+            TombstoneTriggeredCompactionManager.ExecutionResult result =
+                CompactionManager.instance.executeTombstoneTriggeredCompaction(tableId, key);
+            if (result == TombstoneTriggeredCompactionManager.ExecutionResult.COMPLETED)
+                completed.incrementAndGet();
+            return result;
+        }, executor, 1);
+        try
+        {
+            assertEquals(TombstoneTriggeredCompactionManager.AdmissionResult.ACCEPTED,
+                         manager.enqueue(originalId, Util.dk("0")));
+            assertTrue(started.await(30, TimeUnit.SECONDS));
+            SchemaTestUtil.announceTableDrop(KEYSPACE1, table);
+            SchemaTestUtil.announceNewTable(SchemaLoader.standardCFMD(KEYSPACE1, table).build());
+            ColumnFamilyStore replacement = Keyspace.open(KEYSPACE1).getColumnFamilyStore(table);
+            replacement.disableAutoCompaction();
+            assertThat(replacement.metadata().id).isNotEqualTo(originalId);
+            populate(KEYSPACE1, table, 0, 0, 0);
+            Util.flush(replacement);
+            Set<SSTableReader> before = new HashSet<>(replacement.getLiveSSTables());
+            assertEquals(TombstoneTriggeredCompactionManager.AdmissionResult.ACCEPTED,
+                         manager.enqueue(replacement.metadata().id, Util.dk("missing")));
+            release.countDown();
+            await().atMost(30, TimeUnit.SECONDS).until(() -> manager.outstandingTasks() == 0);
+            assertEquals(2, completed.get());
+            assertThat(replacement.getLiveSSTables()).containsExactlyInAnyOrderElementsOf(before);
+
+            assertEquals(TombstoneTriggeredCompactionManager.AdmissionResult.ACCEPTED,
+                         manager.enqueue(replacement.metadata().id, Util.dk("0")));
+            await().atMost(30, TimeUnit.SECONDS).until(() -> manager.outstandingTasks() == 0);
+            assertEquals(3, completed.get());
+            assertThat(replacement.getLiveSSTables()).doesNotContainAnyElementsOf(before);
+        }
+        finally
+        {
+            release.countDown();
+            manager.shutdown(true);
+            manager.awaitTermination(30, TimeUnit.SECONDS);
+            SchemaTestUtil.announceTableDrop(KEYSPACE1, table);
         }
     }
 

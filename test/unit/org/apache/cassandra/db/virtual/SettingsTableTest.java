@@ -40,7 +40,6 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -50,6 +49,7 @@ import org.yaml.snakeyaml.introspector.Property;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.Config;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.DefaultLoader;
 import org.apache.cassandra.config.DurationSpec;
 import org.apache.cassandra.config.EncryptionOptions.ServerEncryptionOptions.Builder;
@@ -127,6 +127,7 @@ public class SettingsTableTest extends CQLTester
         autoRepairOverrides.table_max_repair_time = new DurationSpec.IntSecondsBound("6h");
         config.auto_repair.repair_type_overrides.put("full", autoRepairOverrides);
 
+        config.tombstone_compaction_queue_capacity = 17;
         table = new SettingsTable(KS_NAME, config);
         VirtualKeyspaceRegistry.instance.register(new VirtualKeyspace(KS_NAME, ImmutableList.of(table)));
         disablePreparedReuseForTest();
@@ -179,16 +180,21 @@ public class SettingsTableTest extends CQLTester
     public void testTombstoneCompactionQueueCapacityIsMutable() throws Throwable
     {
         int previous = StorageService.instance.getTombstoneCompactionQueueCapacity();
+        SettingsTable productionTable = new SettingsTable("production_settings");
+        VirtualKeyspace productionKeyspace = new VirtualKeyspace("production_settings", ImmutableList.of(productionTable));
+        VirtualKeyspaceRegistry.instance.register(productionKeyspace);
         try
         {
-            executeNet("UPDATE vts.settings SET value = '7' WHERE name = 'tombstone_compaction_queue_capacity'");
             assertRowsNet(executeNet("SELECT * FROM vts.settings WHERE name = 'tombstone_compaction_queue_capacity'"),
+                          new Object[] { "tombstone_compaction_queue_capacity", "17" });
+            executeNet("UPDATE production_settings.settings SET value = '7' WHERE name = 'tombstone_compaction_queue_capacity'");
+            assertRowsNet(executeNet("SELECT * FROM production_settings.settings WHERE name = 'tombstone_compaction_queue_capacity'"),
                           new Object[] { "tombstone_compaction_queue_capacity", "7" });
             Assert.assertEquals(7, StorageService.instance.getTombstoneCompactionQueueCapacity());
 
             StorageService.instance.setTombstoneCompactionQueueCapacity(9);
             Assert.assertEquals(9, DatabaseDescriptor.getTombstoneCompactionQueueCapacity());
-            assertRowsNet(executeNet("SELECT * FROM vts.settings WHERE name = 'tombstone_compaction_queue_capacity'"),
+            assertRowsNet(executeNet("SELECT * FROM production_settings.settings WHERE name = 'tombstone_compaction_queue_capacity'"),
                           new Object[] { "tombstone_compaction_queue_capacity", "9" });
 
             assertInvalidMessage("tombstone_compaction_queue_capacity (-1) must be >= 0",
@@ -197,11 +203,12 @@ public class SettingsTableTest extends CQLTester
                                  "UPDATE vts.settings SET value = 'bad' WHERE name = 'tombstone_compaction_queue_capacity'");
             assertInvalidMessage("Setting 'tombstone_warn_threshold' is read-only",
                                  "UPDATE vts.settings SET value = '1' WHERE name = 'tombstone_warn_threshold'");
-            assertInvalidMessage("Settings cannot be deleted",
-                                 "DELETE FROM vts.settings WHERE name = 'tombstone_compaction_queue_capacity'");
+            assertInvalidMessage("Partition deletion is not supported",
+                                  "DELETE FROM vts.settings WHERE name = 'tombstone_compaction_queue_capacity'");
         }
         finally
         {
+            VirtualKeyspaceRegistry.instance.unregister(productionKeyspace);
             StorageService.instance.setTombstoneCompactionQueueCapacity(previous);
         }
     }

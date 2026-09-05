@@ -625,7 +625,7 @@ public abstract class ReadCommand extends AbstractReadQuery
             private final int failureThreshold = DatabaseDescriptor.getTombstoneFailureThreshold();
             private final int warningThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
 
-            private final boolean respectTombstoneThresholds = !SchemaConstants.isLocalSystemKeyspace(ReadCommand.this.metadata().keyspace);
+            private final boolean respectTombstoneThresholds = respectsTombstoneThresholds();
             private final boolean enforceStrictLiveness = metadata().enforceStrictLiveness();
 
             private int liveRows = 0;
@@ -975,6 +975,7 @@ public abstract class ReadCommand extends AbstractReadQuery
 
         class WithoutPurgeableTombstones extends PurgeFunction
         {
+            private final boolean respectTombstoneThresholds = respectsTombstoneThresholds();
             private DecoratedKey partitionKey;
             private int purgeableTombstones;
             private boolean compactionSubmitted;
@@ -1003,7 +1004,7 @@ public abstract class ReadCommand extends AbstractReadQuery
             protected void onPurgeableDeletion()
             {
                 purgeableTombstones++;
-                if (!compactionSubmitted && purgeableTombstones > DatabaseDescriptor.getTombstoneWarnThreshold())
+                if (respectTombstoneThresholds && !compactionSubmitted && purgeableTombstones > DatabaseDescriptor.getTombstoneWarnThreshold())
                 {
                     compactionSubmitted = true;
                     CompactionManager.instance.submitTombstoneTriggeredCompaction(cfs, partitionKey, purgeableTombstones);
@@ -1011,6 +1012,11 @@ public abstract class ReadCommand extends AbstractReadQuery
             }
         }
         return Transformation.apply(iterator, new WithoutPurgeableTombstones());
+    }
+
+    private boolean respectsTombstoneThresholds()
+    {
+        return !SchemaConstants.isLocalSystemKeyspace(metadata().keyspace);
     }
 
 

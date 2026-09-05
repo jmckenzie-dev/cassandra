@@ -80,7 +80,6 @@ final class TombstoneTriggeredCompactionManager
 
     AdmissionResult enqueue(TableId tableId, DecoratedKey key)
     {
-        Request request = new Request(tableId, HeapCloner.instance.clone(key));
         synchronized (this)
         {
             if (shutdown)
@@ -89,12 +88,13 @@ final class TombstoneTriggeredCompactionManager
             int currentCapacity = capacity.getAsInt();
             if (currentCapacity == 0)
                 return AdmissionResult.DISABLED;
+            Request request = new Request(tableId, key);
             if (request.equals(active) || pending.contains(request))
                 return AdmissionResult.DUPLICATE;
             if (pending.size() + (active == null ? 0 : 1) >= currentCapacity)
                 return AdmissionResult.FULL;
 
-            pending.add(request);
+            pending.add(new Request(tableId, HeapCloner.instance.clone(key)));
             if (!draining)
             {
                 draining = true;
@@ -131,7 +131,11 @@ final class TombstoneTriggeredCompactionManager
             shutdown = true;
             forceShutdown = force;
             if (force)
+            {
                 pending.clear();
+                if (active == null)
+                    draining = false;
+            }
         }
 
         if (force)
@@ -173,7 +177,7 @@ final class TombstoneTriggeredCompactionManager
                     synchronized (this)
                     {
                         active = null;
-                        if (!forceShutdown)
+                        if (!shutdown)
                             pending.add(request);
                         pendingCount = pending.size();
                     }
