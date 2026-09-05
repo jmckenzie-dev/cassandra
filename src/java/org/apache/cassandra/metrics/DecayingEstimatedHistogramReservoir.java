@@ -27,6 +27,7 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.function.Consumer;
 
 import com.codahale.metrics.ExponentiallyDecayingReservoir;
 import com.codahale.metrics.Reservoir;
@@ -85,7 +86,7 @@ import static org.apache.cassandra.config.CassandraRelevantProperties.DECAYING_E
  *
  * @see ExponentiallyDecayingReservoir
  */
-public class DecayingEstimatedHistogramReservoir implements CassandraReservoir
+public class DecayingEstimatedHistogramReservoir implements ClearableReservoir
 {
     private static final Logger logger = LoggerFactory.getLogger(DecayingEstimatedHistogramReservoir.class);
     private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 5L, TimeUnit.MINUTES);
@@ -492,6 +493,12 @@ public class DecayingEstimatedHistogramReservoir implements CassandraReservoir
             this.bucketOffsets = reservoir.bucketOffsets; // No need to copy, these are immutable
         }
 
+        AbstractSnapshot(long[] bucketOffsets, long[] decayingBuckets)
+        {
+            this.bucketOffsets = bucketOffsets;
+            this.decayingBuckets = decayingBuckets;
+        }
+
         /**
          * Get the estimated value at the specified quantile in the distribution.
          *
@@ -681,6 +688,7 @@ public class DecayingEstimatedHistogramReservoir implements CassandraReservoir
         private long count;
         private long snapshotLandmark;
         private final DecayingEstimatedHistogramReservoir reservoir;
+        private final Consumer<EstimatedHistogramReservoirSnapshot> rebaser;
 
         public EstimatedHistogramReservoirSnapshot(DecayingEstimatedHistogramReservoir reservoir)
         {
@@ -702,6 +710,18 @@ public class DecayingEstimatedHistogramReservoir implements CassandraReservoir
 
             this.count = count();
             this.reservoir = reservoir;
+            this.rebaser = null;
+        }
+
+        EstimatedHistogramReservoirSnapshot(long[] bucketOffsets, long[] decayingBuckets, long[] values,
+                                            long snapshotLandmark, Consumer<EstimatedHistogramReservoirSnapshot> rebaser)
+        {
+            super(bucketOffsets, decayingBuckets);
+            this.values = values;
+            this.snapshotLandmark = snapshotLandmark;
+            this.count = count();
+            this.reservoir = null;
+            this.rebaser = rebaser;
         }
 
         /**
@@ -796,9 +816,17 @@ public class DecayingEstimatedHistogramReservoir implements CassandraReservoir
             }
         }
 
+        boolean usesCompactStorage()
+        {
+            return rebaser != null;
+        }
+
         public void rebaseReservoir()
         {
-            this.reservoir.rebase(this);
+            if (reservoir != null)
+                this.reservoir.rebase(this);
+            else
+                rebaser.accept(this);
         }
     }
 
@@ -809,7 +837,7 @@ public class DecayingEstimatedHistogramReservoir implements CassandraReservoir
      * decaying buckets from the source reservoir. (ex. percentiles, min, max) It also does not support snapshot 
      * merging or rebasing on the source reservoir.
      */
-    private static class DecayingBucketsOnlySnapshot extends AbstractSnapshot
+    static class DecayingBucketsOnlySnapshot extends AbstractSnapshot
     {
         private final long count;
 
@@ -826,6 +854,12 @@ public class DecayingEstimatedHistogramReservoir implements CassandraReservoir
                 this.decayingBuckets[i] = Math.round(reservoir.bucketValue(i, decayingBucketsRef.decayBuckets) / rescaleFactor);
             }
 
+            this.count = count();
+        }
+
+        DecayingBucketsOnlySnapshot(long[] bucketOffsets, long[] decayingBuckets)
+        {
+            super(bucketOffsets, decayingBuckets);
             this.count = count();
         }
 

@@ -17,42 +17,7 @@
  */
 package org.apache.cassandra.metrics;
 
-import com.google.common.annotations.VisibleForTesting;
-
-
-/**
- * Adds ability to reset a histogram
- */
-public class ClearableHistogram extends ThreadLocalHistogram
+public interface ClearableReservoir extends CassandraReservoir
 {
-    private final ClearableReservoir reservoirRef;
-
-    /**
-     * Creates a new {@link com.codahale.metrics.Histogram} with the given reservoir.
-     *
-     * @param reservoir the reservoir to create a histogram from
-     */
-    public ClearableHistogram(DecayingEstimatedHistogramReservoir reservoir)
-    {
-        this((ClearableReservoir) reservoir);
-    }
-
-    public ClearableHistogram(ClearableReservoir reservoir)
-    {
-        super(reservoir);
-
-        this.reservoirRef = reservoir;
-    }
-
-    @VisibleForTesting
-    public void clear()
-    {
-        clearCount();
-        reservoirRef.clear();
-    }
-
-    private void clearCount()
-    {
-        reset();
-    }
+    void clear();
 }

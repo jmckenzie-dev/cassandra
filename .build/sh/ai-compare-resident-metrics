@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+set -euo pipefail
+project_root="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$project_root"
+mkdir -p logs
+stamp="$(date +%Y%m%d-%H%M%S)"
+exec > >(tee "logs/$stamp-ai-compare-resident-metrics.log") 2>&1
+
+usage() {
+    echo 'Usage: ai-compare-resident-metrics --step LABEL --checkpoint pre|peri|post [--tables 100] [--repeats 2] [--heap-dumps]' >&2
+    exit 2
+}
+step=""
+checkpoint=""
+tables=100
+repeats=2
+heap_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --step|--checkpoint|--tables|--repeats)
+            [[ $# -ge 2 ]] || usage
+            case "$1" in
+                --step) step="$2" ;;
+                --checkpoint) checkpoint="$2" ;;
+                --tables) tables="$2" ;;
+                --repeats) repeats="$2" ;;
+            esac
+            shift 2
+            ;;
+        --heap-dumps)
+            heap_args=(--heap-dumps)
+            shift
+            ;;
+        *) usage ;;
+    esac
+done
+[[ "$step" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || usage
+[[ "$checkpoint" == pre || "$checkpoint" == peri || "$checkpoint" == post ]] || usage
+[[ "$tables" =~ ^[1-9][0-9]{0,3}$ ]] || usage
+[[ "$repeats" =~ ^[1-9][0-9]?$ ]] || usage
+(( tables <= 1000 )) || usage
+
+batch="$(mktemp -d "$project_root/logs/$stamp-metrics-$step-$checkpoint-XXXXXX")"
+printf 'step\tcheckpoint\trepeat\tmode\tscenario\tstatus\tsummary\n' > "$batch/runs.tsv"
+cp "$project_root/.build/sh/ai-compare-resident-metrics" "$batch/recipe.sh"
+export MANY_TABLES_XMX="${MANY_TABLES_XMX:-8g}"
+export MANY_TABLES_CPUS="${MANY_TABLES_CPUS:-8}"
+common=(--tables "$tables" --rows-per-table 4 --cycles 1 --rate 100 --payload-bytes 128
+        --seed 1 --hold-ms 1000 --idle-ms 1000 --no-profile)
+printf 'Comparison artifacts: %s\n' "$batch"
+for (( repeat = 1; repeat <= repeats; repeat++ )); do
+    if (( repeat % 2 == 1 )); then
+        modes=(legacy optimized)
+    else
+        modes=(optimized legacy)
+    fi
+    for mode in "${modes[@]}"; do
+        mode_args=()
+        if [[ "$mode" == legacy ]]; then
+            mode_args=(--legacy-metrics)
+        fi
+        for scenario in never-written written-flushed; do
+            output="$batch/repeat-$repeat-$mode-$scenario"
+            mkdir -p "$output"
+            if .build/sh/ai-profile-memtable-residency "${common[@]}" "${mode_args[@]}" "${heap_args[@]}" \
+                                                     --scenario "$scenario" --out "$output"; then
+                status=0
+            else
+                status=$?
+            fi
+            summaries=("$output"/*/summary.json)
+            summary="${summaries[0]}"
+            if [[ ${#summaries[@]} != 1 || ! -f "$summary" ]]; then
+                summary="$output"
+                if [[ "$status" == 0 ]]; then
+                    echo "Missing unique summary.json under $output" >&2
+                    status=1
+                fi
+            fi
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                   "$step" "$checkpoint" "$repeat" "$mode" "$scenario" "$status" "$summary" >> "$batch/runs.tsv"
+            printf 'Result: step=%s checkpoint=%s repeat=%s mode=%s scenario=%s status=%s summary=%s\n' \
+                   "$step" "$checkpoint" "$repeat" "$mode" "$scenario" "$status" "$summary"
+            if [[ "$status" != 0 ]]; then
+                exit "$status"
+            fi
+        done
+    done
+done
+printf 'Completed comparison: %s\n' "$batch/runs.tsv"

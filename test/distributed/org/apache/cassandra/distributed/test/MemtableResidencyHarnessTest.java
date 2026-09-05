@@ -73,7 +73,20 @@ public class MemtableResidencyHarnessTest
         verifyScenario("idle-reactivate", false, true, true, true);
     }
 
+    @Test
+    public void legacyMetricsPreserveEmptyAndFlushedData() throws Throwable
+    {
+        verifyScenario("never-written", false, false, false, false, true);
+        verifyScenario("written-flushed", false, false, false, false, true);
+    }
+
     private void verifyScenario(String scenario, boolean eager, boolean retirement, boolean lazyHistograms, boolean geometricMeters) throws Throwable
+    {
+        verifyScenario(scenario, eager, retirement, lazyHistograms, geometricMeters, false);
+    }
+
+    private void verifyScenario(String scenario, boolean eager, boolean retirement,
+                                boolean lazyHistograms, boolean geometricMeters, boolean legacyMetrics) throws Throwable
     {
         Files.createDirectories(Paths.get("logs"));
         Path output = Files.createTempDirectory(Paths.get("logs"), "residency-tests-");
@@ -90,6 +103,8 @@ public class MemtableResidencyHarnessTest
             args.add("--lazy-tombstone-histograms");
         if (geometricMeters)
             args.add("--geometric-meter-arrays");
+        if (legacyMetrics)
+            args.add("--legacy-metrics");
         MemtableResidencyProfileHarness.main(args.toArray(new String[0]));
         Path run;
         try (Stream<Path> paths = Files.list(output))
@@ -104,10 +119,12 @@ public class MemtableResidencyHarnessTest
         assertEquals(retirement, summary.get("explicitRetirement"));
         assertEquals(lazyHistograms, summary.get("lazyTombstoneHistograms"));
         assertEquals(geometricMeters, summary.get("geometricMeterArrays"));
+        assertEquals(!legacyMetrics, summary.get("optimizedMetricsEnabled"));
         assertEquals(retirement ? 4L : 0L, ((Number) summary.get("completedRetirementRequests")).longValue());
         Map<?, ?> effective = (Map<?, ?>) summary.get("effectiveConfiguration");
         assertEquals(lazyHistograms, effective.get("lazyTombstoneHistograms"));
         assertEquals(geometricMeters, effective.get("geometricMeterArrays"));
+        assertEquals(!legacyMetrics, effective.get("optimizedMetricsEnabled"));
         Map<?, ?> parameters = (Map<?, ?>) effective.get("memtableParameters");
         assertEquals(Boolean.toString(!eager), parameters.get("lazy_initialization"));
         Map<?, ?> checkpoints = (Map<?, ?>) summary.get("checkpoints");

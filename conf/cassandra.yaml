@@ -2088,6 +2088,10 @@ sstables_per_read_log_threshold: 100
 tombstone_warn_threshold: 1000
 tombstone_failure_threshold: 100000
 
+# Use compact runtime histogram storage. Set false to use the legacy reservoirs.
+# This setting applies at startup and does not change SSTable histogram formats.
+optimized_metrics_enabled: true
+
 # Controls the granularity of purgeable tombstones reported to PurgeableTombstoneScannedHistogram table metric
 # Possible values:
 # 'disabled' - do not collect the metric at all

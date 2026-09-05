@@ -105,6 +105,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
         node.set("memtable", Map.of("configurations", Map.of("default", memtable)));
         node.set("sstable", Map.of("selected_format", config.format));
         node.set("cursor_compaction_enabled", false);
+        node.set("optimized_metrics_enabled", !config.legacyMetrics);
     }
 
     @Override
@@ -118,6 +119,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
             values.put("cursorCompaction", DatabaseDescriptor.cursorCompactionEnabled());
             values.put("lazyTombstoneHistograms", CassandraRelevantProperties.LAZY_TOMBSTONE_HISTOGRAMS.getBoolean());
             values.put("geometricMeterArrays", CassandraRelevantProperties.GEOMETRIC_METER_ARRAYS.getBoolean());
+            values.put("optimizedMetricsEnabled", DatabaseDescriptor.getOptimizedMetricsEnabled());
             values.put("heapMaxBytes", Runtime.getRuntime().maxMemory());
             values.put("processors", Runtime.getRuntime().availableProcessors());
             values.put("jvmArguments", ManagementFactory.getRuntimeMXBean().getInputArguments());
@@ -435,6 +437,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
         values.put("explicitRetirement", config.explicitRetirement);
         values.put("lazyTombstoneHistograms", config.lazyTombstoneHistograms);
         values.put("geometricMeterArrays", config.geometricMeterArrays);
+        values.put("optimizedMetricsEnabled", !config.legacyMetrics);
         values.put("completedRetirementRequests", completedRetirementRequests);
         values.put("failedWriteRequests", failedRequests);
         values.put("writesStartedOver1msLate", lateWrites);
@@ -489,6 +492,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
         boolean explicitRetirement;
         boolean lazyTombstoneHistograms;
         boolean geometricMeterArrays;
+        boolean legacyMetrics;
         String[] args;
 
         static Config parse(String[] args)
@@ -508,6 +512,8 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                     c.explicitRetirement = true;
                 else if (option.equals("--lazy-tombstone-histograms"))
                     c.lazyTombstoneHistograms = true;
+                else if (option.equals("--legacy-metrics"))
+                    c.legacyMetrics = true;
                 else if (option.equals("--geometric-meter-arrays"))
                     c.geometricMeterArrays = true;
                 else

@@ -6131,6 +6131,11 @@ public class DatabaseDescriptor
         return conf.client_request_size_metrics_enabled;
     }
 
+    public static boolean getOptimizedMetricsEnabled()
+    {
+        return conf != null && conf.optimized_metrics_enabled;
+    }
+
     public static void setClientRequestSizeMetricsEnabled(boolean enabled)
     {
         conf.client_request_size_metrics_enabled = enabled;

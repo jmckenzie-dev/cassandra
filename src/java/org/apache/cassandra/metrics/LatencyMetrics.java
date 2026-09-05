@@ -135,7 +135,7 @@ public class LatencyMetrics
         this.latency.releasedLatencyCount += toRelease.latency.getCount();
 
         DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot childSnapshot = (DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot) toRelease.latency.getSnapshot();
-        DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot snapshot = (DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot) this.latency.getSnapshot();
+        DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot snapshot = this.latency.getSnapshotForRelease();
 
         snapshot.add(childSnapshot);
         snapshot.rebaseReservoir();
@@ -236,6 +236,18 @@ public class LatencyMetrics
         public Snapshot getSnapshot()
         {
             DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot parent = (DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot) super.getSnapshot();
+            return withChildren(parent);
+        }
+
+        private DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot getSnapshotForRelease()
+        {
+            DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot parent = (DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot) super.getSnapshot();
+            // The compact path folds only the released child into the parent's own history.
+            return parent.usesCompactStorage() ? parent : withChildren(parent);
+        }
+
+        private DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot withChildren(DecayingEstimatedHistogramReservoir.EstimatedHistogramReservoirSnapshot parent)
+        {
             for (LatencyMetrics child : children)
             {
                 parent.add(child.latency.getSnapshot());

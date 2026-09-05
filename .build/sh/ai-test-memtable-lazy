@@ -50,6 +50,19 @@ elif [[ $# == 1 && "$1" == --histograms ]]; then
     )
 elif [[ $# == 1 && "$1" == --histogram-property ]]; then
     test_classes=(org.apache.cassandra.utils.streamhist.LazyTombstoneHistogramBuilderPropertyTest)
+elif [[ $# == 1 && "$1" == --reservoirs ]]; then
+    test_classes=(
+        org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest
+        org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirPropertyTest
+        org.apache.cassandra.metrics.CompactMetricsIntegrationTest
+        org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest
+        org.apache.cassandra.metrics.ThreadLocalHistogramTest
+        org.apache.cassandra.metrics.CassandraMetricsRegistryTest
+        org.apache.cassandra.metrics.LatencyMetricsTest
+        org.apache.cassandra.metrics.JmxVirtualTableMetricsTest
+    )
+elif [[ $# == 1 && "$1" == --reservoir-property ]]; then
+    test_classes=(org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirPropertyTest)
 elif [[ $# == 1 && "$1" == --meters ]]; then
     test_classes=(
         org.apache.cassandra.metrics.ThreadLocalMeterTest
@@ -59,7 +72,7 @@ elif [[ $# == 1 && "$1" == --meters ]]; then
 elif [[ $# == 1 && "$1" == --meter-property ]]; then
     test_classes=(org.apache.cassandra.metrics.GeometricThreadLocalMeterPropertyTest)
 else
-    echo 'Usage: ai-test-memtable-lazy [--property|--retirement|--histograms|--histogram-property|--meters|--meter-property]' >&2
+    echo 'Usage: ai-test-memtable-lazy [--property|--retirement|--histograms|--histogram-property|--reservoirs|--reservoir-property|--meters|--meter-property]' >&2
     exit 2
 fi
 ant build-test

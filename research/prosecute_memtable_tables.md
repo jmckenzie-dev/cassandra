@@ -39,7 +39,90 @@ limit because creation allocation and timing become costly above that scale.
 Current baselines use 100 tables. Historical 5,000-table results are existing
 evidence, not permission to repeat those runs.
 
-## Metrics compatibility constraint (2026-09-05)
+## Current metrics compatibility contract (2026-09-05)
+
+The user relaxed numerical identity for a separate optimized metrics
+implementation. Keep the legacy implementation intact and selectable. In the
+subsequent implementation request, the user explicitly selected the optimized
+path as the cassandra.yaml default for this branch. The optimized path must
+expose all existing metrics so existing tooling continues to work. Preserve names,
+aliases, types, units, access paths, and meaningful cumulative/recent behavior.
+Changing internal buckets, storage, and aggregation timing is allowed if the
+distribution shape and median, p99, p99.99, and max remain accurately representative.
+An accuracy tolerance and permitted time-window differences have not been agreed.
+Implementation is now authorized as sequential optimizations, each with pre-change,
+iteration, and final measurements in a single commit. See
+[plan](../.plans/compact-runtime-metrics.md) and
+[measurements](compact_runtime_metrics.md) for current execution state.
+
+This supersedes the numerical-identity requirement below for the proposed optimized
+runtime metrics path. It does not authorize dropping per-table metrics, disabling
+their exports, discarding cumulative history on idleness, or changing stored
+SSTable tombstone statistics. Existing exact-equivalence candidates retain their
+tested contracts. The next step is design and compatibility analysis, not a selected
+replacement algorithm or dependency.
+
+Candidate direction: allocate no bucket arrays for empty reservoirs; use compact
+storage for sparse observations; grow to dense storage only when useful. Share
+immutable bucket definitions and evaluate fewer permanent contention stripes.
+Record every observation to protect rare tails. Define quantile error in terms
+of value as well as rank; preserve exact observation counts and investigate explicit
+extrema tracking for the required time scope. A lifetime maximum cannot substitute
+for a recent maximum. Deferred aggregation must preserve event values and account
+for event time. Changing the decay/window needs burst and idle-transition tests.
+
+Different internal buckets may need conversion to the legacy external histogram
+layout. CassandraMetricsRegistry already translates log_linear buckets for legacy
+values()/getRecentValues() exports while exposing native rawValues(), rawBuckets(),
+and bucketsId(). Extend that approach only after auditing consumers. Conversion
+itself contributes approximation error, and adaptive changes must not move old
+counts between exported buckets and corrupt cumulative deltas. Current reservoir
+max is the highest nonempty decayed bucket's upper bound, with special empty and
+overflow behavior; exact lifetime max would change its meaning. LatencyMetrics
+child removal and aggregation also cast concrete original snapshots and require
+compatible offsets for merge/rebase. Validate optimized results
+against recorded events with controlled time and the chosen weighting rules;
+legacy comparisons become diagnostics where numerical differences are intentional.
+Keep exact comparisons for preserved interface and counter contracts. Test rare
+outliers, multiple modes, changing traffic, concurrency, merge/rebase, and actual
+tool consumers. Continue matched fresh-JVM performance runs at <=1,000 tables.
+
+Preserve the other exported statistics too, including mean and standard deviation.
+The existing named JMX percentile attributes end at p99.9; test p99.99 through
+Snapshot.getValue(0.9999). An exposed p99.99 attribute would be an additive change.
+PercentileSpeculativeRetryPolicy consumes percentile snapshots inside Cassandra,
+so accuracy and freshness changes can affect read behavior, not just dashboards.
+Include that consumer in validation. Stable cumulative export storage may remain
+necessary alongside a compact recent-distribution representation; budget both.
+
+## Current compact runtime metrics implementation (2026-09-05)
+
+The first optimization is implemented and validated. `optimized_metrics_enabled`
+defaults to true in Config and cassandra.yaml; false selects the legacy reservoir.
+Bootstrap metrics created before configuration loads remain legacy. The compact
+reservoir uses empty/sparse pages and a dense fallback, private shared bucket
+definitions, and additive snapshot construction hooks. Existing histogram
+arithmetic and exported bucket geometry remain unchanged. Compact parents also
+fix pre-existing child-release bucket inflation; legacy parents retain it.
+
+Pre-change, three implementation iterations, and final measurements are recorded
+in [compact runtime metrics](compact_runtime_metrics.md). N100 settled heap fell
+from 105.091 to 74.155 MiB for never-written tables and 108.848 to 77.853 MiB after
+writes/flushes (medians of two matched runs per mode/scenario). User-owned counter
+payload fell from 15,596,800 bytes to zero untouched, or 349,184 bytes after writes.
+Final one-thread JMH median throughput is about 5% lower; four-thread throughput
+is unchanged. Empty reservoir graphs fall from 5437.44 to 141.44 amortized bytes.
+
+Validation: clean build/Checkstyle; 58 focused passes with one existing ignored
+legacy diagnostic; 11 harness cases; eight N100 comparisons; direct heap ownership;
+focused post-extraction reruns. Next: commit this optimization, then capture a
+fresh baseline before adaptive stripe storage. No stripe or counter-width changes
+have been implemented yet. These must each receive their own measured commit.
+
+## Historical exact-value constraint (2026-09-05)
+
+The following records the requirement used for the completed allocation candidates.
+For future optimized runtime metrics work, the current contract above takes precedence.
 
 The user requires: "whatever values we store for those metrics need to remain
 identical to what is recorded today." Treat this as a hard constraint on future
@@ -158,11 +241,39 @@ The main analyzer is `.build/sh/analyze-java-allocation.py <batch>`; use local
 venv. Heap analysis is `tmp/inspect-meter-rate-arrays.py <batch>` with shared
 `tmp/hprof_reader.py`; results are in `logs/20260905-005018-inspect-meter-rate-arrays.json`.
 The shared reader also reproduced prior trie ownership evidence after extraction.
-Next resident-memory target: lazy storage for empty metric reservoirs while
-preserving original clock state and exact snapshots. Next creation-allocation
+Next resident-memory target: compact empty/sparse metric reservoirs under the
+current compatibility contract above. Next creation-allocation
 target: copy-on-write meter registration. Neither follow-up is implemented.
 
 ## Intent and design direction
+
+Priority update after commit `c274d4232b`: the user explicitly wants the resident
+memory blockers to 100k+ tables addressed before further allocation optimization.
+Defer copy-on-write registration optimization and other allocation-only work.
+Rank candidates by retained bytes per table and distinguish fixed node costs from
+per-table growth. Continue the <=1,000-table workload limit and the current metrics
+compatibility contract above. The ownership investigation measures reservoir-owned primitive arrays
+directly in the existing live heaps; the old shallow-class census did not assign
+those arrays. Disk-backed metrics are a design option under discussion, not a
+selected implementation. No metric history may be reset or discarded on idleness.
+
+Direct ownership analysis of the committed reference N100 heap found 33
+TableMetrics reservoirs plus one Trie contention reservoir per user table.
+All 3,400 user reservoirs are zero-filled at both created and settled checkpoints.
+Their 6,800 unique mutable backing arrays retain 155,968 payload bytes per table
+(152.3125 KiB), excluding headers and wrappers. At an unchanged per-table cost,
+100k tables would require about 14.5 GiB for these arrays alone; this is a linear
+projection, not a 100k-table measurement. There are also 20 private 127-long
+offset arrays per table (20,320 bytes/table), alongside two shared default offset
+arrays. Shared LOW_BUCKET_COUNT offsets are another candidate, subject to an
+alias/mutation audit because arrays escape through public accessors.
+Evidence: `logs/20260905-090932-inspect-resident-reservoirs.json` and
+`tmp/inspect-resident-reservoirs.py`. Changing physical stripes can change numeric
+results because rescaling rounds per stripe; evaluate those differences under the
+optimized path's accuracy contract. Preserve LatencyMetrics child
+snapshot merge/rebase behavior, which currently depends on a concrete original
+snapshot type. These were pre-change findings; the implementation above now
+addresses empty/sparse storage and shares the snapshot contract.
 
 The eventual target is 100,000 or 1,000,000 tables without overflowing heap or
 superlinear growth. The user identified two independent costs: allocation during

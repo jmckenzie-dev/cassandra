@@ -34,8 +34,8 @@ fi
 if [[ $# == 1 && "$1" == --lazy ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy"
 fi
-if [[ $# == 1 && ( "$1" == --histograms || "$1" == --meters ) ]]; then
+if [[ $# == 1 && ( "$1" == --histograms || "$1" == --meters || "$1" == --reservoirs ) ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" "$1"
 fi
-echo 'Usage: run_tests.sh [--harness|--long|--lazy|--histograms|--meters]' >&2
+echo 'Usage: run_tests.sh [--harness|--long|--lazy|--histograms|--meters|--reservoirs]' >&2
 exit 2

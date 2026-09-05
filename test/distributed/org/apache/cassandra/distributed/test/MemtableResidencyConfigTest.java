@@ -133,13 +133,15 @@ public class MemtableResidencyConfigTest
             MemtableResidencyProfileHarness.Config reference = MemtableResidencyProfileHarness.Config.parse(args);
             assertEquals(false, reference.lazyTombstoneHistograms);
             assertEquals(false, reference.geometricMeterArrays);
-            for (String flag : new String[] { "--lazy-tombstone-histograms", "--geometric-meter-arrays" })
+            assertEquals(false, reference.legacyMetrics);
+            for (String flag : new String[] { "--lazy-tombstone-histograms", "--geometric-meter-arrays", "--legacy-metrics" })
             {
                 String[] candidateArgs = Arrays.copyOf(args, args.length + 1);
                 candidateArgs[args.length] = flag;
                 MemtableResidencyProfileHarness.Config candidate = MemtableResidencyProfileHarness.Config.parse(candidateArgs);
                 assertEquals(flag.equals("--lazy-tombstone-histograms"), candidate.lazyTombstoneHistograms);
                 assertEquals(flag.equals("--geometric-meter-arrays"), candidate.geometricMeterArrays);
+                assertEquals(flag.equals("--legacy-metrics"), candidate.legacyMetrics);
                 assertArrayEquals(reference.tableOrder(), candidate.tableOrder());
                 assertEquals(reference.operationsPerCycle(), candidate.operationsPerCycle());
                 assertEquals(reference.payload(seed, seed), candidate.payload(seed, seed));

@@ -24,8 +24,10 @@ Run from the repository root with JDK 21 and an existing Cassandra build:
 ./run_property_tests.sh --lazy
 ./run_tests.sh --histograms
 ./run_tests.sh --meters
+./run_tests.sh --reservoirs
 ./run_property_tests.sh --histograms
 ./run_property_tests.sh --meters
+./run_property_tests.sh --reservoirs
 .build/sh/ai-profile-memtable-residency --scenario never-written --tables 100 --no-profile
 ```
 
@@ -76,6 +78,7 @@ For example:
 | `--explicit-retirement` | off | Flush the active subset after each observation pause; requires idle-reactivate or rotating-bursts. |
 | `--lazy-tombstone-histograms` | off | Allocate the original tombstone spool on the first deletion or expiration observation. |
 | `--geometric-meter-arrays` | off | Use separate meters whose shared rate array doubles when full. |
+| `--legacy-metrics` | off | Set `optimized_metrics_enabled: false`; the default uses optimized metrics. |
 | `--format` | bti | Also accepts big. |
 | `--out` | logs | Parent for timestamped run directories. |
 | `--no-profile` | off | Disable async-profiler and Java flight recordings. |
@@ -92,6 +95,42 @@ Both initialization modes retain existing flush triggers. Explicit retirement
 uses normal user-forced flushing. Automatic idle selection and age/size policies
 remain future work. Selecting the node's default memtable also changes system
 memtables, so whole-JVM comparisons include that effect.
+
+## Resident metrics comparisons
+
+The harness sets the node YAML option `optimized_metrics_enabled` to true unless
+`--legacy-metrics` is present. The option selects the metrics implementation before
+node startup. Requested and effective `optimizedMetricsEnabled` values appear in
+`summary.json`. Keep the earlier tombstone and geometric-meter experiment flags
+fixed across each comparison.
+
+Run a fresh comparison before, during, and after each optimization:
+
+```bash
+.build/sh/ai-compare-resident-metrics --step 1 --checkpoint pre
+.build/sh/ai-compare-resident-metrics --step 1 --checkpoint peri
+.build/sh/ai-compare-resident-metrics --step 1 --checkpoint post
+```
+
+In the development container, prefix each command with `distrobox enter dev --`.
+The script defaults to 100 tables and two repetitions. It alternates legacy and
+optimized order across repetitions and runs both `never-written` and
+`written-flushed` in separate JVMs. Written runs use one cycle with four rows per
+table at 100 writes/second. All runs disable profiling and include the existing
+settled post-GC heap measurement. `--tables` accepts 1 through 1,000;
+`--repeats` controls repetitions. `MANY_TABLES_XMX` and `MANY_TABLES_CPUS` retain
+the launcher defaults of 8g and eight processors.
+
+Use `--heap-dumps --repeats 1` for separate retained-object diagnostics. Heap dumps
+can affect timing and produce large artifacts; compare timing from runs without
+that option. The script creates a timestamped directory under `logs/` with its
+recipe and `runs.tsv`. Each row identifies the step, checkpoint, repetition,
+implementation, scenario, exit status, and absolute `summary.json` path. The
+corresponding run directory contains checkpoints and any requested heap dumps.
+The script stops on a failed run and preserves its exit status.
+
+`run_tests.sh --reservoirs` selects reservoir compatibility and export tests.
+`run_property_tests.sh --reservoirs` selects generated reservoir equivalence tests.
 
 ## Java allocation candidates
 

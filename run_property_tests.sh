@@ -25,11 +25,14 @@ fi
 if [[ $# == 1 && "$1" == --histograms ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" --histogram-property
 fi
+if [[ $# == 1 && "$1" == --reservoirs ]]; then
+    exec "$project_root/.build/sh/ai-test-memtable-lazy" --reservoir-property
+fi
 if [[ $# == 1 && "$1" == --meters ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" --meter-property
 fi
 if [[ $# != 0 ]]; then
-    echo 'Usage: run_property_tests.sh [--lazy|--histograms|--meters]' >&2
+    echo 'Usage: run_property_tests.sh [--lazy|--histograms|--meters|--reservoirs]' >&2
     exit 2
 fi
 export PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore

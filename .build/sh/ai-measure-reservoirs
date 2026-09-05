@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+set -euo pipefail
+project_root="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$project_root"
+mkdir -p logs
+stamp="$(date +%Y%m%d-%H%M%S)"
+launch_log="$(mktemp "$project_root/logs/$stamp-ai-measure-reservoirs-XXXXXX.log")"
+exec > >(tee "$launch_log") 2>&1
+
+usage() {
+    echo 'Usage: ai-measure-reservoirs --step LABEL --checkpoint pre|peri|post' >&2
+    exit 2
+}
+step=""
+checkpoint=""
+while [[ $# -gt 0 ]]; do
+    [[ $# -ge 2 ]] || usage
+    case "$1" in
+        --step) step="$2" ;;
+        --checkpoint) checkpoint="$2" ;;
+        *) usage ;;
+    esac
+    shift 2
+done
+[[ "$step" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || usage
+[[ "$checkpoint" == pre || "$checkpoint" == peri || "$checkpoint" == post ]] || usage
+
+batch="$(mktemp -d "$project_root/logs/$stamp-reservoirs-$step-$checkpoint-XXXXXX")"
+cp "$project_root/.build/sh/ai-measure-reservoirs" "$batch/recipe.sh"
+export MANY_TABLES_XMX="${MANY_TABLES_XMX:-8g}"
+export MANY_TABLES_CPUS="${MANY_TABLES_CPUS:-8}"
+printf 'Reservoir artifacts: %s\n' "$batch"
+
+measure() {
+    printf 'reservoir_measurement step=%s checkpoint=%s heap=%s cpus=%s\n' \
+           "$step" "$checkpoint" "$MANY_TABLES_XMX" "$MANY_TABLES_CPUS"
+    for implementation in DecayingEstimatedHistogramReservoir CompactDecayingEstimatedHistogramReservoir; do
+        PROFILE_MAIN_CLASS=org.apache.cassandra.metrics.ReservoirStorageProbe \
+            .build/sh/ai-profile-many-tables "org.apache.cassandra.metrics.$implementation" 5 3 200000 || return "$?"
+    done
+    for threads in 1 4; do
+        PROFILE_MAIN_CLASS=org.openjdk.jmh.Main \
+            .build/sh/ai-profile-many-tables '.*CompactHistogramBench.update' \
+            -p implementation=legacy,compact -t "$threads" -f 2 -wi 3 -w 1s -i 5 -r 1s \
+            -prof gc -foe true -rf json -rff "$batch/$stamp-jmh-t$threads.json" || return "$?"
+    done
+}
+measure 2>&1 | tee "$batch/$stamp-console.log"
+python3 .build/sh/analyze-reservoir-measurements.py --batch "$batch"
+printf 'Completed reservoir measurements: %s\n' "$batch"
