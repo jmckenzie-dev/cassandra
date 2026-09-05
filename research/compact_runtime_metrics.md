@@ -350,6 +350,193 @@ separately passing legacy/export tests, the successful JMX retry, direct old/new
 heap attribution, and the eight final table workloads. The second optimization
 is complete. The final clean build and style checks also passed.
 
+## Third optimization: narrower dense counters
+
+The fresh baseline uses commit `6daa0ce965`, Java 21, 8 GiB heap, eight active
+processors, and CPU affinity 8–15 for the reservoir probes and JMH. The baseline
+batch is `logs/20260905-132408-reservoirs-counters-pre-NFPAnM/`.
+Compact reachable graph bytes per reservoir are 157.44 empty, 653.44 for one
+occupied bin, 1,613.44 for four bins, and 2,861.44 dense. Legacy uses 5,437.44
+throughout. Serial handoff does not allocate secondary stripes.
+
+Baseline JMH medians (ten measured samples across two forks):
+
+| Threads | Legacy million updates/s (range) | Compact million updates/s (range) |
+| --- | ---: | ---: |
+| 1 | 30.782 (28.894–32.782) | 29.316 (28.870–29.555) |
+| 4 | 86.150 (84.942–86.949) | 91.507 (86.293–93.974) |
+
+Separate aged probes create reservoirs at clock zero and update at 1,799 seconds,
+just before the 30-minute reset. Compact remains at 2,861.52 bytes and legacy at
+5,437.52 bytes for 1/4/164 bins. Aged clock state accounts for the extra 0.08
+amortized bytes. Console launch logs are `logs/20260905-132951-many-tables-launch.log`
+and `logs/20260905-133007-many-tables-launch.log`.
+This checks the regime where decay weights can require 64-bit storage even for
+small observation populations.
+
+The table comparison runner now accepts `--rows-per-table` and `--rate` while
+retaining its original defaults. The fresh N100 dense baseline uses 128 rows
+per table and rate 5,000, with one fresh JVM per mode/scenario and distinct
+subnets 101–104. Batch: `logs/20260905-133023-metrics-counters-pre-4S2jsy/`.
+All four runs pass. Written runs each complete 12,800 writes and 200 reads,
+retain 104 SSTables, and finish with clean memtables. Settled whole-JVM bytes
+are 110,153,720/77,570,792 for legacy/compact never-written and
+111,532,112/79,066,352 for written/flushed. Creation spans 9.44–9.76 seconds.
+These are single-run baseline observations, not estimates of timing variance.
+
+The compact written heap contains 3,400 user reservoirs, 900 populated and
+2,500 empty. Its 600 dense counter stores comprise 400 arrays of 128 cells and
+200 arrays of 165 cells. All user stores have one physical stripe. Total counter
+payload is 827,968 bytes, including 673,600 dense bytes and 154,368 sparse bytes.
+Legacy retains 15,596,800 counter payload bytes. Reports:
+`logs/20260905-133325-770352-analyze-resident-metrics.json` and
+`logs/20260905-133319-370042-analyze-resident-reservoirs.json`.
+
+Production edits began only after these baseline runs and ownership checks.
+
+### Candidate and correctness checks
+
+`AdaptiveCounterArray` initially holds an `AtomicIntegerArray`. Its volatile
+backing reference changes once to an `AtomicLongArray` when a write needs a
+larger or negative value. Widening allocates the complete long array before
+freezing narrow cells. Each atomic freeze returns the latest cell value for
+copying. Narrow writes use compare-and-set, so stale writers cannot overwrite
+the frozen marker. Marker encounters retry against the published long array.
+Strong compare-and-set hides migration-only failures, which would otherwise
+falsely activate reservoir contention stripes. Long arithmetic remains unchanged.
+
+Only dense stores use this class. The 16-cell sparse pages and their promotion
+thresholds remain unchanged. Counter-width changes do not alter bucket offsets,
+observation populations, decay weights, or exported snapshot representations.
+
+The first focused run passes all 29 cases: seven array unit tests, one generated
+array property, 13 reservoir unit tests, one reservoir property, two raw-event
+accuracy tests, and five integration cases. Generated array traces compare all
+cells with `AtomicLongArray` after 80,000 operations. Concurrency cases exercise
+increments, monotonic reads, set, strong CAS, and simultaneous widening requests.
+Public snapshot merge/rebase doubles populations past the int boundary; controlled
+aged updates widen decay counts before the landmark reset. Both compare with
+legacy and check that migration alone does not activate contention.
+
+The first pinned iteration batch is
+`logs/20260905-133848-reservoirs-counters-peri-YvPbRb/`.
+Dense graph bytes fall from 2,861.44 to 1,581.44 (44.7%), including the new wrappers.
+Empty and sparse graph measurements are unchanged. One-thread JMH medians are
+31.012/28.727 million updates/s for legacy/compact, with compact about 2% below
+its fresh pre-change median. Four-thread medians are 97.640/79.289 million/s;
+compact forks average about 88.3 and 70.8 million/s. Compact samples span
+70.557–89.435 million/s versus legacy 96.457–99.929 million/s. This is a material
+contended-update cost, so the initial candidate is not accepted as final.
+
+The second iteration widens a dense array after a failed narrow atomic addition
+as well as overflow. Busy arrays then use direct long atomic additions; quiet
+arrays retain narrow storage. This trades the narrow saving on contended stores
+for cheaper updates without changing count semantics. The failed CAS has not
+applied its delta, so widening must copy the latest values and add that delta once.
+
+The revised candidate passes 30 focused cases, including a new test that retains
+narrow storage for 100,000 serial additions, then widens under concurrent additions
+with an exact final count of 900,000. Its pinned second iteration is
+`logs/20260905-134244-reservoirs-counters-peri2-peri-DOzLx9/`. Graph measurements
+remain unchanged. One-thread compact reaches 29.162 million/s versus its fresh
+29.316 baseline; four-thread compact reaches 91.809 million/s (89.583–94.932),
+versus 91.507 before the width change. Matched legacy medians are 33.134 and
+89.058 million/s. Control variation remains substantial across batches; the
+results establish recovery from the first candidate's cost, not a speedup over
+legacy. All measured JMH iterations report zero collections.
+
+The aged compact probe retains 2,237.52 bytes per reservoir, compared with
+2,861.52 before this change. Its decay store needs wide counters, while the
+cumulative store remains narrow. Artifact: `logs/20260905-134510-many-tables-launch.log`.
+Memory savings therefore depend on age, population, and contention. A fully wide
+dense store has an extra wrapper relative to step two; it does not save counter
+payload. Widening does not revert in place. Replacement decay generations can
+start narrow again after rescaling.
+
+The revised N100 iteration uses the same 128-row workload on subnets 111–114:
+`logs/20260905-134548-metrics-counters-peri-u3Q99R/`.
+All four runs pass. Written runs again complete 12,800 writes, 200 reads, and
+104 SSTables with clean settled memtables. All 600 dense user stores remain
+narrow. User counter payload is 491,168 bytes: 336,800 dense int bytes and
+154,368 unchanged sparse long bytes. The reduction from the fresh compact
+baseline is 336,800 bytes (40.7% of this workload's user counter payload).
+The number and length of arrays, directories, and physical stripes match the
+baseline. Extra wrapper bytes are excluded here and included in the graph probe.
+Whole-JVM settled heap is 105.048/73.800 MiB legacy/compact never-written and
+105.745/75.116 MiB written/flushed. Reports:
+`logs/20260905-134838-828821-analyze-resident-metrics.json` and
+`logs/20260905-134838-839938-analyze-resident-reservoirs.json`.
+
+### Final validation
+
+The clean Java 21 build and style checks pass:
+`logs/20260905-134846-ai-build.log`. The reusable `./run_tests.sh --reservoirs`
+run passes 75 tests with one existing legacy ignore and no failures/errors.
+Its 11 classes cover the new counter, compact reservoir/property/accuracy and
+integration tests, legacy reservoir, thread-local histograms, registry, latency
+aggregation, and JMX virtual-table exports. XML and test logs are retained under
+`logs/20260905-135010-ai-test-memtable-lazy/`.
+
+The independent source review finds no production correctness defect. The
+contention-only stress case now requires more than one reported processor;
+thread schedules remain nondeterministic, so this is not an exhaustive
+linearizability proof. See `.reviews/compact-metrics-step3.md`.
+
+The final pinned reservoir batch is
+`logs/20260905-135223-reservoirs-counters-post-vdaifO/`. Quiet dense graphs remain
+1,581.44 bytes, with empty and sparse measurements unchanged. Final JMH results:
+
+| Threads | Legacy million updates/s (range) | Compact million updates/s (range) |
+| --- | ---: | ---: |
+| 1 | 33.334 (33.196–33.604) | 28.898 (28.786–29.304) |
+| 4 | 96.717 (96.220–97.143) | 92.753 (90.355–94.618) |
+
+Relative to the fresh compact baseline, final throughput is about 1.4% lower at
+one thread and 1.4% higher at four. No speedup is claimed. Against the matched
+legacy control, the complete compact path is 13.3% lower at one thread and 4.1%
+lower at four; this includes the earlier compact-storage costs and is not an
+end-to-end Cassandra throughput measurement. Final JMH iterations report zero
+collections and only negligible amortized background allocation.
+
+The final table matrix repeats the dense N100 workload twice, alternating mode
+order on distinct subnets 121–128:
+`logs/20260905-135442-metrics-counters-post-8bb2gP/`.
+All eight runs pass with matching requested/effective modes and addresses. Each
+never-written run verifies 100 reads. Each written run completes 12,800 writes,
+200 reads, and 104 SSTables; settled memtables are clean.
+
+| Scenario | Legacy settled heap MiB (range) | Compact settled heap MiB (range) |
+| --- | ---: | ---: |
+| Never written | 105.138 (104.934–105.343) | 73.718 (73.639–73.797) |
+| Written and flushed | 105.745 (105.535–105.954) | 75.116 (75.079–75.152) |
+
+Creation takes 8.74–9.22 seconds across all runs; no creation-time improvement is
+claimed. Both compact written heaps retain exactly 491,168 user counter payload
+bytes, including 600 narrow dense arrays and unchanged sparse payload. Every
+user store retains one physical stripe. Untouched user reservoirs retain zero
+counter payload. The legacy written heap still retains 15,596,800 counter bytes
+plus 2,032,000 private offset bytes. Final reports:
+
+- `logs/20260905-140026-622435-analyze-resident-metrics.json`
+- `logs/20260905-140026-603726-analyze-resident-reservoirs.json`
+
+The third optimization therefore retains the 40.7% incremental payload reduction
+on this dense N100 workload, with exact primitive ownership measurements separate
+from whole-JVM heap. These runs do not establish 100,000-table capacity.
+
+The final original sparse workload also passes: N100, four rows per table,
+400 writes, 200 reads, and 100 SSTables with clean settled memtables. It retains
+336,128 user counter payload bytes, within step two's 333,056–339,968 range.
+All 1,800 populated counter stores remain sparse, with no dense user arrays and
+one physical stripe per store. Whole-JVM settled heap is 82,033,944 bytes.
+Artifacts: `logs/compact-counters-sparse-post/20260905-140054-residency-written-flushed-100t/`
+and `logs/20260905-140141-815733-analyze-resident-reservoirs.json`.
+
+All three planned metrics optimizations are complete. The optimized path remains
+enabled by default and the legacy path remains selectable at startup. Remaining
+table residency work includes bounded automatic retirement and the per-table
+objects/registrations that these counter-storage changes do not remove.
+
 ## Reproduction
 
 Run commands through `distrobox enter dev --`. The repository wrappers write

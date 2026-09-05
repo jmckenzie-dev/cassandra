@@ -46,6 +46,8 @@ All actual table workloads must use at most 1,000 tables.
    to avoid adding a wrapper and widening protocol to every small page. Include
    an aged-counter probe and a bounded N100 workload with enough writes to use
    dense user reservoirs, alongside the existing sparse workload.
+   If narrow atomic-add retries cause a measured throughput regression, widen
+   contended dense stores too and measure that memory/CPU tradeoff explicitly.
    Preserve stable cumulative export buckets and observation population. Require
    a measured resident-memory or computation benefit and bounded distribution
    error. Use controlled event time and raw-event expectations for median,

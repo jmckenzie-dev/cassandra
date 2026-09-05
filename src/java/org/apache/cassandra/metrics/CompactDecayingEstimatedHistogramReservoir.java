@@ -383,7 +383,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
 
         final int length;
         private volatile SparsePages pages;
-        private volatile AtomicLongArray dense;
+        private volatile AdaptiveCounterArray dense;
 
         private PagedBuckets(int length)
         {
@@ -394,7 +394,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
 
         final long get(int index)
         {
-            AtomicLongArray full = dense;
+            AdaptiveCounterArray full = dense;
             if (full != null)
                 return full.get(index);
             SparsePages current = pages;
@@ -410,7 +410,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
 
         final void add(int index, long value)
         {
-            AtomicLongArray full = dense;
+            AdaptiveCounterArray full = dense;
             if (full != null)
                 full.addAndGet(index, value);
             else
@@ -419,7 +419,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
 
         final boolean addAndDetectContention(int index, long value)
         {
-            AtomicLongArray full = dense;
+            AdaptiveCounterArray full = dense;
             if (full == null)
             {
                 addSparse(index, value);
@@ -435,7 +435,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
 
         private synchronized void addSparse(int index, long value)
         {
-            AtomicLongArray full = dense;
+            AdaptiveCounterArray full = dense;
             if (full != null)
             {
                 full.addAndGet(index, value);
@@ -449,7 +449,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
 
         final void set(int index, long value)
         {
-            AtomicLongArray full = dense;
+            AdaptiveCounterArray full = dense;
             if (full != null)
                 full.set(index, value);
             else
@@ -458,7 +458,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
 
         private synchronized void setSparse(int index, long value)
         {
-            AtomicLongArray full = dense;
+            AdaptiveCounterArray full = dense;
             if (full != null)
             {
                 full.set(index, value);
@@ -503,7 +503,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
 
         private void promote(SparsePages current)
         {
-            AtomicLongArray full = new AtomicLongArray(length);
+            AdaptiveCounterArray full = new AdaptiveCounterArray(length);
             for (int i = 0; i < current.length(); i++)
             {
                 AtomicLongArray page = current.get(i);

@@ -23,23 +23,27 @@ stamp="$(date +%Y%m%d-%H%M%S)"
 exec > >(tee "logs/$stamp-ai-compare-resident-metrics.log") 2>&1
 
 usage() {
-    echo 'Usage: ai-compare-resident-metrics --step LABEL --checkpoint pre|peri|post [--tables 100] [--repeats 2] [--subnet-start 71] [--heap-dumps]' >&2
+    echo 'Usage: ai-compare-resident-metrics --step LABEL --checkpoint pre|peri|post [--tables 100] [--rows-per-table 4] [--rate 100] [--repeats 2] [--subnet-start 71] [--heap-dumps]' >&2
     exit 2
 }
 step=""
 checkpoint=""
 tables=100
+rows=4
+rate=100
 repeats=2
 subnet_start=71
 heap_args=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --step|--checkpoint|--tables|--repeats|--subnet-start)
+        --step|--checkpoint|--tables|--rows-per-table|--rate|--repeats|--subnet-start)
             [[ $# -ge 2 ]] || usage
             case "$1" in
                 --step) step="$2" ;;
                 --checkpoint) checkpoint="$2" ;;
                 --tables) tables="$2" ;;
+                --rows-per-table) rows="$2" ;;
+                --rate) rate="$2" ;;
                 --repeats) repeats="$2" ;;
                 --subnet-start) subnet_start="$2" ;;
             esac
@@ -55,6 +59,8 @@ done
 [[ "$step" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || usage
 [[ "$checkpoint" == pre || "$checkpoint" == peri || "$checkpoint" == post ]] || usage
 [[ "$tables" =~ ^[1-9][0-9]{0,3}$ ]] || usage
+[[ "$rows" =~ ^[1-9][0-9]{0,8}$ ]] || usage
+[[ "$rate" =~ ^[1-9][0-9]{0,8}$ ]] || usage
 [[ "$repeats" =~ ^[1-9][0-9]?$ ]] || usage
 [[ "$subnet_start" =~ ^[1-9][0-9]{0,2}$ ]] || usage
 (( tables <= 1000 )) || usage
@@ -65,7 +71,7 @@ printf 'step\tcheckpoint\trepeat\tmode\tscenario\tstatus\tsummary\n' > "$batch/r
 cp "$project_root/.build/sh/ai-compare-resident-metrics" "$batch/recipe.sh"
 export MANY_TABLES_XMX="${MANY_TABLES_XMX:-8g}"
 export MANY_TABLES_CPUS="${MANY_TABLES_CPUS:-8}"
-common=(--tables "$tables" --rows-per-table 4 --cycles 1 --rate 100 --payload-bytes 128
+common=(--tables "$tables" --rows-per-table "$rows" --cycles 1 --rate "$rate" --payload-bytes 128
         --seed 1 --hold-ms 1000 --idle-ms 1000 --no-profile)
 printf 'Comparison artifacts: %s\n' "$batch"
 subnet="$subnet_start"

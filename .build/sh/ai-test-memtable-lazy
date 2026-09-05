@@ -52,6 +52,8 @@ elif [[ $# == 1 && "$1" == --histogram-property ]]; then
     test_classes=(org.apache.cassandra.utils.streamhist.LazyTombstoneHistogramBuilderPropertyTest)
 elif [[ $# == 1 && "$1" == --reservoirs ]]; then
     test_classes=(
+        org.apache.cassandra.metrics.AdaptiveCounterArrayTest
+        org.apache.cassandra.metrics.AdaptiveCounterArrayPropertyTest
         org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest
         org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirPropertyTest
         org.apache.cassandra.metrics.CompactMetricsIntegrationTest
@@ -63,7 +65,10 @@ elif [[ $# == 1 && "$1" == --reservoirs ]]; then
         org.apache.cassandra.metrics.JmxVirtualTableMetricsTest
     )
 elif [[ $# == 1 && "$1" == --reservoir-property ]]; then
-    test_classes=(org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirPropertyTest)
+    test_classes=(
+        org.apache.cassandra.metrics.AdaptiveCounterArrayPropertyTest
+        org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirPropertyTest
+    )
 elif [[ $# == 1 && "$1" == --meters ]]; then
     test_classes=(
         org.apache.cassandra.metrics.ThreadLocalMeterTest

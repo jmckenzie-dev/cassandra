@@ -123,10 +123,18 @@ In the development container, prefix each command with `distrobox enter dev --`.
 The script defaults to 100 tables and two repetitions. It alternates legacy and
 optimized order across repetitions and runs both `never-written` and
 `written-flushed` in separate JVMs. Written runs use one cycle with four rows per
-table at 100 writes/second. All runs disable profiling and include the existing
+table at 100 writes/second. Use `--rows-per-table 128 --rate 5000` to exercise
+dense reservoir storage with 100 tables. All runs disable profiling and include the existing
 settled post-GC heap measurement. `--tables` accepts 1 through 1,000;
 `--repeats` controls repetitions. `MANY_TABLES_XMX` and `MANY_TABLES_CPUS` retain
 the launcher defaults of 8g and eight processors.
+
+For reservoir-only measurements, run
+`env MANY_TABLES_CPUSET=8-15 .build/sh/ai-measure-reservoirs --step counters --checkpoint pre`.
+Use the same CPU set before and after the change; select a set appropriate to
+the host. The optional affinity is recorded with the results. It does not reserve
+those CPUs from other processes. The heap ownership analyzer handles both
+32-bit and 64-bit counter arrays and reports payload by cell width.
 
 Use `--heap-dumps --repeats 1` for separate retained-object diagnostics. Heap dumps
 can affect timing and produce large artifacts; compare timing from runs without

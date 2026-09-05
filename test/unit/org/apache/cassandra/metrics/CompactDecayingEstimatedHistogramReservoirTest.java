@@ -156,6 +156,70 @@ public class CompactDecayingEstimatedHistogramReservoirTest
     }
 
     @Test
+    public void denseCountersWidenThroughSnapshotMergeAndRebase()
+    {
+        TestClock clock = new TestClock();
+        Pair pair = new Pair(false, 127, 2, clock, LANDMARK_RESET_INTERVAL_IN_NS);
+        long[] offsets = pair.reference.buckets(127);
+        for (int i = 0; i < 6; i++)
+            pair.update(offsets[i]);
+        assertEquals(pair.candidate.size() * 2, pair.candidate.allocatedCounterCells());
+        for (int iteration = 0; iteration < 32; iteration++)
+        {
+            for (ClearableReservoir reservoir : new ClearableReservoir[]{ pair.reference, pair.candidate })
+            {
+                EstimatedHistogramReservoirSnapshot snapshot = (EstimatedHistogramReservoirSnapshot) reservoir.getSnapshot();
+                snapshot.add(reservoir.getSnapshot());
+                snapshot.rebaseReservoir();
+            }
+            pair.assertEquivalent();
+            assertFalse(pair.candidate.isContended());
+            assertEquals(pair.candidate.size() * 2, pair.candidate.allocatedCounterCells());
+        }
+        long[] cumulative = pair.candidate.getSnapshot().getValues();
+        for (int i = 0; i < 6; i++)
+        {
+            assertEquals(1L << 32, cumulative[i]);
+            assertEquals(1L << 32, pair.candidate.decayingStripeValues(offsets[i])[0]);
+        }
+        assertEquals(6L << 32, Arrays.stream(cumulative).sum());
+        pair.update(offsets[0]);
+        pair.assertEquivalent();
+        assertFalse(pair.candidate.isContended());
+        assertEquals((6L << 32) + 1, Arrays.stream(pair.candidate.getSnapshot().getValues()).sum());
+        pair.clear();
+        pair.update(offsets[0]);
+        pair.assertEquivalent();
+        assertFalse(pair.candidate.isContended());
+        assertEquals(1, Arrays.stream(pair.candidate.getSnapshot().getValues()).sum());
+    }
+
+    @Test
+    public void agedUpdatesWidenDenseDecayCountersBeforeLandmarkReset()
+    {
+        TestClock clock = new TestClock();
+        Pair pair = new Pair(false, 127, 2, clock, LANDMARK_RESET_INTERVAL_IN_NS);
+        for (int i = 0; i < 64; i++)
+            pair.update(100);
+        assertEquals(pair.candidate.size() * 2, pair.candidate.allocatedCounterCells());
+        clock.time = TimeUnit.MINUTES.toNanos(25);
+        for (int i = 0; i < 64; i++)
+        {
+            pair.update(100);
+            pair.assertEquivalent();
+            assertFalse(pair.candidate.isContended());
+        }
+        assertTrue(pair.candidate.decayingStripeValues(100)[0] > Integer.MAX_VALUE);
+        assertEquals(128, Arrays.stream(pair.candidate.getSnapshot().getValues()).sum());
+        clock.time = LANDMARK_RESET_INTERVAL_IN_NS + 1;
+        pair.assertEquivalent();
+        pair.update(100);
+        pair.assertEquivalent();
+        assertFalse(pair.candidate.isContended());
+        assertEquals(129, Arrays.stream(pair.candidate.getSnapshot().getValues()).sum());
+    }
+
+    @Test
     public void moderatelyOccupiedStorageStaysSparseThroughRebase()
     {
         for (int[] testCase : new int[][]{ { 127, 6 }, { 164, 8 } })

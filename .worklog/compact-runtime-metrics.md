@@ -38,3 +38,11 @@ specific language governing permissions and limitations under the License.
   changes results between forks. Affinity does not reserve cores from other work.
 - Use distinct loopback subnets for sequential table measurements. Record failed
   startup attempts separately; do not substitute them for workload measurements.
+- Exercise dense user metrics explicitly. Four writes per table do not reach
+  dense promotion; 128 writes expose 600 dense counter stores in the N100 heap.
+- Narrow counter storage needs a contention policy as well as overflow handling.
+  Repeated int CAS loops reduced four-thread throughput; widen busy stores to
+  recover direct long atomic additions while retaining narrow quiet stores.
+- A representation change must not appear as a failed strong CAS. The reservoir
+  uses CAS failures to allocate extra stripes, so migration-only failures can
+  silently erase the resident-memory benefit even when counts remain correct.

@@ -22,8 +22,9 @@ measurement evidence. Update this file at implementation milestones.
 Worktree: `/var/home/jmckenzie/src/cassandra/cassandra_asf/wt_moar_tables`.
 Branch: `moar_tables`. Memtable steps and the earlier Java allocation experiments
 are committed in `c274d4232b`; compact empty/sparse reservoirs are committed in
-`e4a19edd49`. Adaptive stripe storage is implemented and measured; the next
-optimization is exact widening of dense 32-bit counters.
+`e4a19edd49`. Adaptive stripe storage is committed in `6daa0ce965`. Dense 32-bit
+counters with exact widening are complete, measured, and validated in the third
+metrics optimization. The next TODO is bounded automatic idle retirement.
 The user authorized phase 2 while this continuation record was being written.
 Phase 2 implements lazy shard initialization for TrieMemtable. See the completion
 section below and [results](lazy_memtable_initialization.md) before resuming work.
@@ -136,8 +137,8 @@ default 0. The comparison runner uses distinct subnets 71–78 by default and
 supports `--subnet-start`. Optional `MANY_TABLES_CPUSET` records/pins reservoir
 benchmark affinity; CPUs 8–15 share one L3 cache on this host. Default unbound
 four-thread timings varied strongly by fork. Legacy/config/export tests passed,
-as did 19 final compact cases and seven config/provisioning cases. Next: commit
-this optimization, then capture a fresh counter-width baseline before edits.
+as did 19 final compact cases and seven config/provisioning cases. The optimization
+is committed. Fresh counter-width baselines preceded production edits.
 
 For the third optimization, use adaptive width only in dense arrays initially.
 Keep sparse 16-cell pages as AtomicLongArray to avoid an extra wrapper/protocol
@@ -147,7 +148,31 @@ writes use CAS and retry sentinel observations against the published wide array.
 Preserve strong-CAS behavior across migration and all signed-long edge cases.
 Include aged counters, generated/concurrent counter tests, public snapshot
 merge/rebase widening, pinned throughput, and a bounded N100 workload with enough
-writes to populate dense user histograms. No counter-width source edits exist yet.
+writes to populate dense user histograms.
+
+The counter candidate preserves all bucket/decay arithmetic. Its first iteration
+saved 44.7% of quiet dense reservoir graph bytes but slowed contended updates.
+The accepted second iteration widens on a failed narrow atomic add as well as
+overflow. Dense graphs fall from 2,861.44 to 1,581.44 bytes; aged graphs with wide
+decay counts use 2,237.52 bytes. Pinned compact throughput recovers to 29.162/91.809
+million updates/s at one/four threads, against fresh pre 29.316/91.507.
+All 30 focused tests pass. A clean build/style pass also succeeds.
+
+N100 with 128 rows per table retains 600 narrow dense arrays. User counter payload
+falls from 827,968 to 491,168 bytes; sparse payload is unchanged. Pre and iteration
+table matrices each pass four fresh JVMs with 12,800 writes in written scenarios.
+All raw paths and results are in research/compact_runtime_metrics.md. Final clean
+build/style checks and the reusable reservoir/export suite pass: 75 tests and one
+existing legacy ignore. Final pinned compact throughput is 28.898/92.753 million
+updates/s at one/four threads. This is within about 1.4% of the fresh compact
+baseline; the complete compact path still costs 13.3%/4.1% against matched legacy.
+
+All eight final dense N100 runs pass. Both compact written heaps retain exactly
+491,168 user counter bytes, 600 narrow dense stores, and no extra user stripes.
+Final compact whole-JVM medians are 73.718 MiB untouched and 75.116 MiB written,
+versus legacy 105.138/105.745 MiB. The original four-write sparse workload also
+passes with 336,128 user counter bytes, no dense user arrays, and no regression
+against the preceding sparse results. No 100,000-table run was attempted.
 
 ## Historical exact-value constraint (2026-09-05)
 

@@ -51,14 +51,20 @@ def inspect(path, expected_tables=100, user_keyspace="memtable_residency"):
         @functools.lru_cache(maxsize=None)
         def array(oid):
             kind, typ, length, start = heap.objects[oid]
-            if kind != 35 or typ != 11:
-                raise ValueError(f"Expected long[] at {oid:#x}, found record/type {kind}/{typ}")
-            return {"length": length, "payloadBytes": length * 8,
-                    "nonzeroCells": sum(heap.u(start + i * 8, 8) != 0 for i in range(length))}
+            if kind != 35 or typ not in (10, 11):
+                raise ValueError(f"Expected int[] or long[] at {oid:#x}, found record/type {kind}/{typ}")
+            width = heap.sizes[typ]
+            return {"length": length, "cellBytes": width, "payloadBytes": length * width,
+                    "nonzeroCells": sum(heap.u(start + i * width, width) != 0 for i in range(length))}
 
         def atomic_array(oid):
             if not oid:
                 return set()
+            if name(oid) == PREFIX + "AdaptiveCounterArray":
+                oid = ref(fields(oid), "values")
+            if name(oid) not in ("java.util.concurrent.atomic.AtomicLongArray",
+                                 "java.util.concurrent.atomic.AtomicIntegerArray"):
+                raise ValueError(f"Unsupported atomic counter array: {name(oid)}")
             values = fields(oid)
             backing = ref(values, "array")
             if not backing:
@@ -227,6 +233,10 @@ def inspect(path, expected_tables=100, user_keyspace="memtable_residency"):
                     "sharedOffsetsPayloadBytes": sum(array(oid)["payloadBytes"] for oid in offsets & shared_offsets),
                     "offsetsArrayLengthCounts": dict(collections.Counter(array(oid)["length"] for oid in offsets)),
                     "backingArrayLengthCounts": dict(collections.Counter(array(oid)["length"] for oid in arrays)),
+                    "backingArrayCellBytesCounts": dict(collections.Counter(array(oid)["cellBytes"] for oid in arrays)),
+                    "backingArrayPayloadBytesByCellWidth": {
+                        str(width): sum(array(oid)["payloadBytes"] for oid in arrays if array(oid)["cellBytes"] == width)
+                        for width in (4, 8)},
                     "stripeCounts": dict(collections.Counter(reservoirs[oid]["stripes"] for oid in ids)),
                     "physicalStripeCountsBySide": {
                         side: {key: dict(collections.Counter("unavailable" if reservoirs[oid][side][key] is None
@@ -272,7 +282,7 @@ def inspect(path, expected_tables=100, user_keyspace="memtable_residency"):
         per_table_payload = collections.Counter(row["tableMetrics"]["backingArrayPayloadBytes"]
                                                + row["trieMetrics"]["backingArrayPayloadBytes"] for row in user_tables)
         return {"file": str(path.resolve()), "userKeyspace": user_keyspace, "userTables": actual_tables,
-                "scope": "Exact unique long-array payload reachable through reservoir fields; excludes object headers, wrappers and reference-array byte widths. Ownership is field reachability, not dominator retained size.",
+                "scope": "Exact unique int/long-array payload reachable through reservoir fields; excludes object headers, wrappers and reference-array byte widths. Ownership is field reachability, not dominator retained size.",
                 "stripeCountScope": "Configured counts describe each reservoir. Physical counts describe each counter side, including empty primary and secondary stores; counterAllocatedStripes counts stores with arrays. Multi-stripe phase-1 paged storage has no separate physical stores, so its physical allocation counts are unavailable.",
                 "classInstanceCounts": dict(sorted(class_counts.items())),
                 "allReservoirs": summarize(set(reservoirs)), "userTableMetrics": summarize(user_table_ids),

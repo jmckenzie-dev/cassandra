@@ -13,13 +13,13 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-- [ ] Evaluate narrower reservoir counters with exact widening before overflow; retain current histogram precision if this saves more memory than coarser buckets. Capture pre/iteration/final measurements and commit separately.
-
 - [ ] Add bounded automatic idle retirement after resident metrics storage is addressed; preserve write/flush/reclamation ordering and metric history.
 
 - [ ] Revisit allocation-only improvements after residency blockers are addressed, including meter registration-list copying.
 
 # DONE
+
+- [x] Use narrow dense reservoir counters with exact widening on overflow or contention; preserve histogram precision and validate pre/iteration/final memory and throughput measurements (results: research/compact_runtime_metrics.md).
 
 - [x] Allocate reservoir stripes on contention, correct sparse promotion for smaller stores, and validate pre/iteration/final memory and throughput measurements (results: research/compact_runtime_metrics.md).
 

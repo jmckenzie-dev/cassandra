@@ -2091,6 +2091,7 @@ tombstone_failure_threshold: 100000
 # Use compact runtime histogram storage. Set false to use the legacy reservoirs.
 # This setting applies at startup and does not change SSTable histogram formats.
 # Adaptive stripes preserve cumulative counts but can change recent-count rounding.
+# Dense counters use 32 bits and widen to 64 bits on overflow or update contention.
 optimized_metrics_enabled: true
 
 # Controls the granularity of purgeable tombstones reported to PurgeableTombstoneScannedHistogram table metric
