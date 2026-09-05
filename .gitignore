@@ -99,3 +99,9 @@ cassandra-dtest/
 
 conf/triggers/trigger-example.jar
 tmp
+.antigravitycli/
+.codegraphcontext/
+.serena/
+*wt_*
+__pycache__
+tmp/

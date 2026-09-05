@@ -275,7 +275,9 @@ public enum CassandraRelevantProperties
     /** Used when running in Client mode and the system and schema keyspaces need to be initialized outside of their normal initialization path **/
     FORCE_LOAD_LOCAL_KEYSPACES("cassandra.schema.force_load_local_keyspaces"),
     FORCE_PAXOS_STATE_REBUILD("cassandra.force_paxos_state_rebuild"),
+    GEOMETRIC_METER_ARRAYS("cassandra.geometric_meter_arrays", "false"),
     GIT_SHA("cassandra.gitSHA"),
+
     /**
      * Gossip quarantine delay is used while evaluating membership changes and should only be changed with extreme care.
      */
@@ -374,6 +376,8 @@ public enum CassandraRelevantProperties
      */
     JUNIT_STORAGE_COMPATIBILITY_MODE("cassandra.junit_storage_compatibility_mode", StorageCompatibilityMode.CASSANDRA_4.toString()),
 
+    /** Defer tombstone histogram spool allocation until the first observation. */
+    LAZY_TOMBSTONE_HISTOGRAMS("cassandra.lazy_tombstone_histograms", "false"),
     /** startup checks properties */
     LIBJEMALLOC("cassandra.libjemalloc"),
     /** Line separator ("\n" on UNIX). */

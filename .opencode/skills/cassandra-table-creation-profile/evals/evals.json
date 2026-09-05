@@ -1,0 +1,23 @@
+{
+  "skill_name": "cassandra-table-creation-profile",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Prepare a complete plan for a 4-table smoke check of the many-table profiling harness. Use 0 writes per table and a 5-second hold. Show the exact command, safe preflight, expected phases and artifacts, and validation checks. Do not execute any command. Do not create, edit, delete, or otherwise mutate any file, Git state, process, or host setting.",
+      "expected_output": "Gives `.build/sh/ai-profile-many-tables --tables 4 --writes-per-table 0 --hold-seconds 5` as the wrapper-first command. Lists read-only Git/revision, prior-run, JAR metadata, JDK, and `/proc` CPU preflight. Expects phases 00, 01, 02, 04, and 05; four headerless `create-times.csv` rows; non-empty completed-phase `.ap.jfr` and `.jdk.jfr` files; hold samples; and a successful summary. States that ordinary smoke planning needs no expensive-run approval because writes and gated actions were not requested.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Prepare a scale and retained-dominator evaluation plan for 5,000 tables, 0 writes per table, and a 90-second hold. Include a live heap dump during the hold and later Eclipse Memory Analyzer Tool (MAT) dominator analysis. Show all approval gates, commands, phase watches, host checks, time and disk estimates, and timeout classifications. Do not launch the harness, take a heap dump, run MAT, change permissions, download anything, or execute any command. Do not create, edit, delete, or otherwise mutate any file, Git state, process, or host setting.",
+      "expected_output": "Separates confirmation gates for the scale launch, live dump, MAT parse, and any permission change or download. Gives `.build/sh/ai-profile-many-tables --tables 5000 --writes-per-table 0 --hold-seconds 90` wrapper-first. Reads `/proc/sys/kernel/perf_event_paranoid` and `/proc/sys/kernel/kptr_restrict`, requiring values `<= 1` and `0` for CPU profiling. For zero writes, watches `Finished phase 02-create-tables`, then confirms `Starting phase 04-steady-hold`. Shows `jcmd <HARNESS_PID> GC.heap_dump <RUN_DIR>/04-steady-hold-live.hprof` without `-all`. Checks dump size, `/proc/meminfo`, MAT paths and modes, and a bounded parser heap before MAT approval. Estimates up to 30 minutes and about 300 MiB without a dump or several GiB with one. Classifies a 30-minute timeout after complete creation and phase 04 as incomplete teardown/overall status, not a creation timeout.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Analyze the existing many-table run at `logs/20260904-083519-many-tables-5000t` using only evidence already present there. Report table-creation completion and timing separately from the overall run result, including early-versus-late behavior when the files support it, phase-04 evidence, teardown status, and exact artifact paths. Do not run the harness, generate Java Flight Recorder (JFR) views, run any analysis program or command, or fill missing evidence by assumption. Do not create, edit, delete, or otherwise mutate any file, Git state, process, or host setting.",
+      "expected_output": "Validates existing `logs/20260904-083519-many-tables-5000t/console.txt`, `logs/20260904-083519-many-tables-5000t/create-times.csv`, `logs/20260904-083519-many-tables-5000t/hold-samples.csv`, `logs/20260904-083519-many-tables-5000t/summary.txt`, `logs/20260904-083519-many-tables-5000t/summary.json`, and exact phase recording paths before claims. Reports phase 02 separately from overall status: exact create-row count, elapsed or summed timing, mean, stated equal-sized early/late bins, and startup outlier only when supported. Uses phase-04 boundaries, hold samples, recordings, and post-GC summary data as available. Classifies an external timeout during phase 05 after complete phase 02 and 04 as incomplete teardown and overall run, not failed creation. Labels every conclusion `Measured fact`, `Source-confirmed mechanism`, `Inference`, or `Unknown`; missing evidence stays unknown.",
+      "files": []
+    }
+  ]
+}

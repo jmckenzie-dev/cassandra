@@ -1,0 +1,82 @@
+[
+  {
+    "query": "Use cassandra-table-creation-profile to prepare a non-executing four-table smoke plan with zero writes, a five-second hold, phase validation, and artifact checks.",
+    "should_trigger": true
+  },
+  {
+    "query": "Run /cassandra-table-creation-profile for a controlled 100-table comparison profile, then report creation timing, post-GC heap, recordings, and warnings.",
+    "should_trigger": true
+  },
+  {
+    "query": "Use cassandra-table-creation-profile to plan a 5,000-table scale run and stop at the required approval gate before launch.",
+    "should_trigger": true
+  },
+  {
+    "query": "With /cassandra-table-creation-profile, capture a live heap dump during phase 04 and prepare approved MAT dominator analysis with bounded parser memory.",
+    "should_trigger": true
+  },
+  {
+    "query": "Use cassandra-table-creation-profile to validate an existing run and derive only the requested allocation and wall Java Flight Recorder views.",
+    "should_trigger": true
+  },
+  {
+    "query": "Apply /cassandra-table-creation-profile to compare prepared baseline and candidate worktrees with identical 100-table controls and no Git changes.",
+    "should_trigger": true
+  },
+  {
+    "query": "Use cassandra-table-creation-profile to audit create-times.csv row counts, completed-phase recordings, hold samples, summaries, and exact artifact paths.",
+    "should_trigger": true
+  },
+  {
+    "query": "Invoke /cassandra-table-creation-profile for a smoke run on a host where CPU profiling may be blocked; check the kernel controls and offer the supported fallback.",
+    "should_trigger": true
+  },
+  {
+    "query": "Use cassandra-table-creation-profile to inspect a several-gigabyte heap dump, confirm available RAM, request MAT approval, and report retained-owner evidence.",
+    "should_trigger": true
+  },
+  {
+    "query": "Use /cassandra-table-creation-profile to classify a 30-minute runner timeout after table creation and steady hold, preserving partial artifact evidence.",
+    "should_trigger": true
+  },
+  {
+    "query": "Plan a safe 5,000-table Cassandra profiling run with zero writes, a 90-second hold, phase watches, artifact validation, and a separate heap-dump approval.",
+    "should_trigger": false
+  },
+  {
+    "query": "Create 5,000 CQL tables as quickly as possible and recommend schema changes that reduce migration time in production.",
+    "should_trigger": false
+  },
+  {
+    "query": "Review Cassandra table metric registration and explain whether per-table metric wrappers can retain objects after schema creation.",
+    "should_trigger": false
+  },
+  {
+    "query": "Analyze this HPROF file for dominant retained objects and give me the Eclipse MAT batch command and parser heap recommendation.",
+    "should_trigger": false
+  },
+  {
+    "query": "Inspect these Java Flight Recorder files for allocation hot spots, CPU samples, garbage collection pauses, and late-run latency growth.",
+    "should_trigger": false
+  },
+  {
+    "query": "Check whether ParseHeapDump.sh and MemoryAnalyzer can run here, but do not change execute bits or download Eclipse MAT.",
+    "should_trigger": false
+  },
+  {
+    "query": "Review the ManyTablesProfileHarness source for unsupported options, phase ordering, profiler lifecycle, and teardown behavior without running it.",
+    "should_trigger": false
+  },
+  {
+    "query": "Use cassandra-injvm-dtest to write a two-node schema-agreement test that creates and drops many tables during a node restart.",
+    "should_trigger": false
+  },
+  {
+    "query": "Compare two existing 5,000-table artifact directories and report create-time slope, post-GC heap drift, and missing phase recordings.",
+    "should_trigger": false
+  },
+  {
+    "query": "Explain how the ai-profile-many-tables wrapper selects Java, heap size, active processor count, async-profiler events, and output directories.",
+    "should_trigger": false
+  }
+]

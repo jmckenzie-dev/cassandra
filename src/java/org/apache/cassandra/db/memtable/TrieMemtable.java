@@ -65,6 +65,7 @@ import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.IncludingExcludingBounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.sstable.SSTableReadsListener;
@@ -83,8 +84,9 @@ import org.apache.cassandra.utils.memory.MemtableAllocator;
  * The implementation is described in detail in the paper:
  *       https://www.vldb.org/pvldb/vol15/p3359-lambov.pdf
  *
- * The configuration takes a single parameter:
+ * Configuration parameters:
  * - shards: the number of shards to split into, defaulting to the number of CPU cores.
+ * - lazy_initialization: allocate shard structures on the first write, default true.
  *
  * Also see Memtable_API.md.
  */
@@ -106,28 +108,51 @@ public class TrieMemtable extends AbstractShardedMemtable
     // thread calls cfs.switchMemtableIfCurrent.
     private final AtomicBoolean switchRequested = new AtomicBoolean(false);
 
-    /**
-     * Sharded memtable sections. Each is responsible for a contiguous range of the token space (between boundaries[i]
-     * and boundaries[i+1]) and is written to by one thread at a time, while reads are carried out concurrently
-     * (including with any write).
-     */
-    private final MemtableShard[] shards;
-
-    /**
-     * A merged view of the memtable map. Used for partition range queries and flush.
-     * For efficiency we serve single partition requests off the shard which offers more direct InMemoryTrie methods.
-     */
-    private final Trie<BTreePartitionData> mergedTrie;
+    // Publish shards and their merged read view together, before applying the first mutation.
+    private volatile TrieState state = TrieState.EMPTY;
 
     @Unmetered
     private final TrieMemtableMetricsView metrics;
 
     TrieMemtable(AtomicReference<CommitLogPosition> commitLogLowerBound, TableMetadataRef metadataRef, Owner owner, Integer shardCountOption)
     {
+        this(commitLogLowerBound, metadataRef, owner, shardCountOption, true);
+    }
+
+    TrieMemtable(AtomicReference<CommitLogPosition> commitLogLowerBound, TableMetadataRef metadataRef, Owner owner,
+                 Integer shardCountOption, boolean lazyInitialization)
+    {
         super(commitLogLowerBound, metadataRef, owner, shardCountOption);
         this.metrics = new TrieMemtableMetricsView(metadataRef.keyspace, metadataRef.name);
-        this.shards = generatePartitionShards(boundaries.shardCount(), allocator, metadataRef, metrics);
-        this.mergedTrie = makeMergedTrie(shards);
+        if (!lazyInitialization)
+            initialize();
+    }
+
+    private synchronized TrieState initialize()
+    {
+        if (state == TrieState.EMPTY)
+            state = new TrieState(generatePartitionShards(boundaries.shardCount(), allocator, metadata, metrics));
+        return state;
+    }
+
+    @VisibleForTesting
+    public boolean isInitialized()
+    {
+        return state != TrieState.EMPTY;
+    }
+
+    private static final class TrieState
+    {
+        static final TrieState EMPTY = new TrieState(new MemtableShard[0]);
+
+        final MemtableShard[] shards;
+        final Trie<BTreePartitionData> mergedTrie;
+
+        TrieState(MemtableShard[] shards)
+        {
+            this.shards = shards;
+            this.mergedTrie = makeMergedTrie(shards);
+        }
     }
 
     private static MemtableShard[] generatePartitionShards(int splits,
@@ -153,7 +178,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     @Override
     public boolean isClean()
     {
-        for (MemtableShard shard : shards)
+        for (MemtableShard shard : state.shards)
             if (!shard.isClean())
                 return false;
         return true;
@@ -165,6 +190,10 @@ public class TrieMemtable extends AbstractShardedMemtable
         super.discard();
         // metrics here are not thread safe, but I think we can live with that
         metrics.lastFlushShardDataSizes.reset();
+        MemtableShard[] shards = state.shards;
+        if (shards.length == 0)
+            for (int i = 0; i < boundaries.shardCount(); i++)
+                metrics.lastFlushShardDataSizes.update(0);
         for (MemtableShard shard : shards)
         {
             metrics.lastFlushShardDataSizes.update(shard.liveDataSize());
@@ -195,7 +224,10 @@ public class TrieMemtable extends AbstractShardedMemtable
         try
         {
             DecoratedKey key = update.partitionKey();
-            MemtableShard shard = shards[boundaries.getShardForKey(key)];
+            TrieState current = state;
+            if (current == TrieState.EMPTY)
+                current = initialize();
+            MemtableShard shard = current.shards[boundaries.getShardForKey(key)];
             long colUpdateTimeDelta = shard.put(key, update, indexer, opGroup);
 
             if (shard.data.reachedAllocatedSizeThreshold() && !switchRequested.getAndSet(true))
@@ -222,7 +254,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     public long getLiveDataSize()
     {
         long total = 0L;
-        for (MemtableShard shard : shards)
+        for (MemtableShard shard : state.shards)
             total += shard.liveDataSize();
         return total;
     }
@@ -231,7 +263,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     public long operationCount()
     {
         long total = 0L;
-        for (MemtableShard shard : shards)
+        for (MemtableShard shard : state.shards)
             total += shard.currentOperations();
         return total;
     }
@@ -240,7 +272,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     public long partitionCount()
     {
         int total = 0;
-        for (MemtableShard shard : shards)
+        for (MemtableShard shard : state.shards)
             total += shard.size();
         return total;
     }
@@ -248,7 +280,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     public long partitionKeysTotalSize()
     {
         long total = 0;
-        for (MemtableShard shard : shards)
+        for (MemtableShard shard : state.shards)
             total += shard.partitionKeysSize();
         return total;
     }
@@ -264,7 +296,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     public long getMinTimestamp()
     {
         long min = Long.MAX_VALUE;
-        for (MemtableShard shard : shards)
+        for (MemtableShard shard : state.shards)
             min =  Long.min(min, shard.minTimestamp());
         return min != EncodingStats.NO_STATS.minTimestamp ? min : NO_MIN_TIMESTAMP;
     }
@@ -273,7 +305,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     public long getMinLocalDeletionTime()
     {
         long min = Long.MAX_VALUE;
-        for (MemtableShard shard : shards)
+        for (MemtableShard shard : state.shards)
             min =  Long.min(min, shard.minLocalDeletionTime());
         return min;
     }
@@ -281,7 +313,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     @Override
     RegularAndStaticColumns columns()
     {
-        for (MemtableShard shard : shards)
+        for (MemtableShard shard : state.shards)
             columnsCollector.update(shard.columnsCollector);
         return columnsCollector.get();
     }
@@ -289,7 +321,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     @Override
     EncodingStats encodingStats()
     {
-        for (MemtableShard shard : shards)
+        for (MemtableShard shard : state.shards)
             statsCollector.update(shard.statsCollector.get());
         return statsCollector.get();
     }
@@ -312,7 +344,7 @@ public class TrieMemtable extends AbstractShardedMemtable
         boolean includeStart = isBound || keyRange instanceof IncludingExcludingBounds;
         boolean includeStop = isBound || keyRange instanceof Range;
 
-        Trie<BTreePartitionData> subMap = mergedTrie.subtrie(left, includeStart, right, includeStop);
+        Trie<BTreePartitionData> subMap = state.mergedTrie.subtrie(left, includeStart, right, includeStop);
 
         return new MemtableUnfilteredPartitionIterator(metadata(),
                                                        allocator.ensureOnHeap(),
@@ -324,8 +356,11 @@ public class TrieMemtable extends AbstractShardedMemtable
 
     private Partition getPartition(DecoratedKey key)
     {
+        TrieState current = state;
+        if (current == TrieState.EMPTY)
+            return null;
         int shardIndex = boundaries.getShardForKey(key);
-        BTreePartitionData data = shards[shardIndex].data.get(key);
+        BTreePartitionData data = current.shards[shardIndex].data.get(key);
         if (data != null)
             return createPartition(metadata(), allocator.ensureOnHeap(), key, data);
         else
@@ -366,6 +401,11 @@ public class TrieMemtable extends AbstractShardedMemtable
     @Override
     public FlushablePartitionSet<MemtablePartition> getFlushSet(PartitionPosition from, PartitionPosition to)
     {
+        TrieState current = state;
+        if (current == TrieState.EMPTY)
+            return flushSet(from, to, current.mergedTrie, 0, 0);
+        MemtableShard[] shards = current.shards;
+        Trie<BTreePartitionData> mergedTrie = current.mergedTrie;
         boolean allPositionsToFlush = from == null && to == null
                                       || from != null && to != null
                                          && from.isMinimum()
@@ -454,6 +494,13 @@ public class TrieMemtable extends AbstractShardedMemtable
         partitionKeySize = keySize;
         partitionCount = keyCount;
 
+        return flushSet(from, to, toFlush, partitionKeySize, partitionCount);
+    }
+
+    private FlushablePartitionSet<MemtablePartition> flushSet(PartitionPosition from, PartitionPosition to,
+                                                             Trie<BTreePartitionData> toFlush,
+                                                             long partitionKeySize, long partitionCount)
+    {
         return new AbstractFlushablePartitionSet<MemtablePartition>()
         {
             private final TableMetadata tableMetadata = TrieMemtable.this.metadata();
@@ -764,23 +811,33 @@ public class TrieMemtable extends AbstractShardedMemtable
     {
         String shardsString = optionsCopy.remove(SHARDS_OPTION);
         Integer shardCount = shardsString != null ? Integer.parseInt(shardsString) : null;
-        return new Factory(shardCount);
+        String lazyString = optionsCopy.remove("lazy_initialization");
+        if (lazyString != null && !lazyString.equalsIgnoreCase("true") && !lazyString.equalsIgnoreCase("false"))
+            throw new ConfigurationException("lazy_initialization must be true or false");
+        return new Factory(shardCount, lazyString == null || Boolean.parseBoolean(lazyString));
     }
 
     static class Factory implements Memtable.Factory
     {
         final Integer shardCount;
+        final boolean lazyInitialization;
 
         Factory(Integer shardCount)
         {
+            this(shardCount, true);
+        }
+
+        Factory(Integer shardCount, boolean lazyInitialization)
+        {
             this.shardCount = shardCount;
+            this.lazyInitialization = lazyInitialization;
         }
 
         public Memtable create(AtomicReference<CommitLogPosition> commitLogLowerBound,
                                TableMetadataRef metadaRef,
                                Owner owner)
         {
-            return new TrieMemtable(commitLogLowerBound, metadaRef, owner, shardCount);
+            return new TrieMemtable(commitLogLowerBound, metadaRef, owner, shardCount, lazyInitialization);
         }
 
         @Override
@@ -797,12 +854,12 @@ public class TrieMemtable extends AbstractShardedMemtable
             if (o == null || getClass() != o.getClass())
                 return false;
             Factory factory = (Factory) o;
-            return Objects.equals(shardCount, factory.shardCount);
+            return Objects.equals(shardCount, factory.shardCount) && lazyInitialization == factory.lazyInitialization;
         }
 
         public int hashCode()
         {
-            return Objects.hash(shardCount);
+            return Objects.hash(shardCount, lazyInitialization);
         }
     }
 
@@ -810,7 +867,7 @@ public class TrieMemtable extends AbstractShardedMemtable
     public long unusedReservedMemory()
     {
         long size = 0;
-        for (MemtableShard shard : shards)
+        for (MemtableShard shard : state.shards)
             size += shard.data.unusedReservedMemory();
         return size;
     }

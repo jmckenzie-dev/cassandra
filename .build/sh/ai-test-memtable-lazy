@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+set -euo pipefail
+project_root="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$project_root"
+mkdir -p logs
+run_name="$(date +%Y%m%d-%H%M%S)-ai-test-memtable-lazy"
+results_dir="logs/$run_name"
+mkdir -p "$results_dir"
+exec > >(tee "logs/$run_name.log") 2>&1
+if [[ $# == 0 ]]; then
+    test_classes=(
+        org.apache.cassandra.db.memtable.TrieMemtableLazyTest
+        org.apache.cassandra.db.memtable.TrieMemtableLazyPropertyTest
+        org.apache.cassandra.distributed.test.TrieMemtableLazyRecoveryTest
+    )
+elif [[ $# == 1 && "$1" == --property ]]; then
+    test_classes=(org.apache.cassandra.db.memtable.TrieMemtableLazyPropertyTest)
+elif [[ $# == 1 && "$1" == --retirement ]]; then
+    test_classes=(
+        org.apache.cassandra.db.memtable.TrieMemtableRetirementTest
+        org.apache.cassandra.db.memtable.TrieMemtableRetirementFailureTest
+        org.apache.cassandra.db.memtable.TrieMemtableLazyTest
+        org.apache.cassandra.db.memtable.SplittablePartitionerTrieMemtableFlushSetTest
+        org.apache.cassandra.db.memtable.NonSplittablePartitionerTrieMemtableFlushSetTest
+        org.apache.cassandra.db.memtable.MemtableSizeHeapBuffersTest
+    )
+elif [[ $# == 1 && "$1" == --histograms ]]; then
+    test_classes=(
+        org.apache.cassandra.utils.streamhist.StreamingTombstoneHistogramBuilderTest
+        org.apache.cassandra.utils.streamhist.LazyTombstoneHistogramBuilderTest
+        org.apache.cassandra.utils.streamhist.LazyTombstoneHistogramBuilderPropertyTest
+        org.apache.cassandra.io.sstable.metadata.MetadataCollectorHistogramTest
+        org.apache.cassandra.utils.streamhist.TombstoneHistogramAllocationTest
+    )
+elif [[ $# == 1 && "$1" == --histogram-property ]]; then
+    test_classes=(org.apache.cassandra.utils.streamhist.LazyTombstoneHistogramBuilderPropertyTest)
+elif [[ $# == 1 && "$1" == --meters ]]; then
+    test_classes=(
+        org.apache.cassandra.metrics.ThreadLocalMeterTest
+        org.apache.cassandra.metrics.GeometricThreadLocalMeterTest
+        org.apache.cassandra.metrics.GeometricThreadLocalMeterPropertyTest
+    )
+elif [[ $# == 1 && "$1" == --meter-property ]]; then
+    test_classes=(org.apache.cassandra.metrics.GeometricThreadLocalMeterPropertyTest)
+else
+    echo 'Usage: ai-test-memtable-lazy [--property|--retirement|--histograms|--histogram-property|--meters|--meter-property]' >&2
+    exit 2
+fi
+ant build-test
+for test_class in "${test_classes[@]}"; do
+    if .build/sh/ai-ci-test "$test_class" --reuse; then
+        test_status=0
+    else
+        test_status=$?
+    fi
+    if [[ -f "build/test/output/TEST-$test_class.xml" ]]; then
+        cp "build/test/output/TEST-$test_class.xml" "$results_dir/"
+    fi
+    if [[ -d build/test/logs ]]; then
+        cp -a build/test/logs "$results_dir/$test_class"
+    fi
+    if [[ "$test_status" != 0 ]]; then
+        exit "$test_status"
+    fi
+done

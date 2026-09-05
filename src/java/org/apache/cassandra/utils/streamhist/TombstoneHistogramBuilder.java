@@ -15,24 +15,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.cassandra.utils.streamhist;
 
-package org.apache.cassandra.metrics;
-
-import com.codahale.metrics.Metered;
-
-import static org.apache.cassandra.config.CassandraRelevantProperties.GEOMETRIC_METER_ARRAYS;
-
-/**
- * An interface which mimics {@link com.codahale.metrics.Meter} API and allows alternative implementations
- */
-public interface Meter extends Metered
+/** Mutable tombstone histogram for one SSTable writer. Implementations are not thread safe. */
+public interface TombstoneHistogramBuilder
 {
-    /** Creates a meter that also extends {@link com.codahale.metrics.Meter}. */
-    static Meter create()
-    {
-        return GEOMETRIC_METER_ARRAYS.getBoolean() ? new GeometricThreadLocalMeter() : new ThreadLocalMeter();
-    }
+    void update(long point);
 
-    void mark(long n);
-    void mark();
+    void update(long point, int value);
+
+    void flushHistogram();
+
+    TombstoneHistogram build();
+
+    void releaseBuffers();
 }

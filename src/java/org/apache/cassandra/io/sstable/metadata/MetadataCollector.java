@@ -56,8 +56,12 @@ import org.apache.cassandra.utils.EstimatedHistogram;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MurmurHash;
 import org.apache.cassandra.utils.TimeUUID;
+import org.apache.cassandra.utils.streamhist.LazyTombstoneHistogramBuilder;
 import org.apache.cassandra.utils.streamhist.StreamingTombstoneHistogramBuilder;
 import org.apache.cassandra.utils.streamhist.TombstoneHistogram;
+import org.apache.cassandra.utils.streamhist.TombstoneHistogramBuilder;
+
+import static org.apache.cassandra.config.CassandraRelevantProperties.LAZY_TOMBSTONE_HISTOGRAMS;
 
 public class MetadataCollector implements PartitionStatisticsCollector
 {
@@ -120,7 +124,7 @@ public class MetadataCollector implements PartitionStatisticsCollector
     protected final MinMaxLongTracker localDeletionTimeTracker = new MinMaxLongTracker(Cell.NO_DELETION_TIME, Cell.NO_DELETION_TIME);
     protected final MinMaxIntTracker ttlTracker = new MinMaxIntTracker(Cell.NO_TTL, Cell.NO_TTL);
     protected double compressionRatio = NO_COMPRESSION_RATIO;
-    protected StreamingTombstoneHistogramBuilder estimatedTombstoneDropTime = new StreamingTombstoneHistogramBuilder(SSTable.TOMBSTONE_HISTOGRAM_BIN_SIZE, SSTable.TOMBSTONE_HISTOGRAM_SPOOL_SIZE, SSTable.TOMBSTONE_HISTOGRAM_TTL_ROUND_SECONDS);
+    protected final TombstoneHistogramBuilder estimatedTombstoneDropTime;
     protected int sstableLevel;
 
     /**
@@ -168,8 +172,17 @@ public class MetadataCollector implements PartitionStatisticsCollector
 
     public MetadataCollector(ClusteringComparator comparator, UUID originatingHostId)
     {
+        this(comparator, originatingHostId,
+             LAZY_TOMBSTONE_HISTOGRAMS.getBoolean()
+             ? new LazyTombstoneHistogramBuilder(SSTable.TOMBSTONE_HISTOGRAM_BIN_SIZE, SSTable.TOMBSTONE_HISTOGRAM_SPOOL_SIZE, SSTable.TOMBSTONE_HISTOGRAM_TTL_ROUND_SECONDS)
+             : new StreamingTombstoneHistogramBuilder(SSTable.TOMBSTONE_HISTOGRAM_BIN_SIZE, SSTable.TOMBSTONE_HISTOGRAM_SPOOL_SIZE, SSTable.TOMBSTONE_HISTOGRAM_TTL_ROUND_SECONDS));
+    }
+
+    public MetadataCollector(ClusteringComparator comparator, UUID originatingHostId, TombstoneHistogramBuilder estimatedTombstoneDropTime)
+    {
         this.comparator = comparator;
         this.originatingHostId = originatingHostId;
+        this.estimatedTombstoneDropTime = estimatedTombstoneDropTime;
         AbstractType<?>[] clusteringTypes = comparator.subtypes().toArray(AbstractType[]::new);
         this.minClusteringDescriptor = new ClusteringDescriptor(clusteringTypes).resetMaxStart();
         this.maxClusteringDescriptor = new ClusteringDescriptor(clusteringTypes).resetMinEnd();

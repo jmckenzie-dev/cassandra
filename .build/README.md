@@ -26,6 +26,23 @@ Remove the artifacts of a previous build first:
 
     .build/build-jars.sh --clean
 
+Memtable residency profiling
+---------------------------
+
+See [the residency harness guide](memtable-residency.md) for deterministic
+workloads, measurement limits, and baseline comparisons. The creation profiler
+remains available through `sh/ai-profile-many-tables`.
+
+Run `./run_tests.sh` for the isolated memtable retirement, lazy lifecycle,
+flush-range, and heap-accounting unit tests. Run `./run_property_tests.sh --lazy`
+for generated mutation/retirement tests or `./run_tests.sh --long` for the small
+residency harness cluster tests. These commands retain timestamped logs.
+
+Use `./run_tests.sh --histograms` and `./run_tests.sh --meters` for the Java
+allocation candidates and exact-value comparisons. The matching options on
+`run_property_tests.sh` select generated traces. `sh/ai-compare-java-allocation`
+with `histogram` or `meter` runs matched 100-table profiles;
+the guide describes candidate selection and analysis.
 
 Code Checks and Lints
 ---------------------

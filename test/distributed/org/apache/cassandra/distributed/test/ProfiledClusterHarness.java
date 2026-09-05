@@ -38,6 +38,7 @@ import java.util.Map;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.utils.JsonUtils;
 
 /**
@@ -85,6 +86,9 @@ public abstract class ProfiledClusterHarness
 
     /** Hook invoked before the cluster starts. */
     protected void preCluster() { }
+
+    /** Configure the node before it starts. */
+    protected void configureNode(IInstanceConfig instanceConfig) { }
 
     /** Hook invoked after the cluster starts, before the first phase. */
     protected void postCluster() { }
@@ -162,7 +166,10 @@ public abstract class ProfiledClusterHarness
 
         preCluster();
         cluster = Cluster.build(1)
-                         .withConfig(c -> c.with(Feature.values()))
+                         .withConfig(c -> {
+                             c.with(Feature.values());
+                             configureNode(c);
+                         })
                          .start();
         postCluster();
 

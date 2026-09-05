@@ -339,7 +339,7 @@ public class CassandraMetricsRegistry extends MetricRegistry
         if (metric instanceof Meter)
             return (Meter) metric;
 
-        Meter meter = new ThreadLocalMeter();
+        Meter meter = (Meter) org.apache.cassandra.metrics.Meter.create();
         super.register(simpleMetricName, meter);
         Stream.of(name).forEach(n -> register(gaugeCompatible, n, meter));
         return meter;
