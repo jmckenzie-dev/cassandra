@@ -38,6 +38,12 @@ def analyze(batch):
         optimized = row['mode'] == 'optimized'
         if data['optimizedMetricsEnabled'] != optimized or data['effectiveConfiguration']['optimizedMetricsEnabled'] != optimized:
             raise ValueError('Metrics implementation mismatch: ' + str(path))
+        if 'subnet' in data:
+            subnet = data['subnet']
+            address = f'127.0.{subnet}.1'
+            if not 0 <= subnet <= 255 or any(data['effectiveConfiguration'][key] != address
+                                            for key in ('listenAddress', 'rpcAddress')):
+                raise ValueError('Harness network address mismatch: ' + str(path))
         for phase in data['phases']:
             if phase['errors']:
                 raise ValueError('Phase failure: ' + str(path))
@@ -51,7 +57,7 @@ def analyze(batch):
             raise ValueError('Incomplete workload: ' + str(path))
         create = next(phase for phase in data['phases'] if phase['name'] == '01-create')
         groups[(row['mode'], row['scenario'])].append({
-            'summary': str(path), 'tables': data['tables'],
+            'summary': str(path), 'tables': data['tables'], 'subnet': data.get('subnet', 0),
             'baselineHeapBytes': data['checkpoints']['baseline']['heapUsedBytes'],
             'createdHeapBytes': data['checkpoints']['created']['heapUsedBytes'],
             'settledHeapBytes': settled['heapUsedBytes'],

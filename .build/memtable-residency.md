@@ -79,6 +79,7 @@ For example:
 | `--lazy-tombstone-histograms` | off | Allocate the original tombstone spool on the first deletion or expiration observation. |
 | `--geometric-meter-arrays` | off | Use separate meters whose shared rate array doubles when full. |
 | `--legacy-metrics` | off | Set `optimized_metrics_enabled: false`; the default uses optimized metrics. |
+| `--subnet` | 0 | Use node address `127.0.N.1`, where N is 0–255, to isolate local test listeners. |
 | `--format` | bti | Also accepts big. |
 | `--out` | logs | Parent for timestamped run directories. |
 | `--no-profile` | off | Disable async-profiler and Java flight recordings. |
@@ -103,6 +104,12 @@ The harness sets the node YAML option `optimized_metrics_enabled` to true unless
 node startup. Requested and effective `optimizedMetricsEnabled` values appear in
 `summary.json`. Keep the earlier tombstone and geometric-meter experiment flags
 fixed across each comparison.
+
+The comparison wrapper assigns a distinct subnet to each run, beginning at 71.
+Use `--subnet-start N` to select another unused range. The run summary records
+the requested subnet and effective listen/RPC addresses and ports. The standalone
+harness keeps subnet 0 by default. Separate addresses avoid conflicts with tests
+that use `127.0.0.1`; the workload and metrics selection stay the same.
 
 Run a fresh comparison before, during, and after each optimization:
 

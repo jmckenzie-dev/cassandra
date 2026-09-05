@@ -20,7 +20,10 @@ measurement evidence. Update this file at implementation milestones.
 ## Current state and authorization
 
 Worktree: `/var/home/jmckenzie/src/cassandra/cassandra_asf/wt_moar_tables`.
-Branch: `moar_tables`. Steps 1 and 2 are complete. All changes remain uncommitted.
+Branch: `moar_tables`. Memtable steps and the earlier Java allocation experiments
+are committed in `c274d4232b`; compact empty/sparse reservoirs are committed in
+`e4a19edd49`. Adaptive stripe storage is implemented and measured; the next
+optimization is exact widening of dense 32-bit counters.
 The user authorized phase 2 while this continuation record was being written.
 Phase 2 implements lazy shard initialization for TrieMemtable. See the completion
 section below and [results](lazy_memtable_initialization.md) before resuming work.
@@ -59,8 +62,8 @@ This supersedes the numerical-identity requirement below for the proposed optimi
 runtime metrics path. It does not authorize dropping per-table metrics, disabling
 their exports, discarding cumulative history on idleness, or changing stored
 SSTable tombstone statistics. Existing exact-equivalence candidates retain their
-tested contracts. The next step is design and compatibility analysis, not a selected
-replacement algorithm or dependency.
+tested contracts. The selected runtime implementation is Java-only and uses
+the existing bucket geometry and decay arithmetic.
 
 Candidate direction: allocate no bucket arrays for empty reservoirs; use compact
 storage for sparse observations; grow to dense storage only when useful. Share
@@ -115,9 +118,36 @@ is unchanged. Empty reservoir graphs fall from 5437.44 to 141.44 amortized bytes
 
 Validation: clean build/Checkstyle; 58 focused passes with one existing ignored
 legacy diagnostic; 11 harness cases; eight N100 comparisons; direct heap ownership;
-focused post-extraction reruns. Next: commit this optimization, then capture a
-fresh baseline before adaptive stripe storage. No stripe or counter-width changes
-have been implemented yet. These must each receive their own measured commit.
+focused post-extraction reruns. Commit: `e4a19edd49`.
+
+The second optimization starts with one physical counter stripe and allocates
+secondary stores only after a dense compare-and-set detects contention. It keeps
+each observation on one stripe for both counters. Sparse promotion now occurs
+at 75% capacity or 64 updates; the initial 50% rule promoted smaller stores too
+soon and increased N100 user payload. The corrected path reduces dense serial
+writer-handoff graphs from 5,485.44 to 2,861.44 bytes. Empty graphs add 16 bytes.
+Pinned four-thread JMH measures a 2.2% cost versus legacy, with both forks stable.
+The final two N100 written heaps retain 339,968/333,056 user counter payload bytes;
+untouched tables retain zero. All eight final table workloads pass. See the full
+pre/iteration/final record in [compact runtime metrics](compact_runtime_metrics.md).
+
+Port conflicts on the shared host required a test-only `--subnet N` option,
+default 0. The comparison runner uses distinct subnets 71–78 by default and
+supports `--subnet-start`. Optional `MANY_TABLES_CPUSET` records/pins reservoir
+benchmark affinity; CPUs 8–15 share one L3 cache on this host. Default unbound
+four-thread timings varied strongly by fork. Legacy/config/export tests passed,
+as did 19 final compact cases and seven config/provisioning cases. Next: commit
+this optimization, then capture a fresh counter-width baseline before edits.
+
+For the third optimization, use adaptive width only in dense arrays initially.
+Keep sparse 16-cell pages as AtomicLongArray to avoid an extra wrapper/protocol
+per small page. One volatile reference chooses AtomicIntegerArray or
+AtomicLongArray. Allocate wide storage before freezing narrow cells; all narrow
+writes use CAS and retry sentinel observations against the published wide array.
+Preserve strong-CAS behavior across migration and all signed-long edge cases.
+Include aged counters, generated/concurrent counter tests, public snapshot
+merge/rebase widening, pinned throughput, and a bounded N100 workload with enough
+writes to populate dense user histograms. No counter-width source edits exist yet.
 
 ## Historical exact-value constraint (2026-09-05)
 

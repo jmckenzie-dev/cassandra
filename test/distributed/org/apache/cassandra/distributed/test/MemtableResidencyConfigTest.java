@@ -26,6 +26,9 @@ import java.util.Set;
 
 import org.junit.Test;
 
+import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
+
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -33,6 +36,37 @@ import static org.junit.Assert.assertTrue;
 
 public class MemtableResidencyConfigTest
 {
+    @Test
+    public void subnetPreservesWorkloadAndProvisionsAllAddresses() throws Exception
+    {
+        MemtableResidencyProfileHarness.Config defaults = MemtableResidencyProfileHarness.Config.parse(new String[0]);
+        assertEquals(0, defaults.subnet);
+        for (int subnet : new int[] { 0, 37, 255 })
+        {
+            MemtableResidencyProfileHarness.Config config = MemtableResidencyProfileHarness.Config.parse(new String[] {
+                "--subnet", Integer.toString(subnet)
+            });
+            assertEquals(subnet, config.subnet);
+            assertArrayEquals(defaults.tableOrder(), config.tableOrder());
+            assertEquals(defaults.operationsPerCycle(), config.operationsPerCycle());
+            assertEquals(defaults.payload(3, 7), config.payload(3, 7));
+            MemtableResidencyProfileHarness harness = new MemtableResidencyProfileHarness(config);
+            assertEquals(subnet, harness.runParameters().get("subnet"));
+            Cluster.Builder builder = Cluster.build(1);
+            harness.configureCluster(builder);
+            try (Cluster cluster = builder.createWithoutStarting())
+            {
+                IInstanceConfig node = cluster.get(1).config();
+                String address = "127.0." + subnet + ".1";
+                for (String key : new String[] { "listen_address", "broadcast_address", "rpc_address", "broadcast_rpc_address" })
+                    assertEquals(address, node.get(key));
+                assertEquals(address, node.broadcastAddress().getAddress().getHostAddress());
+                assertEquals(7012, node.getInt("storage_port"));
+                assertEquals(9042, node.getInt("native_transport_port"));
+            }
+        }
+    }
+
     @Test
     public void generatedSchedulesPreserveDatasetAndRate()
     {
@@ -90,6 +124,7 @@ public class MemtableResidencyConfigTest
     public void rejectsInvalidArgumentsAndOverflow()
     {
         String[][] cases = {
+            { "--subnet" }, { "--subnet", "-1" }, { "--subnet", "256" }, { "--subnet", "x" },
             { "--tables" }, { "--unknown", "1" }, { "--tables", "0" }, { "--tables", "x" },
             { "--tables", "2", "--active-tables", "3" }, { "--sample-ms", "0" }, { "--rate", "0" },
             { "--idle-ms", "-1" }, { "--scenario", "evict" }, { "--format", "invalid" },

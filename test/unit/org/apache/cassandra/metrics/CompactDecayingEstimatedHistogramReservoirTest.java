@@ -25,6 +25,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.function.DoubleSupplier;
 
@@ -39,6 +40,7 @@ import org.apache.cassandra.utils.MonotonicClockTranslation;
 import static org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoir.LANDMARK_RESET_INTERVAL_IN_NS;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -55,6 +57,7 @@ public class CompactDecayingEstimatedHistogramReservoirTest
             clock.time = time;
             pair.assertEquivalent();
             assertEquals(0, pair.candidate.allocatedCounterCells());
+            assertEquals(0, pair.candidate.allocatedStripeCount());
         }
         pair.clear();
         pair.assertEquivalent();
@@ -146,10 +149,74 @@ public class CompactDecayingEstimatedHistogramReservoirTest
         assertTrue(pair.candidate.allocatedCounterCells() <= 32);
         pair.update(100);
         pair.assertEquivalent();
-        assertEquals(pair.reference.size() * 2 * 2, pair.candidate.allocatedCounterCells());
+        assertEquals(pair.reference.size() * 2, pair.candidate.allocatedCounterCells());
         for (int i = 0; i < 1000; i++)
             pair.update(i);
         pair.assertEquivalent();
+    }
+
+    @Test
+    public void moderatelyOccupiedStorageStaysSparseThroughRebase()
+    {
+        for (int[] testCase : new int[][]{ { 127, 6 }, { 164, 8 } })
+        {
+            int bucketCount = testCase[0];
+            int promotionPages = testCase[1];
+            TestClock clock = new TestClock();
+            Pair pair = new Pair(false, bucketCount, 2, clock, LANDMARK_RESET_INTERVAL_IN_NS);
+            long[] offsets = pair.reference.buckets(bucketCount);
+            for (int pages = 1; pages <= promotionPages; pages++)
+            {
+                pair.update(offsets[pages - 1]);
+                pair.assertEquivalent();
+                if (pages < promotionPages)
+                {
+                    assertEquals(pages * 16 * 2, pair.candidate.allocatedCounterCells());
+                    ((EstimatedHistogramReservoirSnapshot) pair.reference.getSnapshot()).rebaseReservoir();
+                    ((EstimatedHistogramReservoirSnapshot) pair.candidate.getSnapshot()).rebaseReservoir();
+                    pair.assertEquivalent();
+                    assertEquals(pages * 16 * 2, pair.candidate.allocatedCounterCells());
+                }
+                else
+                {
+                    assertEquals(pair.candidate.size() * 2, pair.candidate.allocatedCounterCells());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void serialWriterHandoffsKeepOnlyPrimaryStorage() throws Exception
+    {
+        for (int stripes : new int[]{ 1, 2, 4 })
+        {
+            TestClock clock = new TestClock();
+            Pair pair = new Pair(false, 127, stripes, clock, LANDMARK_RESET_INTERVAL_IN_NS);
+            for (int writer = 0; writer < 4; writer++)
+            {
+                ExecutorService executor = Executors.newSingleThreadExecutor();
+                try
+                {
+                    executor.submit(() -> {
+                        for (int i = 0; i < 1000; i++)
+                            pair.update(i);
+                    }).get(30, TimeUnit.SECONDS);
+                }
+                finally
+                {
+                    executor.shutdownNow();
+                    assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+                }
+                pair.assertEquivalent();
+                assertEquals(1, pair.candidate.allocatedStripeCount());
+                assertEquals(pair.candidate.size() * 2, pair.candidate.allocatedCounterCells());
+                assertFalse(pair.candidate.isContended());
+            }
+            clock.time += LANDMARK_RESET_INTERVAL_IN_NS + 1;
+            pair.assertEquivalent();
+            assertEquals(1, pair.candidate.allocatedStripeCount());
+            assertFalse(pair.candidate.isContended());
+        }
     }
 
     @Test
@@ -250,13 +317,94 @@ public class CompactDecayingEstimatedHistogramReservoirTest
                     future.get(30, TimeUnit.SECONDS);
                 pair.assertEquivalent();
                 assertEquals((round + 1) * 8000L, Arrays.stream(pair.candidate.getSnapshot().getValues()).sum());
+                assertTrue(pair.candidate.allocatedStripeCount() <= pair.candidate.stripeCount());
             }
+            ((EstimatedHistogramReservoirSnapshot) pair.reference.getSnapshot()).rebaseReservoir();
+            ((EstimatedHistogramReservoirSnapshot) pair.candidate.getSnapshot()).rebaseReservoir();
+            pair.assertEquivalent();
+            pair.clear();
+            pair.assertEquivalent();
+            pair.update(17);
+            pair.assertEquivalent();
         }
         finally
         {
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
         }
+    }
+
+    @Test
+    public void contentionActivatesStripesAndRescaleRoundsEachStripe() throws Exception
+    {
+        TestClock clock = new TestClock();
+        CompactDecayingEstimatedHistogramReservoir candidate =
+            new CompactDecayingEstimatedHistogramReservoir(false, 127, 2, clock, TimeUnit.SECONDS.toNanos(59));
+        ExecutorService executor = Executors.newFixedThreadPool(8);
+        try
+        {
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<?>> writers = new ArrayList<>();
+            for (int writer = 0; writer < 8; writer++)
+                writers.add(executor.submit(() -> {
+                    start.await();
+                    for (int i = 0; i < 100000; i++)
+                        candidate.update(100);
+                    return null;
+                }));
+            start.countDown();
+            for (Future<?> writer : writers)
+                writer.get(30, TimeUnit.SECONDS);
+        }
+        finally
+        {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+        }
+        assertTrue("Concurrent writers must activate contention routing", candidate.isContended());
+        assertEquals(2, candidate.allocatedStripeCount());
+        assertEquals(800000L, Arrays.stream(candidate.getSnapshot().getValues()).sum());
+
+        // Odd counts in both stripes distinguish per-stripe rounding from rounding their sum.
+        for (int attempt = 0; attempt < 16; attempt++)
+        {
+            long[] counts = candidate.decayingStripeValues(100);
+            if ((counts[0] & 1) != 0 && (counts[1] & 1) != 0)
+                break;
+            FutureTask<Void> correction = new FutureTask<>(() -> {
+                int stripe = (int) (Thread.currentThread().getId() & 1);
+                if ((candidate.decayingStripeValues(100)[stripe] & 1) == 0)
+                    candidate.update(100);
+                return null;
+            });
+            Thread writer = new Thread(correction);
+            writer.start();
+            correction.get(30, TimeUnit.SECONDS);
+            writer.join(TimeUnit.SECONDS.toMillis(30));
+            assertFalse(writer.isAlive());
+        }
+        long[] original = candidate.decayingStripeValues(100);
+        assertEquals(1, original[0] & 1);
+        assertEquals(1, original[1] & 1);
+        long cumulative = original[0] + original[1];
+        assertTrue(cumulative >= 800000 && cumulative <= 800002);
+        long[] expected = { Math.round(original[0] / 2.0), Math.round(original[1] / 2.0) };
+        assertTrue(expected[0] + expected[1] != Math.round(cumulative / 2.0));
+
+        clock.time = TimeUnit.SECONDS.toNanos(60);
+        EstimatedHistogramReservoirSnapshot snapshot = (EstimatedHistogramReservoirSnapshot) candidate.getSnapshot();
+        assertArrayEquals(expected, candidate.decayingStripeValues(100));
+        assertEquals(expected[0] + expected[1], snapshot.size());
+        assertEquals(cumulative, Arrays.stream(snapshot.getValues()).sum());
+        snapshot.rebaseReservoir();
+        assertArrayEquals(new long[]{ expected[0] + expected[1], 0 }, candidate.decayingStripeValues(100));
+        assertEquals(cumulative, Arrays.stream(candidate.getSnapshot().getValues()).sum());
+        candidate.clear();
+        assertEquals(0, candidate.getSnapshot().size());
+        assertEquals(0, Arrays.stream(candidate.getSnapshot().getValues()).sum());
+        candidate.update(100);
+        assertEquals(1, candidate.getSnapshot().size());
+        assertEquals(1, Arrays.stream(candidate.getSnapshot().getValues()).sum());
     }
 
     private static ClearableReservoir reservoir(boolean compact, TestClock clock)
@@ -327,11 +475,14 @@ public class CompactDecayingEstimatedHistogramReservoirTest
     {
         final DecayingEstimatedHistogramReservoir reference;
         final CompactDecayingEstimatedHistogramReservoir candidate;
+        final int stripes;
 
         Pair(boolean zeroes, int bucketCount, int stripes, TestClock clock, long resetInterval)
         {
-            reference = new DecayingEstimatedHistogramReservoir(zeroes, bucketCount, stripes, clock, resetInterval);
+            // Uncontended histories use one stripe, including after a snapshot rebase.
+            reference = new DecayingEstimatedHistogramReservoir(zeroes, bucketCount, 1, clock, resetInterval);
             candidate = new CompactDecayingEstimatedHistogramReservoir(zeroes, bucketCount, stripes, clock, resetInterval);
+            this.stripes = stripes;
         }
 
         void update(long value)
@@ -349,7 +500,7 @@ public class CompactDecayingEstimatedHistogramReservoirTest
         void assertEquivalent()
         {
             assertEquals(reference.size(), candidate.size());
-            assertEquals(reference.stripeCount(), candidate.stripeCount());
+            assertEquals(stripes, candidate.stripeCount());
             assertEquals(reference.bucketStrategy(), candidate.bucketStrategy());
             assertArrayEquals(reference.buckets(reference.size() - 1), candidate.buckets(candidate.size() - 1));
             CompactDecayingEstimatedHistogramReservoirTest.assertEquivalent(reference.getSnapshot(), candidate.getSnapshot(), true);

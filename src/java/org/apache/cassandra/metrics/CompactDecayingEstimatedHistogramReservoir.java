@@ -41,9 +41,9 @@ import static org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoir.M
 import static org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoir.findIndex;
 
 /**
- * Preserves the reference histogram's physical stripes and decay arithmetic while allocating
- * counter pages only when used. Empty observations retain the original decay landmark without
- * allocating counter arrays. Common bucket definitions are shared and copied when exported.
+ * Allocates counter pages on first use and additional stripes after update contention.
+ * Empty observations retain the original decay landmark without allocating counter arrays.
+ * Common bucket definitions are shared and copied when exported.
  */
 public final class CompactDecayingEstimatedHistogramReservoir implements ClearableReservoir
 {
@@ -58,10 +58,11 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
     private final int nStripes;
     private final int distributionPrime;
     private final long[] bucketOffsets;
-    private final PagedBuckets buckets;
+    private final StripedBuckets buckets;
     private final MonotonicClock clock;
     private final long landmarkResetIntervalInNs;
     private volatile DecayingBuckets decayingBuckets;
+    private volatile boolean contended;
 
     public CompactDecayingEstimatedHistogramReservoir()
     {
@@ -85,7 +86,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
         bucketOffsets = offsets(considerZeroes, bucketCount);
         nStripes = stripes;
         this.clock = clock;
-        buckets = new PagedBuckets((bucketOffsets.length + 1) * nStripes);
+        buckets = new StripedBuckets(bucketOffsets.length + 1, nStripes);
         decayingBuckets = new DecayingBuckets(clock.now());
         this.landmarkResetIntervalInNs = landmarkResetIntervalInNs;
         int distributionPrime = 1;
@@ -113,11 +114,21 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
     {
         long now = clock.now();
         DecayingBuckets decaying = rescaleIfNeeded(now);
-        int index = findIndex(bucketOffsets, value);
-        int stripe = (int) (Thread.currentThread().getId() & (nStripes - 1));
-        int physicalIndex = stripedIndex(index, stripe);
-        decaying.values.add(physicalIndex, decaying.forwardDecayWeight(now));
-        buckets.add(physicalIndex, 1);
+        int index = physicalIndex(findIndex(bucketOffsets, value));
+        boolean detectContention = nStripes > 1 && !contended;
+        int stripe = detectContention ? 0 : (int) (Thread.currentThread().getId() & (nStripes - 1));
+        if (detectContention)
+        {
+            boolean decayContended = decaying.values.addAndDetectContention(index, decaying.forwardDecayWeight(now));
+            boolean cumulativeContended = buckets.addAndDetectContention(index, 1);
+            if (decayContended || cumulativeContended)
+                contended = true;
+        }
+        else
+        {
+            decaying.values.stripe(stripe, true).add(index, decaying.forwardDecayWeight(now));
+            buckets.stripe(stripe, true).add(index, 1);
+        }
     }
 
     public int size()
@@ -166,16 +177,25 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
         return new DecayingBucketsOnlySnapshot(bucketOffsets, decayed);
     }
 
-    private int stripedIndex(int index, int stripe)
+    private int physicalIndex(int index)
     {
-        return ((index * nStripes + stripe) * distributionPrime) % buckets.length;
+        return (index * distributionPrime) % buckets.length;
     }
 
-    private long bucketValue(int index, PagedBuckets values)
+    private long bucketValue(int index, StripedBuckets values)
     {
-        long value = 0;
-        for (int stripe = 0; stripe < nStripes; stripe++)
-            value += values.get(stripedIndex(index, stripe));
+        int physicalIndex = physicalIndex(index);
+        long value = values.get(physicalIndex);
+        AtomicReferenceArray<PagedBuckets> secondary = values.secondary;
+        if (secondary != null)
+        {
+            for (int i = 0; i < secondary.length(); i++)
+            {
+                PagedBuckets stripe = secondary.get(i);
+                if (stripe != null)
+                    value += stripe.get(physicalIndex);
+            }
+        }
         return value;
     }
 
@@ -186,8 +206,18 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
         {
             double factor = current.forwardDecayWeight(now);
             DecayingBuckets replacement = new DecayingBuckets(now);
-            for (int i = 0; i < buckets.length; i++)
-                replacement.values.set(i, Math.round(current.values.get(i) / factor));
+            for (int stripe = 0; stripe < nStripes; stripe++)
+            {
+                PagedBuckets source = current.values.stripe(stripe, false);
+                if (source == null)
+                    continue;
+                for (int i = 0; i < buckets.length; i++)
+                {
+                    long value = Math.round(source.get(i) / factor);
+                    if (value != 0)
+                        replacement.values.stripe(stripe, true).set(i, value);
+                }
+            }
             if (decayingBucketsUpdater.compareAndSet(this, current, replacement))
                 return replacement;
             current = decayingBuckets;
@@ -197,8 +227,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
 
     public void clear()
     {
-        for (int i = 0; i < buckets.length; i++)
-            buckets.set(i, 0);
+        buckets.clear();
         decayingBucketsUpdater.set(this, new DecayingBuckets(clock.now()));
     }
 
@@ -211,15 +240,11 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
             throw new IllegalStateException("Merge is only supported with equal bucketOffsets");
         DecayingBuckets replacement = new DecayingBuckets(snapshot.getSnapshotLandmark());
         long[] cumulative = snapshot.getValues();
+        buckets.clear();
         for (int i = 0; i < size(); i++)
         {
-            replacement.values.set(stripedIndex(i, 0), snapshot.decayingBuckets[i]);
-            buckets.set(stripedIndex(i, 0), cumulative[i]);
-            for (int stripe = 1; stripe < nStripes; stripe++)
-            {
-                replacement.values.set(stripedIndex(i, stripe), 0);
-                buckets.set(stripedIndex(i, stripe), 0);
-            }
+            replacement.values.set(physicalIndex(i), snapshot.decayingBuckets[i]);
+            buckets.set(physicalIndex(i), cumulative[i]);
         }
         decayingBucketsUpdater.set(this, replacement);
     }
@@ -227,13 +252,50 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
     @VisibleForTesting
     int allocatedCounterCells()
     {
-        return buckets.allocatedCells() + decayingBuckets.values.allocatedCells();
+        return buckets.totalAllocatedCells() + decayingBuckets.values.totalAllocatedCells();
+    }
+
+    @VisibleForTesting
+    int allocatedStripeCount()
+    {
+        int count = 0;
+        StripedBuckets decaying = decayingBuckets.values;
+        for (int i = 0; i < nStripes; i++)
+        {
+            PagedBuckets cumulativeStripe = buckets.stripe(i, false);
+            PagedBuckets decayingStripe = decaying.stripe(i, false);
+            if ((cumulativeStripe != null && cumulativeStripe.allocatedCells() > 0)
+                || (decayingStripe != null && decayingStripe.allocatedCells() > 0))
+                count++;
+        }
+        return count;
+    }
+
+    @VisibleForTesting
+    boolean isContended()
+    {
+        return contended;
+    }
+
+    @VisibleForTesting
+    long[] decayingStripeValues(long value)
+    {
+        StripedBuckets current = decayingBuckets.values;
+        int index = physicalIndex(findIndex(bucketOffsets, value));
+        long[] counts = new long[nStripes];
+        for (int stripe = 0; stripe < nStripes; stripe++)
+        {
+            PagedBuckets values = current.stripe(stripe, false);
+            if (values != null)
+                counts[stripe] = values.get(index);
+        }
+        return counts;
     }
 
     private final class DecayingBuckets
     {
         private final long landmark;
-        private final PagedBuckets values = new PagedBuckets(buckets.length);
+        private final StripedBuckets values = new StripedBuckets(buckets.length, nStripes);
 
         private DecayingBuckets(long landmark)
         {
@@ -246,13 +308,80 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
         }
     }
 
-    private static final class PagedBuckets
+    private static final class StripedBuckets extends PagedBuckets
+    {
+        private static final AtomicReferenceFieldUpdater<StripedBuckets, AtomicReferenceArray> secondaryUpdater =
+            AtomicReferenceFieldUpdater.newUpdater(StripedBuckets.class, AtomicReferenceArray.class, "secondary");
+
+        private final int stripes;
+        private volatile AtomicReferenceArray<PagedBuckets> secondary;
+
+        private StripedBuckets(int length, int stripes)
+        {
+            super(length);
+            this.stripes = stripes;
+        }
+
+        private PagedBuckets stripe(int stripe, boolean create)
+        {
+            if (stripe == 0)
+                return this;
+            AtomicReferenceArray<PagedBuckets> current = secondary;
+            if (current == null)
+            {
+                if (!create)
+                    return null;
+                current = new AtomicReferenceArray<>(stripes - 1);
+                if (!secondaryUpdater.compareAndSet(this, null, current))
+                    current = secondary;
+            }
+            PagedBuckets values = current.get(stripe - 1);
+            if (values == null && create)
+            {
+                values = new PagedBuckets(length);
+                if (!current.compareAndSet(stripe - 1, null, values))
+                    values = current.get(stripe - 1);
+            }
+            return values;
+        }
+
+        private void clear()
+        {
+            for (int stripe = 0; stripe < stripes; stripe++)
+            {
+                PagedBuckets values = stripe(stripe, false);
+                if (values != null)
+                {
+                    for (int i = 0; i < length; i++)
+                        values.set(i, 0);
+                }
+            }
+        }
+
+        private int totalAllocatedCells()
+        {
+            int count = allocatedCells();
+            AtomicReferenceArray<PagedBuckets> current = secondary;
+            if (current != null)
+            {
+                for (int i = 0; i < current.length(); i++)
+                {
+                    PagedBuckets values = current.get(i);
+                    if (values != null)
+                        count += values.allocatedCells();
+                }
+            }
+            return count;
+        }
+    }
+
+    private static class PagedBuckets
     {
         private static final int PAGE_SHIFT = 4;
         private static final int PAGE_SIZE = 1 << PAGE_SHIFT;
         private static final int SPARSE_UPDATE_LIMIT = 64;
 
-        private final int length;
+        final int length;
         private volatile SparsePages pages;
         private volatile AtomicLongArray dense;
 
@@ -263,7 +392,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
             this.length = length;
         }
 
-        private long get(int index)
+        final long get(int index)
         {
             AtomicLongArray full = dense;
             if (full != null)
@@ -279,13 +408,29 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
             return page == null ? 0 : page.get(index & (PAGE_SIZE - 1));
         }
 
-        private void add(int index, long value)
+        final void add(int index, long value)
         {
             AtomicLongArray full = dense;
             if (full != null)
                 full.addAndGet(index, value);
             else
                 addSparse(index, value);
+        }
+
+        final boolean addAndDetectContention(int index, long value)
+        {
+            AtomicLongArray full = dense;
+            if (full == null)
+            {
+                addSparse(index, value);
+                return false;
+            }
+            long previous = full.get(index);
+            if (full.compareAndSet(index, previous, previous + value))
+                return false;
+            // Keep this event on its original stripe; only later events change routing.
+            full.addAndGet(index, value);
+            return true;
         }
 
         private synchronized void addSparse(int index, long value)
@@ -298,11 +443,11 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
             }
             SparsePages current = sparsePages();
             page(current, index).addAndGet(index & (PAGE_SIZE - 1), value);
-            if (++current.updates >= SPARSE_UPDATE_LIMIT || current.allocatedCells * 2 >= length)
+            if (++current.updates >= SPARSE_UPDATE_LIMIT || current.allocatedCells * 4 >= length * 3)
                 promote(current);
         }
 
-        private void set(int index, long value)
+        final void set(int index, long value)
         {
             AtomicLongArray full = dense;
             if (full != null)
@@ -323,7 +468,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
             {
                 SparsePages current = sparsePages();
                 page(current, index).set(index & (PAGE_SIZE - 1), value);
-                if (current.allocatedCells * 2 >= length)
+                if (current.allocatedCells * 4 >= length * 3)
                     promote(current);
             }
             else
@@ -372,7 +517,7 @@ public final class CompactDecayingEstimatedHistogramReservoir implements Clearab
             pages = null;
         }
 
-        private synchronized int allocatedCells()
+        final synchronized int allocatedCells()
         {
             return dense != null ? length : pages == null ? 0 : pages.allocatedCells;
         }

@@ -55,6 +55,7 @@ elif [[ $# == 1 && "$1" == --reservoirs ]]; then
         org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest
         org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirPropertyTest
         org.apache.cassandra.metrics.CompactMetricsIntegrationTest
+        org.apache.cassandra.metrics.CompactMetricsAccuracyTest
         org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest
         org.apache.cassandra.metrics.ThreadLocalHistogramTest
         org.apache.cassandra.metrics.CassandraMetricsRegistryTest

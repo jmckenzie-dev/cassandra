@@ -45,18 +45,26 @@ batch="$(mktemp -d "$project_root/logs/$stamp-reservoirs-$step-$checkpoint-XXXXX
 cp "$project_root/.build/sh/ai-measure-reservoirs" "$batch/recipe.sh"
 export MANY_TABLES_XMX="${MANY_TABLES_XMX:-8g}"
 export MANY_TABLES_CPUS="${MANY_TABLES_CPUS:-8}"
+profile_command=(.build/sh/ai-profile-many-tables)
+if [[ -n "${MANY_TABLES_CPUSET:-}" ]]; then
+    profile_command=(taskset -c "$MANY_TABLES_CPUSET" "${profile_command[@]}")
+fi
 printf 'Reservoir artifacts: %s\n' "$batch"
 
 measure() {
-    printf 'reservoir_measurement step=%s checkpoint=%s heap=%s cpus=%s\n' \
-           "$step" "$checkpoint" "$MANY_TABLES_XMX" "$MANY_TABLES_CPUS"
+    printf 'reservoir_measurement step=%s checkpoint=%s heap=%s cpus=%s affinity=%s\n' \
+           "$step" "$checkpoint" "$MANY_TABLES_XMX" "$MANY_TABLES_CPUS" "${MANY_TABLES_CPUSET:-unbound}"
     for implementation in DecayingEstimatedHistogramReservoir CompactDecayingEstimatedHistogramReservoir; do
         PROFILE_MAIN_CLASS=org.apache.cassandra.metrics.ReservoirStorageProbe \
-            .build/sh/ai-profile-many-tables "org.apache.cassandra.metrics.$implementation" 5 3 200000 || return "$?"
+            "${profile_command[@]}" "org.apache.cassandra.metrics.$implementation" 5 3 200000 || return "$?"
+    done
+    for implementation in legacy compact; do
+        PROFILE_MAIN_CLASS=org.apache.cassandra.metrics.ReservoirStripeProbe \
+            "${profile_command[@]}" "$implementation" || return "$?"
     done
     for threads in 1 4; do
         PROFILE_MAIN_CLASS=org.openjdk.jmh.Main \
-            .build/sh/ai-profile-many-tables '.*CompactHistogramBench.update' \
+            "${profile_command[@]}" '.*CompactHistogramBench.update' \
             -p implementation=legacy,compact -t "$threads" -f 2 -wi 3 -w 1s -i 5 -r 1s \
             -prof gc -foe true -rf json -rff "$batch/$stamp-jmh-t$threads.json" || return "$?"
     done

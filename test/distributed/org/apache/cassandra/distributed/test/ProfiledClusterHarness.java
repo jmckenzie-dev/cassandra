@@ -87,6 +87,9 @@ public abstract class ProfiledClusterHarness
     /** Hook invoked before the cluster starts. */
     protected void preCluster() { }
 
+    /** Configure cluster provisioning before creating the nodes. */
+    protected void configureCluster(Cluster.Builder builder) { }
+
     /** Configure the node before it starts. */
     protected void configureNode(IInstanceConfig instanceConfig) { }
 
@@ -165,12 +168,12 @@ public abstract class ProfiledClusterHarness
         profiler.startJdkRecording();
 
         preCluster();
-        cluster = Cluster.build(1)
-                         .withConfig(c -> {
-                             c.with(Feature.values());
-                             configureNode(c);
-                         })
-                         .start();
+        Cluster.Builder builder = Cluster.build(1);
+        configureCluster(builder);
+        cluster = builder.withConfig(c -> {
+            c.with(Feature.values());
+            configureNode(c);
+        }).start();
         postCluster();
 
         for (Phase phase : definePhases())

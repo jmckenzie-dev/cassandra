@@ -42,6 +42,10 @@ All actual table workloads must use at most 1,000 tables.
    exports. Prefer 32-bit counters with exact promotion to 64 bits before overflow,
    subject to measurement and concurrency validation. Retain the existing buckets
    and accuracy when this representation delivers the larger memory benefit.
+   Apply adaptive width to dense arrays first; keep 16-cell sparse pages unchanged
+   to avoid adding a wrapper and widening protocol to every small page. Include
+   an aged-counter probe and a bounded N100 workload with enough writes to use
+   dense user reservoirs, alongside the existing sparse workload.
    Preserve stable cumulative export buckets and observation population. Require
    a measured resident-memory or computation benefit and bounded distribution
    error. Use controlled event time and raw-event expectations for median,

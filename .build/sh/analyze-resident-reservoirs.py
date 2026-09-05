@@ -66,14 +66,16 @@ def inspect(path, expected_tables=100, user_keyspace="memtable_residency"):
             array(backing)
             return {backing}
 
-        def storage(oid):
+        def storage(oid, configured_stripes=1):
             if not oid:
-                return {"arrays": set(), "active": set(), "directories": set(), "representation": "empty"}
+                return {"arrays": set(), "active": set(), "directories": set(), "representation": "empty",
+                        "physicalStripes": 0, "counterAllocatedStripes": 0}
             cls = name(oid)
             if cls == "java.util.concurrent.atomic.AtomicLongArray":
                 arrays = atomic_array(oid)
-                return {"arrays": arrays, "active": arrays, "directories": set(), "representation": "dense"}
-            if cls != COMPACT + "$PagedBuckets":
+                return {"arrays": arrays, "active": arrays, "directories": set(), "representation": "dense",
+                        "physicalStripes": configured_stripes, "counterAllocatedStripes": configured_stripes}
+            if cls not in (COMPACT + "$PagedBuckets", COMPACT + "$StripedBuckets"):
                 raise ValueError(f"Unsupported reservoir counter storage: {cls}")
             values = fields(oid)
             dense = atomic_array(ref(values, "dense"))
@@ -84,9 +86,33 @@ def inspect(path, expected_tables=100, user_keyspace="memtable_residency"):
                 directories.add(directory)
                 for page in heap.references(directory):
                     paged_arrays.update(atomic_array(page))
-            return {"arrays": dense | paged_arrays, "active": dense if dense else paged_arrays,
-                    "directories": directories,
-                    "representation": "dense+pages" if dense and paged_arrays else "dense" if dense else "paged" if pages else "empty"}
+            arrays = dense | paged_arrays
+            representation = "dense+pages" if dense and paged_arrays else "dense" if dense else "paged" if pages else "empty"
+            striped = cls == COMPACT + "$StripedBuckets"
+            result = {"arrays": arrays, "active": dense if dense else paged_arrays,
+                      "directories": directories, "representation": representation,
+                      "physicalStripes": 1 if striped or configured_stripes == 1 else None,
+                      "counterAllocatedStripes": int(bool(arrays)) if striped or configured_stripes == 1 else None if arrays else 0}
+            if striped:
+                representations = {representation}
+                secondary = ref(values, "secondary")
+                if secondary:
+                    directory = ref(fields(secondary), "array")
+                    result["directories"].add(directory)
+                    children = list(heap.references(directory))
+                    if len(children) != configured_stripes - 1:
+                        raise ValueError("Secondary stripe directory does not match configured stripe count")
+                    for child in children:
+                        if not child:
+                            continue
+                        extra = storage(child)
+                        for key in ("arrays", "active", "directories"):
+                            result[key].update(extra[key])
+                        result["physicalStripes"] += extra["physicalStripes"]
+                        result["counterAllocatedStripes"] += extra["counterAllocatedStripes"]
+                        representations.add(extra["representation"])
+                result["representation"] = "striped:" + ",".join(sorted(representations))
+            return result
 
         reservoirs = {}
         class_counts = collections.Counter()
@@ -99,13 +125,14 @@ def inspect(path, expected_tables=100, user_keyspace="memtable_residency"):
             if cls not in (LEGACY, COMPACT):
                 continue
             values = fields(oid)
-            cumulative = storage(ref(values, "buckets"))
+            stripes = values["nStripes"][1]
+            cumulative = storage(ref(values, "buckets"), stripes)
             decaying_fields = fields(ref(values, "decayingBuckets"))
             decay_field = "decayBuckets" if "decayBuckets" in decaying_fields else "values"
-            decaying = storage(ref(decaying_fields, decay_field))
+            decaying = storage(ref(decaying_fields, decay_field), stripes)
             offset = ref(values, "bucketOffsets")
             array(offset)
-            reservoirs[oid] = {"class": cls, "offsets": offset, "stripes": values["nStripes"][1],
+            reservoirs[oid] = {"class": cls, "offsets": offset, "stripes": stripes,
                                "cumulative": cumulative, "decaying": decaying,
                                "arrays": cumulative["arrays"] | decaying["arrays"],
                                "active": cumulative["active"] | decaying["active"],
@@ -201,6 +228,11 @@ def inspect(path, expected_tables=100, user_keyspace="memtable_residency"):
                     "offsetsArrayLengthCounts": dict(collections.Counter(array(oid)["length"] for oid in offsets)),
                     "backingArrayLengthCounts": dict(collections.Counter(array(oid)["length"] for oid in arrays)),
                     "stripeCounts": dict(collections.Counter(reservoirs[oid]["stripes"] for oid in ids)),
+                    "physicalStripeCountsBySide": {
+                        side: {key: dict(collections.Counter("unavailable" if reservoirs[oid][side][key] is None
+                                                           else str(reservoirs[oid][side][key]) for oid in ids))
+                               for key in ("physicalStripes", "counterAllocatedStripes")}
+                        for side in ("cumulative", "decaying")},
                     "storageRepresentations": dict(collections.Counter(reservoirs[oid][side]["representation"] for oid in ids for side in ("cumulative", "decaying")))}
 
         user_table_ids, user_trie_ids, other_table_ids = set(), set(), set()
@@ -241,6 +273,7 @@ def inspect(path, expected_tables=100, user_keyspace="memtable_residency"):
                                                + row["trieMetrics"]["backingArrayPayloadBytes"] for row in user_tables)
         return {"file": str(path.resolve()), "userKeyspace": user_keyspace, "userTables": actual_tables,
                 "scope": "Exact unique long-array payload reachable through reservoir fields; excludes object headers, wrappers and reference-array byte widths. Ownership is field reachability, not dominator retained size.",
+                "stripeCountScope": "Configured counts describe each reservoir. Physical counts describe each counter side, including empty primary and secondary stores; counterAllocatedStripes counts stores with arrays. Multi-stripe phase-1 paged storage has no separate physical stores, so its physical allocation counts are unavailable.",
                 "classInstanceCounts": dict(sorted(class_counts.items())),
                 "allReservoirs": summarize(set(reservoirs)), "userTableMetrics": summarize(user_table_ids),
                 "userTrieMetrics": summarize(user_trie_ids), "otherTableMetricsAndTrie": summarize(other_table_ids),

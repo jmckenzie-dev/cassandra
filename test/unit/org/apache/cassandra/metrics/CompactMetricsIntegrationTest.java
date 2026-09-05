@@ -22,6 +22,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
 import javax.management.JMX;
 
@@ -34,6 +36,8 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.YamlConfigurationLoader;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry.JmxHistogramMBean;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry.MetricName;
+import org.apache.cassandra.service.reads.PercentileSpeculativeRetryPolicy;
+import org.apache.cassandra.utils.EstimatedHistogram;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -197,6 +201,33 @@ public class CompactMetricsIntegrationTest
             if (!secondReleased)
                 second.release();
             parent.release();
+        }
+    }
+
+    @Test
+    public void speculativeRetryUsesMicrosecondPercentilesFromEitherImplementation() throws Exception
+    {
+        CassandraMetricsRegistry registry = CassandraMetricsRegistry.Metrics;
+        long[] offsets = EstimatedHistogram.newOffsets(DecayingEstimatedHistogramReservoir.LOW_BUCKET_COUNT, false);
+        int index = Arrays.binarySearch(offsets, 9000L);
+        long expected = offsets[index >= 0 ? index : -index - 1];
+        for (boolean optimized : new boolean[]{ false, true })
+        {
+            DatabaseDescriptor.setConfig(loadYaml("optimized_metrics_enabled: " + optimized + '\n'));
+            MetricName name = new DefaultNameFactory(ClientRequestMetrics.TYPE_NAME, "compactRetry" + optimized).createMetricName("Latency");
+            try
+            {
+                SnapshottingTimer timer = registry.timer(name);
+                assertEquals(123, PercentileSpeculativeRetryPolicy.NINETY_NINE_P.calculateThreshold(timer, 123));
+                for (int i = 0; i < 1000; i++)
+                    timer.update(i < 980 ? 1000 : 9000, TimeUnit.MICROSECONDS);
+                assertEquals(expected, PercentileSpeculativeRetryPolicy.NINETY_NINE_P.calculateThreshold(timer, 123));
+                assertEquals(1000, timer.getCount());
+            }
+            finally
+            {
+                registry.remove(name);
+            }
         }
     }
 

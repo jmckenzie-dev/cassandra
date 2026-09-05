@@ -25,3 +25,16 @@ specific language governing permissions and limitations under the License.
   an unnecessary permission prompt even though both reached the same worktree.
 - Keep each benchmark record in a single println. Cassandra's test logger
   splits printf fragments into separate log records.
+- Thread identity does not establish contention. Four serial writer handoffs
+  should retain a single dense stripe; activate additional stores on a failed
+  atomic update instead.
+- A count-conservation test can pass with broken stripe activation. Assert that
+  contention occurred, then test nonzero rounding on each physical stripe.
+- Shared-host timing varies for the unchanged control too. Preserve every batch
+  and compare repeated matched runs before attributing a change to the patch.
+- Smaller dense arrays change the sparse promotion break-even point. The 50%
+  threshold increased N100 counter payload; 75% kept those histograms sparse.
+- Pin contended microbenchmarks to a recorded CPU set when cache-group placement
+  changes results between forks. Affinity does not reserve cores from other work.
+- Use distinct loopback subnets for sequential table measurements. Record failed
+  startup attempts separately; do not substitute them for workload measurements.

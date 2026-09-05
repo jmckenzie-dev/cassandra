@@ -48,6 +48,7 @@ import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.memtable.AbstractAllocatorMemtable;
 import org.apache.cassandra.db.memtable.Memtable;
 import org.apache.cassandra.db.memtable.TrieMemtable;
+import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.shared.WithProperties;
@@ -96,6 +97,12 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
     }
 
     @Override
+    protected void configureCluster(Cluster.Builder builder)
+    {
+        builder.withSubnet(config.subnet);
+    }
+
+    @Override
     protected void configureNode(IInstanceConfig node)
     {
         Map<String, Object> memtable = new LinkedHashMap<>();
@@ -113,6 +120,10 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
     {
         effective = cluster.get(1).callOnInstance(() -> {
             Map<String, Object> values = new LinkedHashMap<>();
+            values.put("listenAddress", DatabaseDescriptor.getListenAddress().getHostAddress());
+            values.put("rpcAddress", DatabaseDescriptor.getRpcAddress().getHostAddress());
+            values.put("storagePort", DatabaseDescriptor.getStoragePort());
+            values.put("nativeTransportPort", DatabaseDescriptor.getNativeTransportPort());
             values.put("sstableFormat", DatabaseDescriptor.getSelectedSSTableFormat().name());
             values.put("memtableAllocation", DatabaseDescriptor.getMemtableAllocationType().name());
             values.put("memtableParameters", DatabaseDescriptor.getMemtableConfigurations().get("default").parameters);
@@ -419,6 +430,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
     {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("scenario", config.scenario);
+        values.put("subnet", config.subnet);
         values.put("tables", config.tables);
         values.put("activeTables", config.activeTables);
         values.put("rowsPerTablePerCycle", config.rows);
@@ -473,6 +485,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
     {
         String scenario = "never-written";
         int tables = 100;
+        int subnet = 0;
         int activeTables = -1;
         int rows = 4;
         int cycles = 2;
@@ -525,6 +538,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                     {
                         case "--scenario": c.scenario = value; break;
                         case "--tables": c.tables = Integer.parseInt(value); break;
+                        case "--subnet": c.subnet = Integer.parseInt(value); break;
                         case "--active-tables": c.activeTables = Integer.parseInt(value); break;
                         case "--rows-per-table": c.rows = Integer.parseInt(value); break;
                         case "--cycles": c.cycles = Integer.parseInt(value); break;
@@ -544,6 +558,8 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
             }
             if (c.activeTables == -1)
                 c.activeTables = c.tables;
+            if (c.subnet < 0 || c.subnet > 255)
+                throw new IllegalArgumentException("--subnet must be between 0 and 255");
             if (!List.of("never-written", "written-flushed", "idle-reactivate", "rotating-bursts", "trickle").contains(c.scenario))
                 throw new IllegalArgumentException("Unknown scenario: " + c.scenario);
             if (c.tables < 1 || c.activeTables < 1 || c.activeTables > c.tables || c.rows < 1 || c.cycles < 1 ||

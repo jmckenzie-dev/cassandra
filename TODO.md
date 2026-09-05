@@ -13,8 +13,6 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-- [ ] Reduce unused reservoir contention stripes after the first optimization commit; capture pre/iteration/final measurements and commit separately.
-
 - [ ] Evaluate narrower reservoir counters with exact widening before overflow; retain current histogram precision if this saves more memory than coarser buckets. Capture pre/iteration/final measurements and commit separately.
 
 - [ ] Add bounded automatic idle retirement after resident metrics storage is addressed; preserve write/flush/reclamation ordering and metric history.
@@ -22,6 +20,8 @@ specific language governing permissions and limitations under the License.
 - [ ] Revisit allocation-only improvements after residency blockers are addressed, including meter registration-list copying.
 
 # DONE
+
+- [x] Allocate reservoir stripes on contention, correct sparse promotion for smaller stores, and validate pre/iteration/final memory and throughput measurements (results: research/compact_runtime_metrics.md).
 
 - [x] Implement empty/sparse runtime metric reservoirs with a YAML switch defaulted on, preserved legacy control, and pre/iteration/final measurements (plan: .plans/compact-runtime-metrics.md; results: research/compact_runtime_metrics.md).
 
