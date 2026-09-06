@@ -19,11 +19,15 @@
 package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Iterator;
 
 import com.google.common.collect.Iterators;
 
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
@@ -32,12 +36,24 @@ import static org.apache.cassandra.distributed.api.ConsistencyLevel.QUORUM;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 
+@RunWith(Parameterized.class)
 public class PagingTest extends TestBaseImpl
 {
+    @Parameterized.Parameters(name = "tombstonePagingThreshold={0}")
+    public static Collection<Object[]> parameters()
+    {
+        return Arrays.asList(new Object[][]{ { -1 }, { 2 } });
+    }
+
+    @Parameterized.Parameter
+    public int tombstonePagingThreshold;
+
     @Test
     public void testPaging() throws Throwable
     {
-        try (Cluster cluster = init(builder().withNodes(3).start());
+        try (Cluster cluster = init(builder().withNodes(3)
+                                            .withConfig(config -> config.set("tombstone_paging_threshold", tombstonePagingThreshold))
+                                            .start());
              Cluster singleNode = init(builder().withNodes(1).withSubnet(1).start()))
         {
             cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))"));
@@ -86,7 +102,9 @@ public class PagingTest extends TestBaseImpl
     @Test
     public void testPagingWithRangeTombstones() throws IOException
     {
-        try (Cluster cluster = init(Cluster.build(2).start()))
+        try (Cluster cluster = init(Cluster.build(2)
+                                          .withConfig(config -> config.set("tombstone_paging_threshold", tombstonePagingThreshold))
+                                          .start()))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, regular int, PRIMARY KEY (pk, ck))");
             cluster.coordinator(1).execute("DELETE FROM " + KEYSPACE + ".tbl WHERE pk = 1 AND ck > 1 AND ck < 10", ConsistencyLevel.ALL);

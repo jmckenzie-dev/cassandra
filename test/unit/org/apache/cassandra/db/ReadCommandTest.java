@@ -855,9 +855,8 @@ public class ReadCommandTest
 
         try
         {
-            qt().withSeed(TOMBSTONE_CHECKPOINT_PROPERTY_SEED)
+            qt().withFixedSeed(TOMBSTONE_CHECKPOINT_PROPERTY_SEED)
                 .withExamples(24)
-                .withPure(false)
                 .forAll(integers().between(1, 12), integers().between(1, 12))
                 .checkAssert((failureThreshold, extraTombstones) -> {
                     cfs.truncateBlocking();

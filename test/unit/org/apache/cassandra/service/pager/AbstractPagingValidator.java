@@ -54,6 +54,7 @@ import org.apache.cassandra.utils.RandomHelpers;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * This is a utility class to help perform fuzz testing against pagers within the Cassandra Codebase. The primary usage
@@ -1150,11 +1151,11 @@ public abstract class AbstractPagingValidator
         @Override
         public void queryData() throws ExecutionException, InterruptedException, TimeoutException
         {
-            SimpleStatement statement = new SimpleStatement(String.format("SELECT * FROM %s WHERE key = 'key'", TABLE));
+            SimpleStatement statement = generateQueryStatement();
             statement.setFetchSize(pageSize);
             ResultSet rs = session.execute(statement);
 
-            int firstClustering = Integer.MIN_VALUE;
+            Integer previousClustering = null;
             for (Row r : rs.all())
             {
                 if (!r.isNull(STATIC_COL))
@@ -1164,8 +1165,13 @@ public abstract class AbstractPagingValidator
                 }
                 CellState state = CellState.fromRow(r);
 
-                if (firstClustering == Integer.MIN_VALUE)
-                    firstClustering = state.clustering;
+                if (!r.isNull(CLUSTERING))
+                {
+                    if (previousClustering != null)
+                        assertTrue("Rows arrived in the wrong clustering order",
+                                   reversed ? state.clustering < previousClustering : state.clustering > previousClustering);
+                    previousClustering = state.clustering;
+                }
 
                 traceSeen("Adding cell: " + state);
                 seenCellState.put(state.clustering, state);

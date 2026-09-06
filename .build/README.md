@@ -154,6 +154,60 @@ Fail fast with repeating tests is done with REPEATED_TESTS_STOP_ON_FAILURE
 
     .build/run-tests.sh -a jvm-dtest-repeat -t BooleanTest -e REPEATED_TESTS_COUNT=2 -e REPEATED_TESTS_STOP_ON_FAILURE=false
 
+Targeted paging coverage
+-----------------------
+
+Use a Java 17 build with the bundled JaCoCo 0.8.8. Rebuild generated classes when
+switching Java versions. Select a fully qualified test class:
+
+    bash run_tests.sh build
+    bash run_tests.sh coverage org.apache.cassandra.service.pager.PagingAcrossTombstonesTest -Dno-build-test=true
+    bash run_tests.sh coverage org.apache.cassandra.distributed.test.PagingAcrossTombstonesFuzzTest -Dno-build-test=true -DmaxMemory=2G
+
+The wrapper writes console output to a dated file in `logs/`. Each coverage run
+uses a separate directory in `build/paging-coverage/`, containing JUnit results,
+execution data, and HTML, CSV, and XML reports. It generates a report even when
+tests fail and preserves the failure exit code. Coverage from a failed run is
+partial evidence, not a passing verification result.
+
+Run the checkpoint properties, continuation serialization property, and bounded
+three-node fuzzer:
+
+    bash run_property_tests.sh -Dno-build-test=true -DmaxMemory=2G
+
+The distributed fuzzer uses native-protocol clients pinned to each coordinator.
+It compares timestamp-ordered inserts, row deletes, and range deletes against an
+independent model at consistency ALL. Before enabling tombstone paging, it checks
+the model against a single-replica replay of every mutation, unpaged ALL reads,
+and an all-disabled paging control. The separate `mutationModelMatchesCassandra`
+test runs those controls alone. Disabled nodes use a high failure threshold;
+this does not test rejection by an overwhelmed disabled node.
+
+Enabled cases check ascending and descending reads, memtables and flushed data,
+and matching, differing, and partly disabled configurations. Fetch size must be
+strictly below LIMIT so Cassandra creates a pager. Every enabled configuration
+must cross a replica tombstone threshold. The driver consumes all pages before
+the test compares rows; empty pages with continuation state are valid.
+
+The deterministic `PagingAcrossTombstonesDistributedTest` checks empty pages with
+matching digests and continuations, full-data reconciliation on mismatch,
+blocking read repair, reverse composite clustering, static data, and a remote
+data replica. Its original ALL regressions now pass in memory and after flush.
+Run it with the same test or coverage wrapper as the fuzzer.
+
+The default seed is `18424` with six histories. Override the seed through Ant's test
+JVM arguments, for example:
+
+    bash run_tests.sh coverage org.apache.cassandra.distributed.test.PagingAcrossTombstonesFuzzTest -Dno-build-test=true '-Dtest.jvm.args=-Dcassandra.test.seed=18424'
+
+Run the existing single-node synchronous/asynchronous fuzzer separately:
+
+    bash run_property_tests.sh --long -Dno-build-test=true '-Dtest.jvm.args=-Dcassandra.test.paging_fuzz_duration_min=1'
+
+Inspect the pager package and the changed read/repair classes in the report.
+Line coverage and branch coverage measure executed code; neither proves correct
+reconciliation or that every paging mode was exercised.
+
 Running python dtests without docker:
 
     .build/run-python-dtests.sh dtest

@@ -70,6 +70,7 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
     {
         REJECT,
         ACCEPT,
+        COMPARE,
         USE_LOCAL_COMMAND
     }
 
@@ -244,9 +245,12 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
         Map<ParamType, Object> params = message.header.params();
         InetAddressAndPort from = message.from();
         Map<ParamType, Object> warningParams = params;
-        if (tombstonePageCheckpointPolicy == TombstonePageCheckpointPolicy.ACCEPT
-            && params.containsKey(ParamType.TOMBSTONE_PAGE_CHECKPOINT)
-            && !message.payload.isDigestResponse())
+        boolean acceptCheckpoint = tombstonePageCheckpointPolicy == TombstonePageCheckpointPolicy.ACCEPT
+                                   && !message.payload.isDigestResponse();
+        boolean compareCheckpoint = tombstonePageCheckpointPolicy == TombstonePageCheckpointPolicy.COMPARE
+                                    && (params.containsKey(ParamType.TOMBSTONE_PAGE_CONTINUATION) || replicaPlan().readQuorum() > 1);
+        if ((acceptCheckpoint || compareCheckpoint)
+            && (int) params.getOrDefault(ParamType.TOMBSTONE_PAGE_CHECKPOINT, 0) > 0)
         {
             warningParams = new HashMap<>(params);
             warningParams.remove(ParamType.TOMBSTONE_FAIL);
@@ -290,20 +294,16 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
 
     public void response(ReadResponse result)
     {
-        response(result, 0, true);
+        response(result, null, true);
     }
 
-    private void response(ReadResponse result, int tombstoneLimitedCount, boolean failOnTombstonePageCheckpoint)
+    private void response(ReadResponse result, ReadCommand executedCommand, boolean failOnTombstonePageCheckpoint)
     {
         Verb kind = command.isRangeRequest() ? Verb.RANGE_RSP : Verb.READ_RSP;
         Message<ReadResponse> message = Message.internalResponse(kind, result);
         message = MessageParams.addToMessage(message);
-        if (tombstoneLimitedCount > 0)
-        {
-            message = message.withParam(ParamType.TOMBSTONE_PAGE_CHECKPOINT, tombstoneLimitedCount);
-            if (failOnTombstonePageCheckpoint)
-                message = message.withParam(ParamType.TOMBSTONE_FAIL, tombstoneLimitedCount);
-        }
+        if (executedCommand != null)
+            message = executedCommand.addTombstonePageCheckpoint(message, failOnTombstonePageCheckpoint);
         onResponse(message);
     }
 
@@ -312,9 +312,9 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
         if (tombstonePageCheckpointPolicy == TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND
             && command == executedCommand
             && command.hasTombstonePageCheckpointOwner())
-            response(result, executedCommand.tombstoneLimitedCount(), false);
+            response(result, executedCommand, false);
         else
-            response(result, executedCommand.tombstoneLimitedCount(), true);
+            response(result, executedCommand, true);
     }
 
     @Override

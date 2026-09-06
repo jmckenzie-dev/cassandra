@@ -58,6 +58,7 @@ import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PurgeFunction;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
+import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.RangeTombstoneBoundMarker;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
@@ -397,6 +398,29 @@ public abstract class ReadCommand extends AbstractReadQuery
     public int tombstoneLimitedCount()
     {
         return tombstoneLimitedCount;
+    }
+
+    public void setTombstonePageContinuation(TombstonePageContinuation continuation, int count)
+    {
+        Preconditions.checkState(hasTombstonePageCheckpointOwner);
+        tombstoneLimitedRow = continuation == null ? null : BTreeRow.emptyRow(continuation.clustering);
+        tombstoneLimitedCount = continuation == null ? 0 : count;
+    }
+
+    public <T> Message<T> addTombstonePageCheckpoint(Message<T> response, boolean failOnCheckpoint)
+    {
+        if (tombstoneLimitedCount == 0)
+            return response;
+
+        response = response.withParam(ParamType.TOMBSTONE_PAGE_CHECKPOINT, tombstoneLimitedCount);
+        if (isLimitedToOnePartition() && tombstoneLimitedRow != null
+            && tombstoneLimitedRow.clustering() != Clustering.STATIC_CLUSTERING
+            && !tombstoneLimitedRow.clustering().isEmpty())
+            response = response.withParam(ParamType.TOMBSTONE_PAGE_CONTINUATION,
+                                          new TombstonePageContinuation(tombstoneLimitedRow.clustering()));
+        if (failOnCheckpoint)
+            response = response.withParam(ParamType.TOMBSTONE_FAIL, tombstoneLimitedCount);
+        return response;
     }
 
     public void setTombstonePageCheckpointOwner()

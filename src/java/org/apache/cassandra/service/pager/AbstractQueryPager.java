@@ -18,9 +18,11 @@
 package org.apache.cassandra.service.pager;
 
 import java.util.ArrayList;
+
 import javax.annotation.Nullable;
 
 import com.google.common.base.Preconditions;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -192,7 +194,10 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
             if (isFirstPartition)
             {
                 isFirstPartition = false;
-                if (isPreviouslyReturnedPartition(currentKey) && !partition.hasNext())
+                // A tombstone checkpoint can advance the cursor without returning any rows or static data.
+                if (isPreviouslyReturnedPartition(currentKey)
+                    && remainingInPartition < limits.perPartitionCount()
+                    && !partition.hasNext())
                 {
                     partition.close();
                     return null;

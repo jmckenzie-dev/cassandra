@@ -24,13 +24,17 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
+import org.apache.cassandra.db.TombstonePageContinuation;
 import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
 import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.db.rows.RowIterator;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
@@ -47,6 +51,19 @@ import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 public class DigestResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<E, P>> extends ResponseResolver<E, P>
 {
     private volatile Message<ReadResponse> dataResponse;
+
+    public boolean supportsTombstonePageCheckpoints()
+    {
+        return command.isLimitedToOnePartition() && !command.isTopK() && !command.limits().isUnlimited()
+               && (replicaPlan().readQuorum() > 1 || canResumeTombstonePage());
+    }
+
+    private boolean canResumeTombstonePage()
+    {
+        return command.hasTombstonePageCheckpointOwner()
+               && DatabaseDescriptor.getTombstonePagingThreshold() != -1
+               && !command.metadata().clusteringColumns().isEmpty();
+    }
 
     public DigestResolver(ReadCoordinator coordinator, ReadCommand command, ReplicaPlan.Shared<E, P> replicaPlan, Dispatcher.RequestTime requestTime)
     {
@@ -83,7 +100,28 @@ public class DigestResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRea
 
         if (!hasTransientResponse(responses))
         {
-            return UnfilteredPartitionIterators.filter(dataResponse.payload.makeIterator(command), command.nowInSec());
+            int count = (int) dataResponse.header.params().getOrDefault(ParamType.TOMBSTONE_PAGE_CHECKPOINT, 0);
+            if (canResumeTombstonePage())
+            {
+                TombstonePageContinuation continuation = count == 0 ? null : (TombstonePageContinuation) dataResponse.header.params().get(ParamType.TOMBSTONE_PAGE_CONTINUATION);
+                Preconditions.checkState(count == 0 || continuation != null, "Checkpoint response has no continuation");
+                command.setTombstonePageContinuation(continuation, count);
+            }
+            PartitionIterator data = UnfilteredPartitionIterators.filter(dataResponse.payload.makeIterator(command), command.nowInSec());
+            if (count == 0)
+                return data;
+
+            // A checkpoint does not establish that the partition contains only static data.
+            return Transformation.apply(data, new Transformation<RowIterator>()
+            {
+                protected RowIterator applyToPartition(RowIterator partition)
+                {
+                    if (partition.hasNext())
+                        return partition;
+                    partition.close();
+                    return null;
+                }
+            });
         }
         else
         {
@@ -124,6 +162,10 @@ public class DigestResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRea
         ByteBuffer digest = null;
         Collection<Message<ReadResponse>> snapshot = responses.snapshot();
         assert snapshot.size() > 0 : "Attempted response match comparison while no responses have been received.";
+        boolean checkpoint = (int) dataResponse.header.params().getOrDefault(ParamType.TOMBSTONE_PAGE_CHECKPOINT, 0) > 0;
+        TombstonePageContinuation continuation = (TombstonePageContinuation) dataResponse.header.params().get(ParamType.TOMBSTONE_PAGE_CONTINUATION);
+        if (checkpoint && (!canResumeTombstonePage() || continuation == null))
+            return false;
         if (snapshot.size() == 1)
             return true;
 
@@ -132,6 +174,11 @@ public class DigestResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRea
         {
             if (replicaPlan().lookup(message.from()).isTransient())
                 continue;
+
+            boolean otherCheckpoint = (int) message.header.params().getOrDefault(ParamType.TOMBSTONE_PAGE_CHECKPOINT, 0) > 0;
+            if (checkpoint != otherCheckpoint
+                || (checkpoint && !continuation.equals(message.header.params().get(ParamType.TOMBSTONE_PAGE_CONTINUATION))))
+                return false;
 
             ByteBuffer newDigest = message.payload.digest(command);
             if (digest == null)

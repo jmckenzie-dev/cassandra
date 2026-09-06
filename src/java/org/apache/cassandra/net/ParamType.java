@@ -19,6 +19,7 @@ package org.apache.cassandra.net;
 
 import javax.annotation.Nullable;
 
+import org.apache.cassandra.db.TombstonePageContinuation;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.service.accord.debug.AccordRemoteTracing;
 import org.apache.cassandra.service.writes.thresholds.WriteThresholdMapSerializer;
@@ -61,6 +62,7 @@ public enum ParamType
     WRITE_TOMBSTONE_WARN             (19, WriteThresholdMapSerializer.serializer),
     ACCORD_TRACING                   (20, AccordRemoteTracing.tracingSerializer),
     TOMBSTONE_PAGE_CHECKPOINT        (21, Int32Serializer.serializer),
+    TOMBSTONE_PAGE_CONTINUATION      (22, TombstonePageContinuation.serializer),
     ;
 
     final int id;

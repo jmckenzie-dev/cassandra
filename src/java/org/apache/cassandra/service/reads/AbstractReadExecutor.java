@@ -78,6 +78,7 @@ public abstract class AbstractReadExecutor
     protected final Dispatcher.RequestTime requestTime;
 
     private   final int initialDataRequestCount;
+    private   final boolean compareTombstonePageContinuations;
     protected volatile PartitionIterator result = null;
 
     AbstractReadExecutor(ReadCoordinator coordinator, ColumnFamilyStore cfs, ReadCommand command, ReplicaPlan.ForTokenRead replicaPlan, int initialDataRequestCount, Dispatcher.RequestTime requestTime)
@@ -89,8 +90,11 @@ public abstract class AbstractReadExecutor
         // the ReadRepair and DigestResolver both need to see our updated
         this.readRepair = ReadRepair.create(coordinator, command, this.replicaPlan, requestTime);
         this.digestResolver = new DigestResolver<>(coordinator, command, this.replicaPlan, requestTime);
+        this.compareTombstonePageContinuations = digestResolver.supportsTombstonePageCheckpoints();
         boolean useLocalCommand = command.hasTombstonePageCheckpointOwner() && !command.isTopK();
-        ReadCallback.TombstonePageCheckpointPolicy tombstonePageCheckpointPolicy = useLocalCommand
+        ReadCallback.TombstonePageCheckpointPolicy tombstonePageCheckpointPolicy = compareTombstonePageContinuations
+                                                                                   ? ReadCallback.TombstonePageCheckpointPolicy.COMPARE
+                                                                                   : useLocalCommand
                                                                                    ? ReadCallback.TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND
                                                                                    : ReadCallback.TombstonePageCheckpointPolicy.REJECT;
         this.handler = new ReadCallback<>(digestResolver,
@@ -173,6 +177,8 @@ public abstract class AbstractReadExecutor
         if (hasLocalEndpoint)
         {
             logger.trace("reading {} locally", readCommand.isDigestQuery() ? "digest" : "data");
+            if (compareTombstonePageContinuations && readCommand == command)
+                readCommand = readCommand.copy();
             Stage.READ.maybeExecuteImmediately(new LocalReadRunnable(readCommand, handler, requestTime));
         }
     }
