@@ -80,6 +80,11 @@ Cassandra rejects excess requests without blocking the read.
 Duplicate requests for the same table and partition count as one request.
 Set the capacity to `0` to reject new requests without cancelling accepted work.
 
+Cassandra suppresses new requests for the same table and partition for 60 seconds after an attempt completes or fails.
+Rejected reads do not extend this cooldown, and requests waiting for busy SSTables keep their existing retry behavior.
+Each node tracks at most 1,024 recently completed requests separately from active and queued requests.
+The cooldown is best-effort: cache eviction or a node restart can allow an earlier retry.
+
 Use the `StorageService` Java Management Extensions (JMX) methods `getTombstoneCompactionQueueCapacity` and `setTombstoneCompactionQueueCapacity` to read or change the live value.
 You can also use the `system_views.settings` table:
 

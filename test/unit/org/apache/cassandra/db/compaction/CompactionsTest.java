@@ -898,15 +898,18 @@ public class CompactionsTest
     {
         ColumnFamilyStore store = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD4);
         CompactionManager manager = CompactionManager.instance;
+        String suffix = "_" + compactionReadDiskAccessMode + "_" + cursorCompactionEnabled + "_" + backgroundWriteDiskAccessMode;
+        DecoratedKey firstKey = Util.dk("0" + suffix);
+        DecoratedKey secondKey = Util.dk("1" + suffix);
         int previousCapacity = DatabaseDescriptor.getTombstoneCompactionQueueCapacity();
         store.truncateBlocking();
         store.disableAutoCompaction();
         try
         {
-            populate(KEYSPACE1, CF_STANDARD4, 0, 0, 0);
+            populate(KEYSPACE1, CF_STANDARD4, 0, 0, suffix, 0);
             Util.flush(store);
             SSTableReader first = store.getLiveSSTables().iterator().next();
-            populate(KEYSPACE1, CF_STANDARD4, 1, 1, 0);
+            populate(KEYSPACE1, CF_STANDARD4, 1, 1, suffix, 0);
             Util.flush(store);
             Set<SSTableReader> secondFiles = new HashSet<>(store.getLiveSSTables());
             secondFiles.remove(first);
@@ -919,12 +922,12 @@ public class CompactionsTest
             assertThat(owner).isNotNull();
             try (ILifecycleTransaction ignored = owner)
             {
-                manager.submitTombstoneTriggeredCompaction(store, Util.dk("0"), 1001);
+                manager.submitTombstoneTriggeredCompaction(store, firstKey, 1001);
                 assertTrue(manager.hasOngoingOrPendingTasks());
-                manager.submitTombstoneTriggeredCompaction(store, Util.dk("0"), 1001);
-                manager.submitTombstoneTriggeredCompaction(store, Util.dk("1"), 1001);
+                manager.submitTombstoneTriggeredCompaction(store, firstKey, 1001);
+                manager.submitTombstoneTriggeredCompaction(store, secondKey, 1001);
                 StorageService.instance.setTombstoneCompactionQueueCapacity(0);
-                manager.submitTombstoneTriggeredCompaction(store, Util.dk("1"), 1001);
+                manager.submitTombstoneTriggeredCompaction(store, secondKey, 1001);
                 assertThat(store.getLiveSSTables()).contains(first, second);
             }
 
@@ -933,9 +936,15 @@ public class CompactionsTest
             await().atMost(30, TimeUnit.SECONDS).until(() -> manager.getCompletedTasks() > completed);
 
             StorageService.instance.setTombstoneCompactionQueueCapacity(1);
-            manager.submitTombstoneTriggeredCompaction(store, Util.dk("1"), 1001);
+            manager.submitTombstoneTriggeredCompaction(store, secondKey, 1001);
             await().atMost(30, TimeUnit.SECONDS).until(() -> !manager.hasOngoingOrPendingTasks());
             assertThat(store.getLiveSSTables()).doesNotContain(second);
+
+            Set<SSTableReader> compacted = new HashSet<>(store.getLiveSSTables());
+            manager.submitTombstoneTriggeredCompaction(store, firstKey, 1001);
+            manager.submitTombstoneTriggeredCompaction(store, secondKey, 1001);
+            assertFalse(manager.hasOngoingOrPendingTasks());
+            assertThat(store.getLiveSSTables()).containsExactlyInAnyOrderElementsOf(compacted);
         }
         finally
         {

@@ -19,8 +19,10 @@ package org.apache.cassandra.db.compaction;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CountDownLatch;
@@ -29,7 +31,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntSupplier;
+
+import com.google.common.base.Ticker;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -43,6 +48,7 @@ import org.apache.cassandra.schema.TableId;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.db.compaction.TombstoneTriggeredCompactionManager.AdmissionResult.ACCEPTED;
+import static org.apache.cassandra.db.compaction.TombstoneTriggeredCompactionManager.AdmissionResult.COOLDOWN;
 import static org.apache.cassandra.db.compaction.TombstoneTriggeredCompactionManager.AdmissionResult.DISABLED;
 import static org.apache.cassandra.db.compaction.TombstoneTriggeredCompactionManager.AdmissionResult.DUPLICATE;
 import static org.apache.cassandra.db.compaction.TombstoneTriggeredCompactionManager.AdmissionResult.FULL;
@@ -247,6 +253,133 @@ public class TombstoneTriggeredCompactionManagerTest implements WithQuickTheorie
     }
 
     @Test
+    public void cooldownStartsAtCompletionAndRejectedReadsDoNotExtendIt()
+    {
+        ManualExecutor executor = new ManualExecutor();
+        TestTicker ticker = new TestTicker();
+        TombstoneTriggeredCompactionManager manager = new TombstoneTriggeredCompactionManager(() -> 1, (table, key) -> {
+            ticker.advance(SECONDS.toNanos(120));
+            return COMPLETED;
+        }, executor, 1, ticker, 4);
+        try
+        {
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("hot")));
+            ticker.advance(SECONDS.toNanos(120));
+            assertEquals(DUPLICATE, manager.enqueue(TABLE_ID, key("hot")));
+            executor.runAll();
+            assertEquals(0, manager.outstandingTasks());
+            assertTrue(!manager.hasTasks());
+
+            assertEquals(COOLDOWN, manager.enqueue(TABLE_ID, key("hot")));
+            ticker.advance(SECONDS.toNanos(59));
+            assertEquals(COOLDOWN, manager.enqueue(TABLE_ID, key("hot")));
+            ticker.advance(SECONDS.toNanos(1) - 1);
+            assertEquals(COOLDOWN, manager.enqueue(TABLE_ID, key("hot")));
+            ticker.advance(1);
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("hot")));
+        }
+        finally
+        {
+            manager.shutdown(true);
+        }
+    }
+
+    @Test
+    public void failedExecutionCoolsDownWithoutUsingQueueCapacity()
+    {
+        ManualExecutor executor = new ManualExecutor();
+        TestTicker ticker = new TestTicker();
+        AtomicInteger completed = new AtomicInteger();
+        TombstoneTriggeredCompactionManager manager = new TombstoneTriggeredCompactionManager(() -> 1, (table, key) -> {
+            if (key.equals(key("failed")))
+                throw new IllegalStateException("expected");
+            completed.incrementAndGet();
+            return COMPLETED;
+        }, executor, 1, ticker, 4);
+        try
+        {
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("failed")));
+            executor.runAll();
+            assertEquals(COOLDOWN, manager.enqueue(TABLE_ID, key("failed")));
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("other")));
+            executor.runAll();
+            assertEquals(1, completed.get());
+            assertEquals(0, manager.outstandingTasks());
+            assertEquals(COOLDOWN, manager.enqueue(TABLE_ID, key("failed")));
+            assertEquals(COOLDOWN, manager.enqueue(TABLE_ID, key("other")));
+            ticker.advance(SECONDS.toNanos(60));
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("failed")));
+        }
+        finally
+        {
+            manager.shutdown(true);
+        }
+    }
+
+    @Test
+    public void cooldownIsScopedToTableAndCopiedKey()
+    {
+        ManualExecutor executor = new ManualExecutor();
+        TestTicker ticker = new TestTicker();
+        AtomicInteger capacity = new AtomicInteger(1);
+        TombstoneTriggeredCompactionManager manager = new TombstoneTriggeredCompactionManager(capacity::get,
+                                                                                              (table, key) -> COMPLETED,
+                                                                                              executor, 1, ticker, 4);
+        try
+        {
+            DecoratedKey submitted = key("owned");
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, submitted));
+            submitted.getKey().put(0, (byte) 'X');
+            executor.runAll();
+            assertEquals(COOLDOWN, manager.enqueue(TABLE_ID, key("owned")));
+            capacity.set(0);
+            assertEquals(DISABLED, manager.enqueue(TABLE_ID, key("owned")));
+            capacity.set(1);
+            TableId otherTable = TableId.generate();
+            assertEquals(ACCEPTED, manager.enqueue(otherTable, key("owned")));
+            assertEquals(DUPLICATE, manager.enqueue(otherTable, key("owned")));
+            assertEquals(COOLDOWN, manager.enqueue(TABLE_ID, key("owned")));
+            executor.runAll();
+            assertEquals(COOLDOWN, manager.enqueue(otherTable, key("owned")));
+        }
+        finally
+        {
+            manager.shutdown(true);
+        }
+    }
+
+    @Test
+    public void cooldownEvictionDoesNotEvictOutstandingWork()
+    {
+        ManualExecutor executor = new ManualExecutor();
+        TestTicker ticker = new TestTicker();
+        List<DecoratedKey> executed = new ArrayList<>();
+        TombstoneTriggeredCompactionManager manager = new TombstoneTriggeredCompactionManager(() -> 1, (table, key) -> {
+            executed.add(key);
+            return COMPLETED;
+        }, executor, 1, ticker, 1);
+        try
+        {
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("first")));
+            executor.runAll();
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("second")));
+            assertEquals(COOLDOWN, manager.enqueue(TABLE_ID, key("first")));
+            assertEquals(DUPLICATE, manager.enqueue(TABLE_ID, key("second")));
+            assertEquals(FULL, manager.enqueue(TABLE_ID, key("third")));
+            executor.runAll();
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("first")));
+            assertEquals(COOLDOWN, manager.enqueue(TABLE_ID, key("second")));
+            assertEquals(1, manager.outstandingTasks());
+            executor.runAll();
+            assertEquals(List.of(key("first"), key("second"), key("first")), executed);
+        }
+        finally
+        {
+            manager.shutdown(true);
+        }
+    }
+
+    @Test
     public void acceptedRequestOwnsKeyCopy()
     {
         ManualExecutor executor = new ManualExecutor();
@@ -412,11 +545,13 @@ public class TombstoneTriggeredCompactionManagerTest implements WithQuickTheorie
     {
         AtomicInteger capacity = new AtomicInteger(2);
         ManualExecutor executor = new ManualExecutor();
+        TestTicker ticker = new TestTicker();
+        Map<DecoratedKey, Long> cooldownUntil = new HashMap<>();
         List<DecoratedKey> executed = new ArrayList<>();
-        TombstoneTriggeredCompactionManager manager = newManager(capacity::get, (table, key) -> {
+        TombstoneTriggeredCompactionManager manager = new TombstoneTriggeredCompactionManager(capacity::get, (table, key) -> {
             executed.add(key);
             return COMPLETED;
-        }, executor);
+        }, executor, 1, ticker, 16);
         Set<DecoratedKey> accepted = new LinkedHashSet<>();
         List<DecoratedKey> expectedExecuted = new ArrayList<>();
 
@@ -427,10 +562,17 @@ public class TombstoneTriggeredCompactionManagerTest implements WithQuickTheorie
                 if (!operation.isCapacityUpdate() && operation.value == -1)
                 {
                     expectedExecuted.addAll(accepted);
+                    for (DecoratedKey key : accepted)
+                        cooldownUntil.put(key, ticker.read() + SECONDS.toNanos(60));
                     accepted.clear();
                     executor.runAll();
                     assertEquals(expectedExecuted, executed);
                     assertEquals(0, manager.outstandingTasks());
+                    continue;
+                }
+                if (!operation.isCapacityUpdate() && operation.value == -2)
+                {
+                    ticker.advance(SECONDS.toNanos(30));
                     continue;
                 }
                 if (operation.isCapacityUpdate())
@@ -440,7 +582,8 @@ public class TombstoneTriggeredCompactionManagerTest implements WithQuickTheorie
                 }
 
                 DecoratedKey key = key("property-" + operation.value);
-                TombstoneTriggeredCompactionManager.AdmissionResult expected = expectedAdmission(capacity.get(), accepted, key);
+                TombstoneTriggeredCompactionManager.AdmissionResult expected = expectedAdmission(capacity.get(), accepted, key,
+                                                                                                  ticker.read() < cooldownUntil.getOrDefault(key, 0L));
                 assertEquals(expected, manager.enqueue(TABLE_ID, key));
                 if (expected == ACCEPTED)
                     accepted.add(key);
@@ -461,12 +604,15 @@ public class TombstoneTriggeredCompactionManagerTest implements WithQuickTheorie
 
     private static TombstoneTriggeredCompactionManager.AdmissionResult expectedAdmission(int capacity,
                                                                                           Set<DecoratedKey> accepted,
-                                                                                          DecoratedKey key)
+                                                                                          DecoratedKey key,
+                                                                                          boolean coolingDown)
     {
         if (capacity == 0)
             return DISABLED;
         if (accepted.contains(key))
             return DUPLICATE;
+        if (coolingDown)
+            return COOLDOWN;
         if (accepted.size() >= capacity)
             return FULL;
         return ACCEPTED;
@@ -474,8 +620,9 @@ public class TombstoneTriggeredCompactionManagerTest implements WithQuickTheorie
 
     private Gen<QueueOperation> queueOperationGenerator()
     {
-        return integers().between(0, 20)
-                         .map(value -> value == 20 ? QueueOperation.enqueue(-1)
+        return integers().between(0, 21)
+                         .map(value -> value == 21 ? QueueOperation.enqueue(-2)
+                                                  : value == 20 ? QueueOperation.enqueue(-1)
                                                   : value < 5 ? QueueOperation.capacity(value)
                                                  : QueueOperation.enqueue((value - 5) % 8))
                          .describedAs(QueueOperation::toString);
@@ -510,7 +657,25 @@ public class TombstoneTriggeredCompactionManagerTest implements WithQuickTheorie
         @Override
         public String toString()
         {
+            if (!capacityUpdate && value == -2)
+                return "advance(30s)";
             return capacityUpdate ? "capacity(" + value + ')' : value == -1 ? "drain" : "enqueue(" + value + ')';
+        }
+    }
+
+    private static final class TestTicker extends Ticker
+    {
+        private final AtomicLong nanos = new AtomicLong();
+
+        @Override
+        public long read()
+        {
+            return nanos.get();
+        }
+
+        private void advance(long elapsedNanos)
+        {
+            nanos.addAndGet(elapsedNanos);
         }
     }
 

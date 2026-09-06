@@ -25,21 +25,29 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
 
+import com.google.common.base.Ticker;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.memory.HeapCloner;
 
 final class TombstoneTriggeredCompactionManager
 {
     private static final Logger logger = LoggerFactory.getLogger(TombstoneTriggeredCompactionManager.class);
+    private static final int COOLDOWN_SECONDS = 60;
+    private static final int COOLDOWN_CACHE_SIZE = 1024;
 
     enum AdmissionResult
     {
         ACCEPTED,
         DUPLICATE,
+        COOLDOWN,
         FULL,
         DISABLED,
         SHUTDOWN
@@ -61,6 +69,7 @@ final class TombstoneTriggeredCompactionManager
     private final ExecutorService executor;
     private final long retryDelayMillis;
     private final Set<Request> pending = new LinkedHashSet<>();
+    private final Cache<Request, Boolean> recentlyCompleted;
 
     private Request active;
     private boolean draining;
@@ -72,10 +81,32 @@ final class TombstoneTriggeredCompactionManager
                                         ExecutorService executor,
                                         long retryDelayMillis)
     {
+        this(capacity, taskRunner, executor, retryDelayMillis, new Ticker()
+        {
+            @Override
+            public long read()
+            {
+                return Clock.Global.nanoTime();
+            }
+        }, COOLDOWN_CACHE_SIZE);
+    }
+
+    TombstoneTriggeredCompactionManager(IntSupplier capacity,
+                                        TaskRunner taskRunner,
+                                        ExecutorService executor,
+                                        long retryDelayMillis,
+                                        Ticker ticker,
+                                        int cooldownCacheSize)
+    {
         this.capacity = capacity;
         this.taskRunner = taskRunner;
         this.executor = executor;
         this.retryDelayMillis = retryDelayMillis;
+        recentlyCompleted = CacheBuilder.newBuilder()
+                                        .expireAfterWrite(COOLDOWN_SECONDS, TimeUnit.SECONDS)
+                                        .maximumSize(cooldownCacheSize)
+                                        .ticker(ticker)
+                                        .build();
     }
 
     AdmissionResult enqueue(TableId tableId, DecoratedKey key)
@@ -91,6 +122,8 @@ final class TombstoneTriggeredCompactionManager
             Request request = new Request(tableId, key);
             if (request.equals(active) || pending.contains(request))
                 return AdmissionResult.DUPLICATE;
+            if (recentlyCompleted.getIfPresent(request) != null)
+                return AdmissionResult.COOLDOWN;
             if (pending.size() + (active == null ? 0 : 1) >= currentCapacity)
                 return AdmissionResult.FULL;
 
@@ -149,6 +182,12 @@ final class TombstoneTriggeredCompactionManager
         return executor.awaitTermination(timeout, unit);
     }
 
+    private synchronized void complete(Request request)
+    {
+        recentlyCompleted.put(request, Boolean.TRUE);
+        active = null;
+    }
+
     private void drain()
     {
         int consecutiveBusy = 0;
@@ -191,10 +230,7 @@ final class TombstoneTriggeredCompactionManager
                 }
                 else
                 {
-                    synchronized (this)
-                    {
-                        active = null;
-                    }
+                    complete(request);
                     consecutiveBusy = 0;
                 }
             }
@@ -203,7 +239,8 @@ final class TombstoneTriggeredCompactionManager
                 Thread.currentThread().interrupt();
                 synchronized (this)
                 {
-                    active = null;
+                    if (active != null)
+                        complete(request);
                     draining = false;
                 }
                 return;
@@ -212,10 +249,7 @@ final class TombstoneTriggeredCompactionManager
             {
                 logger.error("Tombstone-triggered compaction failed for table {} at token {}",
                              request.tableId, request.key.getToken(), e);
-                synchronized (this)
-                {
-                    active = null;
-                }
+                complete(request);
                 consecutiveBusy = 0;
             }
         }
