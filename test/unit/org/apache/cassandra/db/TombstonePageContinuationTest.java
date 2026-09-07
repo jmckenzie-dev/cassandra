@@ -28,12 +28,20 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertEquals;
 import static org.quicktheories.QuickTheory.qt;
 import static org.quicktheories.generators.SourceDSL.integers;
 
 public class TombstonePageContinuationTest
 {
+    @Test
+    public void rejectsStaticAndEmptyClusterings()
+    {
+        for (Clustering<?> clustering : new Clustering<?>[]{ Clustering.STATIC_CLUSTERING, Clustering.EMPTY })
+            assertThatThrownBy(() -> new TombstonePageContinuation(clustering)).isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     public void serializationPreservesCompositeClustering()
     {

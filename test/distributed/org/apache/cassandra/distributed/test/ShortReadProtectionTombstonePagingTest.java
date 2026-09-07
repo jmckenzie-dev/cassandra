@@ -26,6 +26,7 @@ import java.util.List;
 
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
+import com.datastax.driver.core.policies.FallthroughRetryPolicy;
 import com.datastax.driver.core.policies.RoundRobinPolicy;
 import com.datastax.driver.core.policies.WhiteListPolicy;
 
@@ -33,6 +34,7 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.filter.DataLimits;
@@ -42,6 +44,7 @@ import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.exceptions.ReadFailureException;
+import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.StorageProxy;
@@ -53,6 +56,8 @@ import org.apache.cassandra.utils.FBUtilities;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ALL;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
+import static org.apache.cassandra.distributed.util.TombstonePagingTestUtil.readPages;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertTrue;
 
 public class ShortReadProtectionTombstonePagingTest extends TestBaseImpl
@@ -77,6 +82,82 @@ public class ShortReadProtectionTombstonePagingTest extends TestBaseImpl
     {
         if (cluster != null)
             cluster.close();
+    }
+
+    @Test
+    public void staticTombstoneCheckpointFailsBeforeReturningRows()
+    {
+        String table = "srp_static_checkpoint";
+        cluster.schemaChange("CREATE TABLE " + qualified(table) +
+                             " (pk int, ck int, s1 int static, s2 int static, s3 int static, v int, PRIMARY KEY (pk, ck))" +
+                             " WITH read_repair = 'NONE' AND speculative_retry = 'NONE'");
+        for (int node = 1; node <= 3; node++)
+        {
+            for (int pk = 0; pk < 2; pk++)
+            {
+                for (int ck = 0; ck < 2; ck++)
+                    cluster.get(node).executeInternal("INSERT INTO " + qualified(table) +
+                                                      " (pk, ck, s1, s2, s3, v) VALUES (?, ?, 1, 2, 3, ?) USING TIMESTAMP 1", pk, ck, ck);
+                if (pk == 0 || node == 3)
+                    cluster.get(node).executeInternal("DELETE s1, s2, s3 FROM " + qualified(table) + " USING TIMESTAMP 2 WHERE pk = ?", pk);
+            }
+        }
+
+        try
+        {
+            for (boolean flushed : new boolean[]{ false, true })
+            {
+                if (flushed)
+                    flush();
+                for (int coordinator : new int[]{ 1, 3 })
+                {
+                    String host = cluster.get(coordinator).broadcastAddress().getHostString();
+                    try (com.datastax.driver.core.Cluster client = com.datastax.driver.core.Cluster.builder()
+                                                                                                   .addContactPoint(host)
+                                                                                                   .withRetryPolicy(FallthroughRetryPolicy.INSTANCE)
+                                                                                                   .withLoadBalancingPolicy(new WhiteListPolicy(new RoundRobinPolicy(),
+                                                                                                                                               Collections.singletonList(new InetSocketAddress(host, 9042))))
+                                                                                                   .build();
+                         Session session = client.connect())
+                    {
+                        for (int pk = 0; pk < 2; pk++)
+                        {
+                            String cql = "SELECT ck, v, s1, s2, s3 FROM " + qualified(table) + " WHERE pk = " + pk + " LIMIT 3";
+                            cluster.forEach(node -> node.runOnInstance(() -> {
+                                DatabaseDescriptor.setTombstonePagingThreshold(-1);
+                                DatabaseDescriptor.setTombstoneFailureThreshold(100);
+                            }));
+                            assertRows(readPages(session, cql, 1, 2).stream()
+                                                                   .map(result -> row(result.getInt("ck"), result.getInt("v"),
+                                                                                      result.getObject("s1"), result.getObject("s2"), result.getObject("s3")))
+                                                                   .toArray(Object[][]::new),
+                                       row(0, 0, null, null, null), row(1, 1, null, null, null));
+                            cluster.forEach(node -> node.runOnInstance(() -> {
+                                DatabaseDescriptor.setTombstonePagingThreshold(2);
+                                DatabaseDescriptor.setTombstoneFailureThreshold(2);
+                            }));
+                            long before = cluster.stream().mapToLong(node -> node.callOnInstance(() ->
+                                Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstoneFailures.getCount())).sum();
+                            assertThatThrownBy(() -> readPages(session, cql, 1, 2))
+                            .as("coordinator=%s, pk=%s, flushed=%s", coordinator, pk, flushed)
+                            .isInstanceOf(com.datastax.driver.core.exceptions.ReadFailureException.class)
+                            .satisfies(error -> assertTrue(((com.datastax.driver.core.exceptions.ReadFailureException) error)
+                                                          .getFailuresMap().containsValue(RequestFailureReason.READ_TOO_MANY_TOMBSTONES.code)));
+                            long after = cluster.stream().mapToLong(node -> node.callOnInstance(() ->
+                                Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstoneFailures.getCount())).sum();
+                            assertTrue("Expected a static-row tombstone cutoff", after > before);
+                        }
+                    }
+                }
+            }
+        }
+        finally
+        {
+            cluster.forEach(node -> node.runOnInstance(() -> {
+                DatabaseDescriptor.setTombstonePagingThreshold(2);
+                DatabaseDescriptor.setTombstoneFailureThreshold(2);
+            }));
+        }
     }
 
     @Test

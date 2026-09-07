@@ -82,6 +82,7 @@ import org.apache.cassandra.locator.ReplicaUtils;
 import org.apache.cassandra.metrics.ClearableHistogram;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.repair.consistent.LocalSessionAccessor;
 import org.apache.cassandra.schema.CachingParams;
@@ -804,6 +805,47 @@ public class ReadCommandTest
         assertEquals(0, cfs.metric.purgeableTombstoneScannedHistogram.cf.getSnapshot().getMin());
         assertEquals(1, cfs.metric.purgeableTombstoneScannedHistogram.cf.getSnapshot().getMax());
 
+    }
+
+    @Test
+    public void staticTombstoneCheckpointHasNoRowContinuation()
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
+        String key = "static-checkpoint";
+        int originalFailureThreshold = DatabaseDescriptor.getTombstoneFailureThreshold();
+        try
+        {
+            DatabaseDescriptor.setTombstoneFailureThreshold(0);
+            new RowUpdateBuilder(cfs.metadata(), 10, ByteBufferUtil.bytes(key)).clustering("a").add("a", "live").build().applyUnsafe();
+            new RowUpdateBuilder(cfs.metadata(), 20, ByteBufferUtil.bytes(key)).delete("s").build().applyUnsafe();
+            for (boolean flushed : new boolean[]{ false, true })
+            {
+                if (flushed)
+                    Util.flush(cfs);
+                SinglePartitionReadCommand command = getWholePartitionReadCommand(cfs, key, FBUtilities.nowInSeconds())
+                                                     .withUpdatedLimit(DataLimits.cqlLimits(2));
+                try (ReadExecutionController controller = command.executionController();
+                     UnfilteredPartitionIterator partitions = command.executeLocally(controller, 0))
+                {
+                    ReadResponse response = ReadResponse.createDataResponse(partitions, command);
+                    assertEquals(1, command.tombstoneLimitedCount());
+                    Assert.assertSame(Clustering.STATIC_CLUSTERING, command.tombstoneLimitedRow().clustering());
+                    for (boolean failOnCheckpoint : new boolean[]{ false, true })
+                    {
+                        Message<ReadResponse> message = command.addTombstonePageCheckpoint(Message.internalResponse(Verb.READ_RSP, response),
+                                                                                         failOnCheckpoint);
+                        assertEquals(1, message.header.params().get(ParamType.TOMBSTONE_PAGE_CHECKPOINT));
+                        assertFalse(message.header.params().containsKey(ParamType.TOMBSTONE_PAGE_CONTINUATION));
+                        assertEquals(failOnCheckpoint, message.header.params().containsKey(ParamType.TOMBSTONE_FAIL));
+                    }
+                }
+            }
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstoneFailureThreshold(originalFailureThreshold);
+            cfs.truncateBlocking();
+        }
     }
 
     @Test

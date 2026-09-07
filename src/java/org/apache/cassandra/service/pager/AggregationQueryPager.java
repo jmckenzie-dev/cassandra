@@ -242,6 +242,9 @@ public final class AggregationQueryPager implements QueryPager
 
                 if (isDone(pageSize, counted) || subPager.isExhausted())
                 {
+                    // A completed result page has no unfinished group to carry into the next page.
+                    if (!subPager.isExhausted())
+                        subPager = subPager.withUpdatedLimit(limits);
                     endOfData = true;
                     closed = true;
                     return;
@@ -273,7 +276,7 @@ public final class AggregationQueryPager implements QueryPager
                                               ByteBuffer lastPartitionKey,
                                               Clustering<?> lastClustering)
         {
-            GroupingState state = new GroupingState(lastPartitionKey, lastClustering);
+            GroupingState state = lastPartitionKey == null ? GroupingState.EMPTY_STATE : new GroupingState(lastPartitionKey, lastClustering);
             DataLimits newLimits = limits.forGroupByInternalPaging(state);
             return pager.withUpdatedLimit(newLimits);
         }

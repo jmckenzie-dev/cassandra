@@ -88,6 +88,55 @@ public class RandomizedPagingStateTest
             checkState(metadata, 1, row);
         }
     }
+
+    @Test
+    public void testRoundTripThroughBufferViews()
+    {
+        Random random = new Random(18424);
+        TableMetadata metadata = TableMetadata.builder("ks", "round_trip")
+                                              .addPartitionKeyColumn("pk", BytesType.instance)
+                                              .addClusteringColumn("ck", BytesType.instance)
+                                              .addRegularColumn("v", LongType.instance)
+                                              .build();
+        int[] boundaries = { 0, 1, 127, 128, 16383, 16384, Integer.MAX_VALUE };
+        for (ProtocolVersion version : ProtocolVersion.SUPPORTED)
+        {
+            for (int example = 0; example < 256; example++)
+            {
+                byte[] key = new byte[1 + random.nextInt(32)];
+                byte[] clustering = new byte[1 + random.nextInt(32)];
+                random.nextBytes(key);
+                random.nextBytes(clustering);
+                Row row = BTreeRow.emptyRow(Clustering.make(ByteBuffer.wrap(clustering)));
+                PagingState.RowMark mark = example % 3 == 0 ? null : PagingState.RowMark.create(metadata, row, version);
+                int remaining = boundaries[example % boundaries.length];
+                int perPartition = example < boundaries.length ? boundaries[example] : random.nextInt(Integer.MAX_VALUE);
+                PagingState state = new PagingState(example % 2 == 0 ? null : ByteBuffer.wrap(key), mark, remaining, perPartition);
+                ByteBuffer serialized = state.serialize(version);
+                Assert.assertEquals(state.serializedSize(version), serialized.remaining());
+
+                ByteBuffer padded = example % 2 == 0 ? ByteBuffer.allocateDirect(serialized.remaining() + 8)
+                                                    : ByteBuffer.allocate(serialized.remaining() + 8);
+                padded.position(3);
+                padded.put(serialized.duplicate()).flip().position(3);
+                ByteBuffer view = example % 3 == 0 ? padded.slice() : padded.asReadOnlyBuffer();
+                int limit = view.limit();
+                PagingState restored = PagingState.deserialize(view, version);
+                String description = "example=" + example + ", protocol=" + version + ", " + state;
+                Assert.assertEquals(description, state, restored);
+                Assert.assertEquals(description, state.hashCode(), restored.hashCode());
+                Assert.assertEquals(description, serialized, restored.serialize(version));
+                Assert.assertFalse(view.hasRemaining());
+                Assert.assertEquals(limit, view.limit());
+                if (mark != null)
+                {
+                    Assert.assertEquals(description, row.clustering(), restored.rowMark.clustering(metadata));
+                    Assert.assertEquals(description, mark.hashCode(), restored.rowMark.hashCode());
+                }
+            }
+        }
+    }
+
     private static void checkState(TableMetadata metadata, int maxPkSize, Row row)
     {
         PagingState.RowMark mark = PagingState.RowMark.create(metadata, row, ProtocolVersion.V3);

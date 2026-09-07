@@ -154,6 +154,12 @@ public abstract class DataLimits
         return false;
     }
 
+    /** Returns the grouping state carried between internal sub-pages. */
+    public GroupingState groupByState()
+    {
+        return GroupingState.EMPTY_STATE;
+    }
+
     public boolean isExhausted(Counter counter)
     {
         return counter.counted() < count();
@@ -356,6 +362,12 @@ public abstract class DataLimits
         public void onClose()
         {
             super.onClose();
+        }
+
+        /** Close the counter without completing an unfinished group at a tombstone checkpoint. */
+        public void onClose(boolean isEndOfData)
+        {
+            onClose();
         }
     }
 
@@ -713,6 +725,12 @@ public abstract class DataLimits
             return true;
         }
 
+        @Override
+        public GroupingState groupByState()
+        {
+            return state;
+        }
+
         public boolean isUnlimited()
         {
             return groupLimit == NO_LIMIT && groupPerPartitionLimit == NO_LIMIT && rowLimit == NO_LIMIT;
@@ -1050,13 +1068,19 @@ public abstract class DataLimits
             @Override
             public void onClose()
             {
+                onClose(true);
+            }
+
+            @Override
+            public void onClose(boolean isEndOfData)
+            {
                 // Groups are only counted when the end of the group is reached.
                 // The end of a group is detected by 2 ways:
                 // 1) a new group is reached
                 // 2) the end of the data is reached
                 // We know that the end of the data is reached if the group limit has not been reached
                 // and the number of rows counted is smaller than the internal page size.
-                if (hasUnfinishedGroup && groupCounted < groupLimit && rowsCounted < rowLimit)
+                if (isEndOfData && hasUnfinishedGroup && groupCounted < groupLimit && rowsCounted < rowLimit)
                 {
                     incrementGroupCount();
                     incrementGroupInCurrentPartitionCount();

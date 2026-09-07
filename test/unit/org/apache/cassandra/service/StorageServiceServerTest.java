@@ -126,6 +126,26 @@ public class StorageServiceServerTest
     }
 
     @Test
+    public void testTombstonePagingManagementAccessors()
+    {
+        StorageServiceMBean service = StorageService.instance;
+        int original = DatabaseDescriptor.getTombstonePagingThreshold();
+        try
+        {
+            for (int threshold : new int[]{ -1, 0, 1, 100 })
+            {
+                service.setTombstonePagingEnabled(threshold);
+                assertEquals(threshold, DatabaseDescriptor.getTombstonePagingThreshold());
+                assertEquals(threshold, service.getTombstonePagingEnabled());
+            }
+        }
+        finally
+        {
+            service.setTombstonePagingEnabled(original);
+        }
+    }
+
+    @Test
     public void testGetAllRangesEmpty()
     {
         List<Token> toks = Collections.emptyList();

@@ -21,7 +21,9 @@ package org.apache.cassandra.distributed.test;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -42,6 +44,8 @@ import org.apache.cassandra.distributed.api.Feature;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_SEED;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
+import static org.apache.cassandra.distributed.shared.AssertUtils.row;
+import static org.apache.cassandra.distributed.util.TombstonePagingTestUtil.readPages;
 import static org.junit.Assert.assertTrue;
 
 /** Compares paged reconciliation of divergent replicas with a timestamp-ordered mutation model. */
@@ -60,6 +64,128 @@ public class PagingAcrossTombstonesFuzzTest extends TestBaseImpl
     public void mutationModelMatchesCassandra() throws IOException
     {
         run(false);
+    }
+
+    @Test
+    public void partitionKeyInMatchesModel() throws IOException
+    {
+        long seed = TEST_SEED.getLong(18424L);
+        Random random = new Random(seed);
+        try (Cluster cluster = init(Cluster.build(3)
+                                          .withSubnet(16)
+                                          .withConfig(config -> config.with(Feature.NATIVE_PROTOCOL)
+                                                                      .set("hinted_handoff_enabled", false)
+                                                                      .set("tombstone_paging_threshold", 2)
+                                                                      .set("tombstone_failure_threshold", 2))
+                                          .start());
+             com.datastax.driver.core.Cluster client = client(cluster, 1);
+             Session session = client.connect())
+        {
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE +
+                                 " (pk int, ck int, v int, PRIMARY KEY (pk, ck))" +
+                                 " WITH read_repair = 'NONE' AND speculative_retry = 'NONE'");
+            for (int example = 0; example < 12; example++)
+            {
+                List<String> history = new ArrayList<>();
+                Map<Integer, TreeMap<Integer, Integer>> model = new TreeMap<>();
+                int partitions = 2 + random.nextInt(3);
+                for (int p = 0; p < partitions; p++)
+                {
+                    int pk = example * 4 + p;
+                    TreeMap<Integer, Integer> live = new TreeMap<>();
+                    model.put(pk, live);
+                    int deletedPrefix = example % 3 == 0 ? 6 : 3;
+                    for (int ck = 0; ck < 12; ck++)
+                    {
+                        int value = random.nextInt(1000);
+                        applyInMutation(cluster, history, "INSERT INTO " + KEYSPACE + '.' + TABLE +
+                                                         " (pk, ck, v) VALUES (" + pk + ", " + ck + ", " + value + ") USING TIMESTAMP 1");
+                        live.put(ck, value);
+                        if (example % 6 == 0 || (p == 0 && example % 4 == 0) || ck < deletedPrefix || random.nextBoolean())
+                        {
+                            applyInMutation(cluster, history, "DELETE FROM " + KEYSPACE + '.' + TABLE +
+                                                             " USING TIMESTAMP 2 WHERE pk = " + pk + " AND ck = " + ck);
+                            live.remove(ck);
+                        }
+                        else if (random.nextBoolean())
+                        {
+                            value = random.nextInt(1000);
+                            applyInMutation(cluster, history, "UPDATE " + KEYSPACE + '.' + TABLE + " USING TIMESTAMP 3 SET v = " + value +
+                                                             " WHERE pk = " + pk + " AND ck = " + ck);
+                            live.put(ck, value);
+                        }
+                    }
+                }
+                Object[][] expected = model.entrySet().stream()
+                                           .flatMap(partition -> partition.getValue().entrySet().stream()
+                                                                          .map(entry -> row(partition.getKey(), entry.getKey(), entry.getValue())))
+                                           .toArray(Object[][]::new);
+                String keys = model.keySet().stream().map(String::valueOf).collect(Collectors.joining(", "));
+                String base = "SELECT pk, ck, v FROM " + KEYSPACE + '.' + TABLE + " WHERE pk IN (" + keys + ')';
+                for (boolean flushed : new boolean[]{ false, true })
+                {
+                    if (flushed)
+                        cluster.forEach(node -> node.flush(KEYSPACE));
+                    String context = "seed=" + seed + ", example=" + example + ", flushed=" + flushed + ", mutations=" + history;
+                    configure(cluster, 3);
+                    Object[][] ordered;
+                    try
+                    {
+                        ordered = inRows(session, base, 1);
+                        Comparator<Object[]> comparator = Comparator.<Object[]>comparingInt(result -> (Integer) result[0])
+                                                                   .thenComparingInt(result -> (Integer) result[1]);
+                        assertRows(Arrays.stream(ordered).sorted(comparator).toArray(Object[][]::new), expected);
+                    }
+                    catch (AssertionError | RuntimeException failure)
+                    {
+                        throw new AssertionError("IN model control failed: " + context, failure);
+                    }
+                    for (int limit : Arrays.stream(new int[]{ 0, 3, expected.length, expected.length + 1 }).distinct().toArray())
+                        for (int fetchSize : new int[]{ 1, 2 })
+                        {
+                            if (limit != 0 && fetchSize >= limit)
+                                continue;
+                            String cql = base + (limit == 0 ? "" : " LIMIT " + limit);
+                            Object[][] limited = Arrays.stream(ordered)
+                                                       .limit(limit == 0 ? Long.MAX_VALUE : limit)
+                                                       .toArray(Object[][]::new);
+                            configure(cluster, 3);
+                            try
+                            {
+                                assertRows(inRows(session, cql, fetchSize), limited);
+                            }
+                            catch (AssertionError | RuntimeException failure)
+                            {
+                                throw new AssertionError("IN LIMIT control failed: " + context + ", query=" + cql + ", fetchSize=" + fetchSize, failure);
+                            }
+                            configure(cluster, 0);
+                            long before = thresholdCrossings(cluster);
+                            try
+                            {
+                                assertRows(inRows(session, cql, fetchSize), limited);
+                                assertTrue("No checkpoint was exercised", thresholdCrossings(cluster) > before);
+                            }
+                            catch (AssertionError | RuntimeException failure)
+                            {
+                                throw new AssertionError("IN paging failed: " + context + ", query=" + cql + ", fetchSize=" + fetchSize, failure);
+                            }
+                        }
+                }
+            }
+        }
+    }
+
+    private static void applyInMutation(Cluster cluster, List<String> history, String cql)
+    {
+        history.add(cql);
+        cluster.forEach(node -> node.executeInternal(cql));
+    }
+
+    private static Object[][] inRows(Session session, String cql, int fetchSize)
+    {
+        return readPages(session, cql, fetchSize, 48).stream()
+                                                   .map(result -> row(result.getInt("pk"), result.getInt("ck"), result.getInt("v")))
+                                                   .toArray(Object[][]::new);
     }
 
     private void run(boolean exerciseTombstonePaging) throws IOException

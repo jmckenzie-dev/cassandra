@@ -90,6 +90,8 @@ public class SinglePartitionPager extends AbstractQueryPager<SinglePartitionRead
     {
         if (pageQueries == null)
             pageQueries = new ArrayList<>();
+        else
+            pageQueries.clear();
         Clustering<?> clustering = lastReturned == null ? null : lastReturned.clustering(query.metadata());
 
         DataLimits limits = lastReturned == null

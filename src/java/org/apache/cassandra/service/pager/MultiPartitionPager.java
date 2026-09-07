@@ -103,7 +103,10 @@ public class MultiPartitionPager<T extends SinglePartitionReadQuery> implements 
     public QueryPager withUpdatedLimit(DataLimits newLimits)
     {
         SinglePartitionPager[] newPagers = Arrays.copyOf(pagers, pagers.length);
-        newPagers[current] = newPagers[current].withUpdatedLimit(newLimits);
+        // An empty checkpoint may advance to a partition that has returned no rows yet.
+        DataLimits partitionLimits = newPagers[current].key().equals(newLimits.groupByState().partitionKey())
+                                     ? newLimits : newLimits.withoutState();
+        newPagers[current] = newPagers[current].withUpdatedLimit(partitionLimits);
 
         return new MultiPartitionPager<T>(newPagers,
                                           newLimits,

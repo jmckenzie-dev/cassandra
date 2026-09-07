@@ -314,8 +314,10 @@ public class FastByteOperations
         {
             if (src.hasArray())
                 System.arraycopy(src.array(), src.arrayOffset() + srcPosition, trg, trgPosition, length);
-            else
+            else if (src.isDirect())
                 copy(null, srcPosition + theUnsafe.getLong(src, DIRECT_BUFFER_ADDRESS_OFFSET), trg, trgPosition, length);
+            else
+                src.duplicate().position(srcPosition).get(trg, trgPosition, length);
         }
 
         public void copy(byte[] src, int srcPosition, ByteBuffer trg, int trgPosition, int length)

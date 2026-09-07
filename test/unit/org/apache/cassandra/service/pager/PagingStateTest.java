@@ -26,10 +26,23 @@ import org.junit.Test;
 
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.Clustering;
+import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.marshal.MapType;
+import org.apache.cassandra.db.rows.BTreeRow;
+import org.apache.cassandra.db.rows.BufferCell;
+import org.apache.cassandra.db.rows.CellPath;
+import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.transport.ProtocolException;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class PagingStateTest
@@ -125,5 +138,169 @@ public class PagingStateTest
         ByteBuffer serialized = state.legacySerialize(false);
         assertEquals(serialized.remaining(), state.legacySerializedSize(false));
         assertEquals(state, PagingState.deserialize(serialized, ProtocolVersion.V4));
+    }
+
+    @Test
+    public void testEqualityIncludesCursorAndRemainingCounts()
+    {
+        TableMetadata metadata = TableMetadata.builder("ks", "equality")
+                                              .addPartitionKeyColumn("pk", Int32Type.instance)
+                                              .addClusteringColumn("ck", Int32Type.instance)
+                                              .build();
+        Row row = BTreeRow.emptyRow(Clustering.make(ByteBufferUtil.bytes(1)));
+        Row otherRow = BTreeRow.emptyRow(Clustering.make(ByteBufferUtil.bytes(2)));
+        for (ProtocolVersion version : ProtocolVersion.SUPPORTED)
+        {
+            PagingState.RowMark mark = PagingState.RowMark.create(metadata, row, version);
+            PagingState state = new PagingState(ByteBufferUtil.bytes(1), mark, 10, 3);
+            PagingState.RowMark differentMark = PagingState.RowMark.create(metadata, otherRow, version);
+            PagingState.RowMark differentProtocol = PagingState.RowMark.create(metadata, row,
+                                                                               version == ProtocolVersion.V4 ? ProtocolVersion.V5 : ProtocolVersion.V4);
+            Object[] different = { null, "state",
+                                   new PagingState(null, mark, state.remaining, state.remainingInPartition),
+                                   new PagingState(state.partitionKey, null, state.remaining, state.remainingInPartition),
+                                   new PagingState(state.partitionKey, differentMark, state.remaining, state.remainingInPartition),
+                                   new PagingState(state.partitionKey, mark, state.remaining + 1, state.remainingInPartition),
+                                   new PagingState(state.partitionKey, mark, state.remaining, state.remainingInPartition + 1) };
+            for (Object other : different)
+                assertFalse(state.equals(other));
+            for (Object other : new Object[]{ null, "mark", differentMark, differentProtocol })
+                assertFalse(mark.equals(other));
+        }
+    }
+
+    @Test
+    public void testAbsentState()
+    {
+        for (ProtocolVersion version : ProtocolVersion.SUPPORTED)
+            assertNull(PagingState.deserialize(null, version));
+    }
+
+    @Test
+    public void testReadOnlyHeapInput()
+    {
+        for (ProtocolVersion version : ProtocolVersion.SUPPORTED)
+        {
+            PagingState state = Util.makeSomePagingState(version);
+            assertEquals(state, PagingState.deserialize(state.serialize(version).asReadOnlyBuffer(), version));
+        }
+    }
+
+    @Test
+    public void testTruncatedAndTrailingBytes()
+    {
+        for (ProtocolVersion version : ProtocolVersion.SUPPORTED)
+        {
+            PagingState state = Util.makeSomePagingState(version);
+            ByteBuffer serialized = state.serialize(version);
+            for (int length = 0; length < serialized.remaining(); length++)
+            {
+                // The older V3 format omits only the final per-partition count.
+                if (version == ProtocolVersion.V3 && length == serialized.remaining() - Integer.BYTES)
+                    continue;
+                ByteBuffer truncated = serialized.duplicate();
+                truncated.limit(length);
+                // The V3 key and two lengths also form a complete modern state with an opaque row mark.
+                if (version == ProtocolVersion.V3 && length == state.partitionKey.remaining() + 2 * Short.BYTES)
+                {
+                    assertFalse(PagingState.isLegacySerialized(truncated));
+                    assertEquals(truncated, PagingState.deserialize(truncated.duplicate(), ProtocolVersion.V3).serialize(ProtocolVersion.V4));
+                    continue;
+                }
+                assertInvalidState(truncated);
+            }
+            ByteBuffer trailing = ByteBuffer.allocate(serialized.remaining() + 1);
+            trailing.put(serialized.duplicate()).put((byte) 0).flip();
+            assertInvalidState(trailing);
+        }
+    }
+
+    @Test
+    public void testInvalidModernLengthsAndCounts() throws IOException
+    {
+        for (int field = 0; field < 3; field++)
+        {
+            for (long value : new long[]{ Integer.MAX_VALUE, 1L + Integer.MAX_VALUE, Long.MAX_VALUE })
+            {
+                // Zero-length keys and marks put each field directly after the preceding vint.
+                try (DataOutputBuffer out = new DataOutputBuffer())
+                {
+                    for (int i = 0; i < 4; i++)
+                        out.writeUnsignedVInt(i == field ? value : 0);
+                    // Integer.MAX_VALUE is a valid remaining count.
+                    if (field != 2 || value != Integer.MAX_VALUE)
+                        assertInvalidState(out.buffer());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testNegativeLegacyLengthsAndCounts()
+    {
+        ByteBuffer serialized = new PagingState(null, null, 1, 1).serialize(ProtocolVersion.V3);
+        for (int offset : new int[]{ 0, 2, 4, 8 })
+        {
+            ByteBuffer invalid = ByteBuffer.allocate(serialized.remaining()).put(serialized.duplicate());
+            invalid.flip();
+            if (offset < 4)
+                invalid.putShort(offset, (short) -1);
+            else
+                invalid.putInt(offset, -1);
+            assertInvalidState(invalid);
+        }
+    }
+
+    @Test
+    public void testLegacyStaticAndCollectionRowMarks()
+    {
+        TableMetadata metadata = TableMetadata.builder("ks", "marks")
+                                              .addPartitionKeyColumn("pk", Int32Type.instance)
+                                              .addClusteringColumn("ck", Int32Type.instance)
+                                              .addStaticColumn("s", Int32Type.instance)
+                                              .addRegularColumn("m", MapType.getInstance(Int32Type.instance, Int32Type.instance, true))
+                                              .build();
+        Row staticRow = BTreeRow.singleCellRow(Clustering.STATIC_CLUSTERING,
+                                              BufferCell.live(metadata.getColumn(ByteBufferUtil.bytes("s")), 1,
+                                                              ByteBufferUtil.bytes(9)));
+        assertRowMark(metadata, staticRow, ProtocolVersion.V3);
+
+        Row collectionRow = BTreeRow.singleCellRow(Clustering.make(ByteBufferUtil.bytes(3)),
+                                                  BufferCell.live(metadata.getColumn(ByteBufferUtil.bytes("m")), 1,
+                                                                  ByteBufferUtil.bytes(9), CellPath.create(ByteBufferUtil.bytes(7))));
+        for (ProtocolVersion version : ProtocolVersion.SUPPORTED)
+            assertRowMark(metadata, collectionRow, version);
+    }
+
+    @Test
+    public void testRowMarkWithoutClusteringColumns()
+    {
+        TableMetadata metadata = TableMetadata.builder("ks", "no_clustering")
+                                              .addPartitionKeyColumn("pk", Int32Type.instance)
+                                              .addRegularColumn("v", Int32Type.instance)
+                                              .build();
+        for (ProtocolVersion version : ProtocolVersion.SUPPORTED)
+            assertEquals(Clustering.EMPTY, PagingState.RowMark.create(metadata, BTreeRow.emptyRow(Clustering.EMPTY), version)
+                                                             .clustering(metadata));
+        // Modern pagers omit a row mark when the table has no clustering columns.
+        assertRowMark(metadata, BTreeRow.emptyRow(Clustering.EMPTY), ProtocolVersion.V3);
+    }
+
+    private static void assertRowMark(TableMetadata metadata, Row row, ProtocolVersion version)
+    {
+        PagingState state = new PagingState(null, PagingState.RowMark.create(metadata, row, version), 10, 3);
+        PagingState restored = PagingState.deserialize(state.serialize(version), version);
+        assertEquals(state, restored);
+        assertEquals(row.clustering(), restored.rowMark.clustering(metadata));
+    }
+
+    private static void assertInvalidState(ByteBuffer bytes)
+    {
+        String description = ByteBufferUtil.bytesToHex(bytes);
+        assertFalse(description, PagingState.isModernSerialized(bytes));
+        assertFalse(description, PagingState.isLegacySerialized(bytes));
+        for (ProtocolVersion version : ProtocolVersion.SUPPORTED)
+            assertThatThrownBy(() -> PagingState.deserialize(bytes, version)).as(description + " on " + version)
+                                                                            .isInstanceOf(ProtocolException.class);
     }
 }

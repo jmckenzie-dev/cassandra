@@ -19,6 +19,20 @@ under the License.
 
 # DONE
 
+- [x] Add nine focused paging tests and strengthen the state property; fix static-cutoff error reporting. All 110 selected executions pass. Pager coverage is 96.37% lines and 93.12% branches; see `.debug/close-paging-coverage-gaps.md` for remaining guards.
+- [x] Add mixed-version paging fuzzing after the deterministic upgrade combinations pass. Seeds 18424 and 1 pass with one and two upgraded nodes, generated replica divergence, reverse reads, and IN queries.
+- [x] Extend mixed-version paging tests through two upgraded nodes and cover GROUP BY, static columns, TTL, and partition-key IN together with paging limits. All four methods pass in 209.825 seconds.
+- [x] Run all three real mixed-version paging tests with 5.0.10 and the current branch; all pass. See `.debug/mixed-version-tombstone-paging.md`.
+- [x] Fix GROUP BY checkpoint state, unfinished-group counting, result-page exhaustion, and IN partition transitions. All retained regressions and the new three-node combinations pass; see `.debug/fix-grouped-checkpoint-paging.md`.
+- [x] Fix short-read refill exhaustion after a grouped tombstone checkpoint; the regression previously returned deleted `ck=1` and overcounted its group.
+- [x] Fix static GROUP BY suppression with tombstone paging disabled; the complete existing `SelectGroupByTest` class passes.
+- [x] Fix read-only heap buffer copying; re-enable the crash regression and restore heap read-only views to the paging-state property.
+- [x] Extend pager coverage to 95.7% lines and 89.7% branches with deterministic state, aggregation, limit, boundary, and exhaustion tests. New passing methods take about 0.6 seconds; see `.debug/extended-pager-coverage.md` for evidence and remaining gaps.
+- [x] Fix stale checkpoint reuse in multi-partition IN paging; validate direct cursors, LIMIT combinations, unfiltered reads, and three-node IN fuzzing. Evidence: [.debug/fix-in-paging-checkpoint-reuse.md](.debug/fix-in-paging-checkpoint-reuse.md).
+- [x] Add and validate concurrent-write, speculation, timeout/retry, shutdown, TTL, collection, and transient-replica paging tests.
+- [x] Add disabled controls and retain the valid failing IN and GROUP BY regressions; cover safe range-checkpoint rejection.
+- [x] Replace empty mixed-configuration tests with 32 passing cases and implement three real upgrade tests; all three upgrade tests now pass.
+- [x] Record coverage, findings, commands, and artifact limits in `.reviews/remaining-tombstone-paging-coverage.md`.
 - [x] Implement digest and continuation agreement with full-data fallback; fix static-only output at empty checkpoints and exhaustion.
 - [x] Add tests for matching, mismatching, legacy, remote-coordinator, static, and read-repair continuation paths.
 - [x] Verify the reproductions, distributed fuzzer with two seeds, related regressions, coverage, and targeted style checks.

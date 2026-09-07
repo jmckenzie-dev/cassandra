@@ -170,7 +170,7 @@ execution data, and HTML, CSV, and XML reports. It generates a report even when
 tests fail and preserves the failure exit code. Coverage from a failed run is
 partial evidence, not a passing verification result.
 
-Run the checkpoint properties, continuation serialization property, and bounded
+Run the paging-state properties, checkpoint properties, continuation serialization property, and bounded
 three-node fuzzer:
 
     bash run_property_tests.sh -Dno-build-test=true -DmaxMemory=2G
@@ -195,10 +195,74 @@ blocking read repair, reverse composite clustering, static data, and a remote
 data replica. Its original ALL regressions now pass in memory and after flush.
 Run it with the same test or coverage wrapper as the fuzzer.
 
+`PagingAcrossTombstonesInteractionTest` adds concurrent writes, speculation,
+timeout/retry, replica shutdown, TTL expiry, collection deletions, GROUP BY,
+partition-key IN, and safe range-checkpoint rejection. Its IN and GROUP BY
+regressions exposed separate defects. The IN fix now passes the original case
+and 112 additional variants covering LIMIT, per-partition limits, repeated
+checkpoints, deleted partitions, descending clustering, static data, and
+reconciliation, in memory and after flush. All 16 methods now pass. The grouped
+cases also cover static data, both clustering orders, per-partition limits,
+empty checkpoints in later IN partitions, and divergent-replica refills. See
+[the grouped paging fix](../.debug/fix-grouped-checkpoint-paging.md).
+
+`QueryPagerTest` now checks cursor advancement on the same pager, serialized
+state restoration, and unfiltered exhaustion. The distributed fuzzer also has
+`partitionKeyInMatchesModel`: 12 small histories per seed, with identical
+replicas, independent row membership, disabled LIMIT controls, and bounded
+native-page traversal. Seeds 18424 and 1 pass. This IN property uses coordinator
+1; the existing divergent-replica property checks all three coordinators.
+See the [IN fix report](../.debug/fix-in-paging-checkpoint-reuse.md) for commands
+and current versus cumulative JaCoCo results.
+
+The extended pager tests cover aggregation sub-pages, range endpoint bounds,
+per-partition limits, early close, exhausted pagers, and paging-state validation.
+The new round-trip property uses 1,024 fixed-seed cases across protocols V3–V6.
+The three unit suites take about eight seconds with JaCoCo enabled; the new
+passing methods account for about 0.6 seconds of that run.
+
+    bash run_tests.sh coverage org.apache.cassandra.service.pager.PagingStateTest -Dno-build-test=true
+    bash run_tests.sh coverage org.apache.cassandra.service.pager.RandomizedPagingStateTest -Dno-build-test=true
+    bash run_tests.sh coverage org.apache.cassandra.service.QueryPagerTest -Dno-build-test=true
+
+All 22 `QueryPagerTest` methods pass, including the forward/reverse GROUP BY
+checkpoint regressions. `PagingStateTest` now runs the read-only heap buffer
+regression after the shared byte-copy fix. The property includes read-only heap
+views again. See the [coverage extension report](../.debug/extended-pager-coverage.md)
+for the historical 95.7% line / 89.7% branch measurement and the
+[fix report](../.debug/fix-grouped-checkpoint-paging.md) for current validation.
+
+The latest [coverage follow-up](../.debug/close-paging-coverage-gaps.md) adds nine
+methods for static cutoffs, empty-page iteration, legacy static boundaries,
+continuation rejection, transient reconciliation, state equality, and management
+accessors. It also strengthens the state round-trip property. Pager coverage is
+96.37% of lines and 93.12% of branches. The new methods took about 9.1 seconds,
+excluding shared class/JVM setup, and add no sleeps. A static cutoff without a
+row cursor now returns a typed read failure instead of a generic server error.
+
+`PagingAcrossTombstonesTransientTest` exercises an actual 3/1 replication factor
+and all three coordinators. `MixedConfigPagingAcrossTombstonesTest` now applies
+four real configurations and runs 32 populated cases. The mixed-version class
+uses `UpgradeTestBase` for a real 5.0-to-current upgrade. It requires historical
+and current `dtest-*.jar` artifacts in `build/`; compile each with `ant dtest-jar`.
+All four deterministic tests pass with 5.0.10 and this branch. They check stages
+with one and two upgraded nodes, all coordinator roles, GROUP BY, static columns,
+TTL, partition-key IN, LIMIT, and PER PARTITION LIMIT. Rebuild the current branch's
+dtest JAR after implementation changes; a trunk 7.0 JAR does not contain the
+feature. See the [upgrade results](../.debug/mixed-version-tombstone-paging.md).
+Complete builds before starting tests because Ant rebuilds shared Accord artifacts.
+Run Ant test invocations sequentially: they also remove shared test data directories.
+
 The default seed is `18424` with six histories. Override the seed through Ant's test
 JVM arguments, for example:
 
     bash run_tests.sh coverage org.apache.cassandra.distributed.test.PagingAcrossTombstonesFuzzTest -Dno-build-test=true '-Dtest.jvm.args=-Dcassandra.test.seed=18424'
+
+Run the mixed-version fuzzer explicitly when historical and current dtest JARs
+are available. It checks generated replica divergence, forward/reverse reads,
+and partition-key IN after each of two node upgrades:
+
+    bash run_property_tests.sh --mixed-version -Dno-build-test=true -DmaxMemory=8G -Dtest.timeout=480000 '-Dtest.jvm.args=-Dcassandra.test.seed=18424'
 
 Run the existing single-node synchronous/asynchronous fuzzer separately:
 

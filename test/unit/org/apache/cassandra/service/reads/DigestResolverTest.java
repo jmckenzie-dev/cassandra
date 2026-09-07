@@ -18,8 +18,11 @@
 
 package org.apache.cassandra.service.reads;
 
+import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -30,7 +33,10 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.RowUpdateBuilder;
@@ -38,10 +44,15 @@ import org.apache.cassandra.db.SimpleBuilders;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.TombstonePageContinuation;
 import org.apache.cassandra.db.filter.DataLimits;
+import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.db.marshal.AsciiType;
+import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
+import org.apache.cassandra.db.rows.BTreeRow;
+import org.apache.cassandra.db.rows.BufferCell;
+import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.exceptions.ReadFailureException;
@@ -404,6 +415,86 @@ public class DigestResolverTest extends AbstractReadResponseTest
                                           row(1000, 1, 1),
                                           row(1000, 2, 2))),
                               resolver.getData());
+    }
+
+    @Test
+    public void checkpointWithoutClusteringRejectsTransientReconciliationAtOne()
+    {
+        verifyCheckpointWithoutClustering(ConsistencyLevel.ONE);
+    }
+
+    @Test
+    public void checkpointWithoutClusteringReconcilesAtQuorum()
+    {
+        verifyCheckpointWithoutClustering(ConsistencyLevel.QUORUM);
+    }
+
+    private void verifyCheckpointWithoutClustering(ConsistencyLevel consistency)
+    {
+        int failureThreshold = DatabaseDescriptor.getTombstoneFailureThreshold();
+        int pagingThreshold = DatabaseDescriptor.getTombstonePagingThreshold();
+        CoordinatorWarnings.init();
+        try
+        {
+            DatabaseDescriptor.setTombstoneFailureThreshold(2);
+            DatabaseDescriptor.setTombstonePagingThreshold(2);
+            cfs2.truncateBlocking();
+            DecoratedKey key = cfm2.partitioner.decorateKey(ByteBuffer.wrap(new byte[]{ 1 }));
+            Row.Builder builder = BTreeRow.sortedBuilder();
+            builder.newRow(Clustering.EMPTY);
+            for (int i = 0; i < 3; i++)
+                builder.addCell(BufferCell.tombstone(m, 20, nowInSec, CellPath.create(IntegerType.instance.decompose(BigInteger.valueOf(i)))));
+            new Mutation(PartitionUpdate.singleRowUpdate(cfm2, key, builder.build())).applyUnsafe();
+
+            SinglePartitionReadCommand command = SinglePartitionReadCommand.fullPartitionRead(cfm2, nowInSec, key)
+                                                                             .withUpdatedLimit(DataLimits.cqlLimits(2));
+            command.setTombstonePageCheckpointOwner();
+            ReplicaPlan.SharedForTokenRead plan = plan(consistency, EndpointsForToken.of(key.getToken(), full(EP1), trans(EP2)));
+            Dispatcher.RequestTime requestTime = Dispatcher.RequestTime.forImmediateExecution();
+            DigestResolver<EndpointsForToken, ReplicaPlan.ForTokenRead> resolver =
+            new DigestResolver<>(ReadCoordinator.DEFAULT, command, plan, requestTime);
+            Assert.assertEquals(consistency == ConsistencyLevel.QUORUM, resolver.supportsTombstonePageCheckpoints());
+            ReadCallback<EndpointsForToken, ReplicaPlan.ForTokenRead> callback =
+            new ReadCallback<>(resolver, command, plan, requestTime, ReadCallback.TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND);
+            try (ReadExecutionController controller = command.executionController();
+                 UnfilteredPartitionIterator partitions = command.executeLocally(controller, 2))
+            {
+                ReadResponse response = ReadResponse.createDataResponse(partitions, command);
+                Assert.assertEquals(3, command.tombstoneLimitedCount());
+                Assert.assertEquals(Clustering.EMPTY, command.tombstoneLimitedRow().clustering());
+                callback.response(response, command);
+            }
+            PartitionUpdate transientResponse = new RowUpdateBuilder(cfm2, 30, key.getKey())
+                                                .add("m", Collections.singletonMap(BigInteger.ZERO, BigInteger.ONE)).buildUpdate();
+            callback.onResponse(response(command, EP2, iter(transientResponse), false));
+            callback.awaitResults();
+            Assert.assertTrue(resolver.hasTransientResponse());
+            if (consistency == ConsistencyLevel.QUORUM)
+            {
+                assertPartitionsEqual(filter(iter(transientResponse)), resolver.getData());
+            }
+            else
+            {
+                assertThatThrownBy(() -> {
+                    try (PartitionIterator partitions = resolver.getData())
+                    {
+                        while (partitions.hasNext())
+                            try (RowIterator rows = partitions.next())
+                            {
+                                while (rows.hasNext())
+                                    rows.next();
+                            }
+                    }
+                }).isInstanceOf(TombstoneOverwhelmingException.class);
+            }
+        }
+        finally
+        {
+            CoordinatorWarnings.done();
+            DatabaseDescriptor.setTombstoneFailureThreshold(failureThreshold);
+            DatabaseDescriptor.setTombstonePagingThreshold(pagingThreshold);
+            cfs2.truncateBlocking();
+        }
     }
 
     @Test

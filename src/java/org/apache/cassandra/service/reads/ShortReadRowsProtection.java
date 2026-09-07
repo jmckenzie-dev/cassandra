@@ -18,23 +18,25 @@
 
 package org.apache.cassandra.service.reads;
 
+import java.util.Collections;
 import java.util.function.Function;
 
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.DataLimits;
-import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
-import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.transform.MoreRows;
 import org.apache.cassandra.db.transform.Transformation;
+import org.apache.cassandra.exceptions.ReadFailureException;
+import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.ParamType;
@@ -96,10 +98,12 @@ class ShortReadRowsProtection extends Transformation implements MoreRows<Unfilte
         /*
          * If the returned partition doesn't have enough rows to satisfy even the original limit, don't ask for more.
          *
+         * Refills use their own row limit, so only apply this check to the initial response.
          * Can only take the short cut if there is no per partition limit set. Otherwise it's possible to hit false
          * positives due to some rows being uncounted for in certain scenarios (see CASSANDRA-13911).
          */
-        if (lastResponseTombstoneLimitedCount == 0
+        if (lastQueried == 0
+            && lastResponseTombstoneLimitedCount == 0
             && command.limits().isExhausted(singleResultCounter)
             && command.limits().perPartitionCount() == DataLimits.NO_LIMIT)
             return null;
@@ -124,11 +128,8 @@ class ShortReadRowsProtection extends Transformation implements MoreRows<Unfilte
             return null;
 
         if (lastResponseTombstoneLimitedCount > 0 && lastClustering == null)
-            throw new TombstoneOverwhelmingException(lastResponseTombstoneLimitedCount,
-                                                      command.toCQLString(),
-                                                      metadata,
-                                                      partitionKey,
-                                                      Clustering.STATIC_CLUSTERING);
+            throw new ReadFailureException(ConsistencyLevel.ONE, 0, 1, false,
+                                           Collections.singletonMap(source.endpoint(), RequestFailureReason.READ_TOO_MANY_TOMBSTONES));
 
         /*
          * This is a table with no clustering columns, and has at most one row per partition - with EMPTY clustering.

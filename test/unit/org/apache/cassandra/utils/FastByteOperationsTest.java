@@ -23,6 +23,9 @@ import java.util.Random;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+
 public class FastByteOperationsTest
 {
 
@@ -48,6 +51,34 @@ public class FastByteOperationsTest
         testCopy(bytes1, wrap1(bytes1, true), wrap2(empty, false), UO);
         testCopy(bytes1, wrap1(bytes1, false), wrap2(empty, true), UO);
         testCopy(bytes1, wrap1(bytes1, false), wrap2(empty, false), UO);
+    }
+
+    @Test
+    public void testReadOnlyBufferToArrayCopy()
+    {
+        Random random = new Random(18424);
+        for (int length : new int[]{ 0, 1, 7, 8, 31, 64, 128 })
+            for (boolean direct : new boolean[]{ false, true })
+            {
+                byte[] content = new byte[length];
+                random.nextBytes(content);
+                ByteBuffer source = direct ? ByteBuffer.allocateDirect(length + 8) : ByteBuffer.allocate(length + 8);
+                source.position(5);
+                source.put(content).flip().position(2);
+                source = source.slice().asReadOnlyBuffer();
+                byte[] expected = new byte[length + 4];
+                Arrays.fill(expected, (byte) -1);
+                System.arraycopy(content, 0, expected, 2, length);
+                for (FastByteOperations.ByteOperations operations : Arrays.asList(PJO, UO))
+                {
+                    byte[] actual = new byte[expected.length];
+                    Arrays.fill(actual, (byte) -1);
+                    operations.copy(source, 3, actual, 2, length);
+                    assertArrayEquals(expected, actual);
+                    assertEquals(0, source.position());
+                    assertEquals(length + 3, source.limit());
+                }
+            }
     }
 
     private void testCopy(byte[] canon, ByteBuffer src, ByteBuffer trg, FastByteOperations.ByteOperations ops)

@@ -54,8 +54,8 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
     protected final T query;
 
     /**
-     * We cache our ReadQueries locally since some of them can short-circuit based on hitting
-     * tombstone count, necessitating changes in how we determine our exhaustion
+     * Queries for the current fetch, retained until its iterator closes so their tombstone
+     * checkpoints can update the continuation and exhaustion state.
      */
     @Nullable
     protected ArrayList<ReadQuery> pageQueries;
@@ -196,7 +196,8 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
                 isFirstPartition = false;
                 // A tombstone checkpoint can advance the cursor without returning any rows or static data.
                 if (isPreviouslyReturnedPartition(currentKey)
-                    && remainingInPartition < limits.perPartitionCount()
+                    && (remainingInPartition < limits.perPartitionCount()
+                        || currentKey.getKey().equals(limits.groupByState().partitionKey()))
                     && !partition.hasNext())
                 {
                     partition.close();
@@ -214,18 +215,8 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
         {
             Preconditions.checkNotNull(query, "Expected query to be non-null in Query Pager.");
 
-            // In some case like GROUP BY a counter need to know when the processing is completed.
-            rowCounter.onClose();
-
-            recordLast(lastKey, lastRow);
-            int liveRowsCounted = rowCounter.counted();
-            rowsRemaining -= liveRowsCounted;
-
             boolean hitTombstoneLimit = false;
-            // If we've paged across multiple commands and are paging across tombstones, we need to check all of them
-            // and see if any of them hit a tombstone limit during graceful paging. If so, we need to snapshot what the
-            // last key was on that tombstone, since the iteration over live rows that takes place here in the QueryPager
-            // context won't see that tombstoned row on transformation callbacks here.
+            // A checkpoint from this fetch can advance beyond the last live row observed by the pager.
             if (tombstonePagingThreshold != -1 && pageQueries != null)
             {
                 try
@@ -242,7 +233,6 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
                             lastRow = cmd.tombstoneLimitedRow();
                             assert lastRow != null;
                             hitTombstoneLimit = true;
-                            recordLast(lastKey, lastRow);
                             break;
                         }
                     }
@@ -262,6 +252,10 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
             }
             if (hitTombstoneLimit)
                 logger.debug("Hit tombstone limit while paging; setting clustering to resume page to: " + lastRow.clustering().toString(query.metadata()));
+
+            rowCounter.onClose(!hitTombstoneLimit);
+            recordLast(lastKey, lastRow);
+            rowsRemaining -= rowCounter.counted();
 
             // If the clustering of the last row returned is a static one, it means that the partition was only
             // containing data within the static columns. If the clustering of the last row returned is empty

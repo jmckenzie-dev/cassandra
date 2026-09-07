@@ -18,7 +18,11 @@ set -e
 if [[ "${1:-}" == --long ]]; then
     shift
     bash run_tests.sh test org.apache.cassandra.service.pager.PagingFuzzTest "$@"
+elif [[ "${1:-}" == --mixed-version ]]; then
+    shift
+    bash run_tests.sh test org.apache.cassandra.distributed.upgrade.storage.paging.MixedVersionPagingAcrossTombstonesFuzzTest "$@"
 else
+    bash run_tests.sh test org.apache.cassandra.service.pager.RandomizedPagingStateTest "$@"
     bash run_tests.sh test org.apache.cassandra.db.ReadCommandTest "$@"
     bash run_tests.sh test org.apache.cassandra.db.TombstonePageContinuationTest "$@"
     bash run_tests.sh test org.apache.cassandra.distributed.test.PagingAcrossTombstonesFuzzTest "$@"
