@@ -19,6 +19,9 @@ set -euo pipefail
 project_root="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$project_root/logs"
 exec > >(tee "$project_root/logs/$(date +%Y%m%d-%H%M%S)-run_property_tests.log") 2>&1
+if [[ $# == 1 && "$1" == --metrics-ref ]]; then
+    exec "$project_root/.build/sh/ai-generate-metrics-reference" --property
+fi
 if [[ $# == 1 && "$1" == --lazy ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" --property
 fi
@@ -32,7 +35,7 @@ if [[ $# == 1 && "$1" == --meters ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" --meter-property
 fi
 if [[ $# != 0 ]]; then
-    echo 'Usage: run_property_tests.sh [--lazy|--histograms|--meters|--reservoirs]' >&2
+    echo 'Usage: run_property_tests.sh [--lazy|--histograms|--meters|--reservoirs|--metrics-ref]' >&2
     exit 2
 fi
 export PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore

@@ -13,7 +13,7 @@ specific language governing permissions and limitations under the License.
 
 # Memtable residency: continuation record
 
-Updated 2026-09-05. Read this first after context compaction. This file preserves
+Updated 2026-09-06. Read this first after context compaction. This file preserves
 decisions and continuation details; the linked baseline report retains the full
 measurement evidence. Update this file at implementation milestones.
 
@@ -23,8 +23,14 @@ Worktree: `/var/home/jmckenzie/src/cassandra/cassandra_asf/wt_moar_tables`.
 Branch: `moar_tables`. Memtable steps and the earlier Java allocation experiments
 are committed in `c274d4232b`; compact empty/sparse reservoirs are committed in
 `e4a19edd49`. Adaptive stripe storage is committed in `6daa0ce965`. Dense 32-bit
-counters with exact widening are complete, measured, and validated in the third
-metrics optimization. The next TODO is bounded automatic idle retirement.
+counters with exact widening are committed in `24714c59fd`, with measurements and
+validation in the third metrics optimization. The heap ownership census is
+complete; see [heap_ownership_census.md](heap_ownership_census.md). The next TODO
+is metric registration and JMX export residency. Bounded automatic idle
+retirement follows the resident-metrics work.
+This checkpoint includes the census tools and results, metric dependency and
+aggregation research, both profile definitions, and the generated operator
+reference. Later milestone sections retain their historical commit status.
 The user authorized phase 2 while this continuation record was being written.
 Phase 2 implements lazy shard initialization for TrieMemtable. See the completion
 section below and [results](lazy_memtable_initialization.md) before resuming work.
@@ -43,6 +49,161 @@ limit because creation allocation and timing become costly above that scale.
 Current baselines use 100 tables. Historical 5,000-table results are existing
 evidence, not permission to repeat those runs.
 
+## Focus after metrics threading discussion (2026-09-06)
+
+The user deferred worker-owned metrics and requested a durable writeup in
+[metric_threading.md](metric_threading.md). That document records existing
+thread-local counters, Accord's single-writer histograms, OpenTelemetry storage,
+safe publication, reclamation, and a proposed experiment. It is not a selected
+implementation or a reason to start a metrics-provider rewrite now.
+
+Return to reducing the resident graph for one million logically available tables.
+Lazy TrieMemtable state and explicit flush/reclamation work; automatic idle
+retirement and full table-runtime unloading remain unimplemented. Compact runtime
+histograms are enabled by default, with legacy selectable. The latest N100 metrics
+comparison shows about 29–30% lower whole-JVM settled heap, not a demonstrated
+million-table capacity or a complete upstream-versus-branch measurement.
+
+The new [ownership census](heap_ownership_census.md) replaces the provisional
+200–220 KiB/table estimate. Five fresh runs remained at or below 1,000 tables.
+Creation scales at roughly 250 KiB/table. The final state after eight recording
+workers scales at 327 KiB/table for attribute-only scrapes, or 493 KiB/table when
+the client also inspects registered JMX name properties. The tests record real
+table metrics synthetically; all user TrieMemtables stay uninitialized and no
+user data or SSTables exist. These are residency slopes, not capacity guarantees.
+
+JMX registrations dominate: roughly 147 KiB/table of incremental JMX-server
+retained heap before scraping, plus about 40 KiB/table in the metrics registry
+map. Each table exposes 249 metric MBeans. Full recent-value reads add 57 cursor
+arrays totaling 67,632 shallow bytes/table. Name-property inspection adds
+166,744 bytes/table of cached maps, strings, nodes and arrays. A separate control
+proves that ordinary attribute reads do not require the name-cache cost.
+
+Next address registration/export residency; a recorder replacement behind the
+same eager registration graph leaves this blocker. Compact recent-value history
+and sparse worker counter storage are separate follow-ups. Keep resident-memory
+work ahead of allocation-only tuning. Preserve current names, aliases and access
+paths; account for the temporary cost of enumerating all names at large scale.
+
+The measurement checkpoint includes the census harness and its
+three focused tests, its launcher, a direct HPROF analyzer, the MAT CSV-query
+wrapper, and the linked research report/plan. Full build and main/test Checkstyle
+passed. Five full-size runs plus two three-table smoke runs passed. No production
+code changed during the census. All census and analysis processes have finished.
+
+## Internal dependencies before an allowlist (2026-09-06)
+
+The operator reference is now [conf/metrics_ref.md](../conf/metrics_ref.md). It
+covers all 126 table and 101 keyspace profile names with descriptions, types,
+units, aliases, profile selections, and source links. Regenerate with
+`.build/sh/ai-generate-metrics-reference`; use `--check` to detect stale output.
+The standalone tool uses the JDK syntax parser and existing SnakeYAML dependency.
+It parses declarations without compiling or initializing Cassandra. Missing or
+stale Java field descriptions were filled or corrected after checking usage.
+Future semantic changes still need human review of the prose; the parser checks
+names and structure, not the truth of a description.
+
+Generator checks include exact coverage of both shipped profiles, duplicate and
+unknown names, matching required sections, missing Javadoc, supported registration
+forms, and Latency/TotalLatency expansion. Seven focused tests pass through
+`./run_tests.sh --metrics-ref`. The separate property suite generates 128 metrics
+across four shuffled source/profile cases through
+`./run_property_tests.sh --metrics-ref`. The main and test Checkstyle/build checks
+also pass. Java runtime changes in this task are comments only. The profiles
+remain definitions: runtime selection and aggregate dependency handling are still
+the next implementation task.
+
+The user proposed opt-in metric names in a configuration file, with no recording
+or registration for disabled optional metrics. The current request was to
+inventory internal consumers first. See
+[internal_metric_dependencies.md](internal_metric_dependencies.md) for the source
+inventory and 60 checked source links. An allowlist is not implemented.
+
+Confirmed table-level control/scheduling inputs are CoordinatorReadLatency,
+CoordinatorWriteLatency, and TotalDiskSpaceUsed. Node-level inputs are
+Storage.TotalHintsInProgress, Compaction.PendingTasks, and ClientRequest.Latency
+in CASRead, CASWrite, AccordRead and AccordWrite scopes. The compression-ratio
+gauge has a conditional size-estimation-helper dependency; normal cleanup reads
+SSTable metadata directly, so the earlier broad cleanup claim was narrowed.
+
+Keep unregistered operational state separate: the UCS flush-size moving average,
+SSTable read meters and dynamic-snitch reservoirs. Enabled keyspace/global metrics
+can also require unexported table backing state. Registration-based cleanup,
+shared no-op identity and mutable latency snapshot contracts need explicit
+handling. Export selection and required internal recording are separate decisions.
+This was a source audit; no disabled-metrics runtime or new production behavior
+was tested. No source changes or commits were made for the inventory.
+
+## Allowlist profile definitions (2026-09-06)
+
+The user requested two YAML profiles with `mode: allowlist` and `required`,
+`optional`, and `disabled` lists for tables and keyspaces. The files are
+[all_metrics.yml](../conf/all_metrics.yml) and
+[simple_metrics.yml](../conf/simple_metrics.yml).
+[conf/README.txt](../conf/README.txt) defines the selection
+rules, scope, aliases, and reasons for the simple selection.
+
+This first pass covers 126 canonical Table/IndexTable names and 101 Keyspace
+names, including built-in SSTable-format gauges and expanded latency pairs.
+The all profile places all non-required metrics in optional and leaves disabled
+empty. The simple profile has four required plus 15 optional table metrics, and
+31 optional keyspace metrics. Both list the same required table metrics:
+CoordinatorReadLatency, CoordinatorWriteLatency, TotalDiskSpaceUsed, and the
+conservatively retained CompressionRatio. Neither has a required keyspace entry.
+
+Other families, including global Table aggregates, TrieMemtable, SAI, and node
+services, remain outside this first catalog. The scope clarification received no
+answer during the config work, so this pass follows the table/keyspace example.
+Their current recording and registration behavior remains in effect. Enabled
+aggregates can still need backing state for disabled table exports.
+
+These are profile definitions only. No loader, cassandra.yaml selector, no-op
+implementation, or runtime filtering was added. No memory savings are claimed.
+The next TODO is runtime selection/enforcement with dependency and lifecycle
+handling, followed by targeted tests and the existing heap census workloads.
+
+Validation passed: YAML syntax and unique keys, string lists, disjoint categories,
+identical required sets, complete canonical source coverage, and empty disabled
+lists in the all profile. The temporary source/catalog check used the existing
+Python environment; its output is in
+`logs/20260906-122544-check-metric-profiles.log`. No production Java code changed,
+so no server tests or performance runs were needed for this config-only pass.
+
+The subsequent aggregate inventory found one missed table-only histogram,
+ReplicaFilteringProtectionRowsCachedPerQuery, constructed through createHistogram
+rather than createTableHistogram. Both profiles and the temporary checker were
+corrected: the all profile enables it and the simple profile disables it. The
+original 125-name coverage claim was incomplete; the corrected total is 126.
+See [metric_aggregates.md](metric_aggregates.md) for the 106 node-wide Table metric
+names, 101 Keyspace metric names, and their backing dependencies. Runtime loading
+and filtering remain unimplemented.
+
+The profile request adds an explicit opt-in exception to the all-metrics export
+contract below. Enabled metrics must preserve their names, aliases, types, units,
+and meaningful values. Required operational state must remain available under
+every profile. The all profile retains every metric in its covered families.
+
+## Lazy aggregation and metric retirement discussion (2026-09-06)
+
+The user requested a detailed writeup of single-writer contributions, volatile
+publication, lazy parent collection, and merging history when a table sleeps.
+[lazy_metric_aggregation.md](lazy_metric_aggregation.md) preserves that analysis.
+It distinguishes worker-owned aggregate histograms, which scale with workers and
+aggregate scopes, from worker-owned per-table contributions, which scale with
+active worker/table/metric combinations. It covers publication, retirement
+accounting, decay/rates, historical table values, failure cases, and experiments.
+
+No candidate is implemented or benchmarked. Memtable retirement still preserves
+metrics. Volatile access alone does not establish single-writer ownership,
+consistent snapshots, or safe retirement. Enabled table history and required
+internal distributions remain separate retention costs. Runtime allowlist
+loading/registration remains the top TODO; this discussion does not select a
+recorder rewrite or a new dependency.
+
+The document's 20 local links and source line bounds, code fences, whitespace,
+and research/TODO cross-references passed validation. This update changed only
+documentation; no server tests or performance runs were executed.
+
 ## Current metrics compatibility contract (2026-09-05)
 
 The user relaxed numerical identity for a separate optimized metrics
@@ -60,9 +221,10 @@ iteration, and final measurements in a single commit. See
 [measurements](compact_runtime_metrics.md) for current execution state.
 
 This supersedes the numerical-identity requirement below for the proposed optimized
-runtime metrics path. It does not authorize dropping per-table metrics, disabling
-their exports, discarding cumulative history on idleness, or changing stored
-SSTable tombstone statistics. Existing exact-equivalence candidates retain their
+runtime metrics path. The later allowlist profile request above permits explicit
+selection of optional exports and recording. Outside that selection, it does not
+authorize dropping metrics, discarding cumulative history on idleness, or changing
+stored SSTable tombstone statistics. Existing exact-equivalence candidates retain their
 tested contracts. The selected runtime implementation is Java-only and uses
 the existing bucket geometry and decay arithmetic.
 

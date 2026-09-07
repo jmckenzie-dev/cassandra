@@ -92,41 +92,65 @@ public class TableMetrics
     public final static LatencyMetrics GLOBAL_KEY_MIGRATION_LATENCY = new LatencyMetrics(GLOBAL_FACTORY, GLOBAL_ALIAS_FACTORY, "KeyMigration");
     public final static LatencyMetrics GLOBAL_RANGE_MIGRATION_LATENCY = new LatencyMetrics(GLOBAL_FACTORY, GLOBAL_ALIAS_FACTORY, "RangeMigration");
 
-    /** Total amount of data stored in the memtable that resides on-heap, including column related overhead and partitions overwritten. */
+    /** On-heap bytes owned by the current memtable, including allocator overhead and overwritten data. */
     public final Gauge<Long> memtableOnHeapDataSize;
-    /** Total amount of data stored in the memtable that resides off-heap, including column related overhead and partitions overwritten. */
+    /** Off-heap bytes owned by the current memtable, including allocator overhead and overwritten data. */
     public final Gauge<Long> memtableOffHeapDataSize;
-    /** Total amount of live data stored in the memtable, excluding any data structure overhead */
+    /** Live data bytes in the current memtable, excluding data structure overhead. */
     public final Gauge<Long> memtableLiveDataSize;
-    /** Total amount of data stored in the memtables (2i and pending flush memtables included) that resides on-heap. */
+    /**
+     * On-heap bytes owned by current memtables for the table and its backing secondary-index tables. Excludes
+     * memtables pending flush.
+     */
     public final Gauge<Long> allMemtablesOnHeapDataSize;
-    /** Total amount of data stored in the memtables (2i and pending flush memtables included) that resides off-heap. */
+    /**
+     * Off-heap bytes owned by current memtables for the table and its backing secondary-index tables. Excludes
+     * memtables pending flush.
+     */
     public final Gauge<Long> allMemtablesOffHeapDataSize;
-    /** Total amount of live data stored in the memtables (2i and pending flush memtables included) that resides off-heap, excluding any data structure overhead */
+    /**
+     * Live data bytes in current memtables for the table and its backing secondary-index tables, excluding
+     * overhead and memtables pending flush.
+     */
     public final Gauge<Long> allMemtablesLiveDataSize;
-    /** Total number of columns present in the memtable. */
+    /**
+     * Operations accumulated in the current memtable, as counted by PartitionUpdate.operationCount(); this is not
+     * a count of distinct live columns.
+     */
     public final Gauge<Long> memtableColumnsCount;
     /** Number of times flush has resulted in the memtable being switched out. */
     public final Counter memtableSwitchCount;
-    /** Current compression ratio for all SSTables */
+    /**
+     * Compressed data bytes divided by uncompressed data bytes across compressed canonical SSTables. Returns -1
+     * when no eligible data exists.
+     */
     public final Gauge<Double> compressionRatio;
-    /** Histogram of estimated partition size (in bytes). */
+    /**
+     * Combined SSTable metadata histogram of estimated partition sizes in bytes. Excludes memtables; repeated
+     * partitions in different SSTables contribute separately.
+     */
     public final Gauge<long[]> estimatedPartitionSizeHistogram;
-    /** Approximate number of keys in table. */
+    /**
+     * Approximate partition count from canonical SSTables plus all memtables. Overlapping partitions can make this
+     * differ from the distinct logical key count.
+     */
     public final Gauge<Long> estimatedPartitionCount;
-    /** Histogram of estimated number of columns. */
+    /** Combined SSTable metadata histogram of estimated cells per partition. Excludes memtables. */
     public final Gauge<long[]> estimatedColumnCountHistogram;
-    /** Histogram of the number of sstable data files accessed per single partition read */
+    /** Number of SSTable data files accessed per local single-partition read. */
     public final TableHistogram sstablesPerReadHistogram;
-    /** Histogram of the number of sstable data files accessed per partition range read */
+    /** Number of SSTable data files accessed per local partition-range read. */
     public final TableHistogram sstablesPerRangeReadHistogram;
-    /** (Local) read metrics */
+    /** Local replica execution time for single-partition reads. */
     public final LatencyMetrics readLatency;
-    /** (Local) range slice metrics */
+    /** Local replica execution time for partition-range reads. */
     public final LatencyMetrics rangeLatency;
-    /** (Local) write metrics */
+    /**
+     * Time to apply partition updates locally, including memtable and index updates; excludes waiting for replica
+     * acknowledgements.
+     */
     public final LatencyMetrics writeLatency;
-    /** Estimated number of tasks pending for this table */
+    /** Flushes started but not yet finished with post-flush processing. */
     public final Counter pendingFlushes;
     /** Total number of bytes flushed since server [re]start */
     public final Counter bytesFlushed;
@@ -134,148 +158,182 @@ public class TableMetrics
     public final MovingAverage flushSizeOnDisk;
     /** Total number of bytes written by compaction since server [re]start */
     public final Counter compactionBytesWritten;
-    /** Estimate of number of pending compactios for this table */
+    /** Estimated remaining compaction tasks. */
     public final Gauge<Integer> pendingCompactions;
-    /** Number of SSTables on disk for this CF */
+    /** Number of live SSTables. */
     public final Gauge<Integer> liveSSTableCount;
-    /** Number of SSTables with old version on disk for this CF */
+    /** Live SSTables whose format version is older than the latest version. */
     public final Gauge<Integer> oldVersionSSTableCount;
-    /** Maximum duration of an SSTable for this table, computed as maxTimestamp - minTimestamp*/
+    /**
+     * Largest difference between maximum and minimum timestamps in a live SSTable, in milliseconds. Returns
+     * zero when no eligible SSTable exists.
+     */
     public final Gauge<Long> maxSSTableDuration;
-    /** Maximum size of SSTable of this table - the physical size on disk of all components for such SSTable in bytes*/
+    /** Largest physical size of a live SSTable, including all its components, in bytes. */
     public final Gauge<Long> maxSSTableSize;
-    /** Disk space used by SSTables belonging to this table */
+    /** Physical bytes used by live SSTables. */
     public final Counter liveDiskSpaceUsed;
-    /** Uncompressed/logical disk space used by SSTables belonging to this table */
+    /** Uncompressed logical bytes used by live SSTables. */
     public final Counter uncompressedLiveDiskSpaceUsed;
-    /** Total disk space used by SSTables belonging to this table, including obsolete ones waiting to be GC'd */
+    /** Physical bytes used by SSTables, including obsolete SSTables awaiting deletion. */
     public final Counter totalDiskSpaceUsed;
-    /** Size of the smallest compacted partition */
+    /**
+     * Smallest estimated partition size in canonical SSTable metadata, in bytes; zero when no SSTables exist.
+     */
     public final Gauge<Long> minPartitionSize;
-    /** Size of the largest compacted partition */
+    /** Largest estimated partition size in canonical SSTable metadata, in bytes; zero when no SSTables exist. */
     public final Gauge<Long> maxPartitionSize;
-    /** Size of the smallest compacted partition */
+    /**
+     * Mean estimated partition size in canonical SSTables, weighted by each SSTable histogram's sample count, in
+     * bytes; zero when no samples exist.
+     */
     public final Gauge<Long> meanPartitionSize;
-    /** Memory usage of cached compression dictionaries */
+    /** Bytes occupied by cached compression dictionaries. */
     public final Gauge<Long> compressionDictionariesMemoryUsed;
-    /** Off heap memory used by compression meta data*/
+    /** Off-heap bytes used by compression metadata for live SSTables. */
     public final Gauge<Long> compressionMetadataOffHeapMemoryUsed;
-    /** Tombstones scanned in queries on this CF */
+    /** Tombstones scanned per local read, after any purgeable tombstones have been removed. */
     public final TableHistogram tombstoneScannedHistogram;
-    /** Purgeable tombstones scanned in queries on this CF */
+    /** Purgeable tombstones encountered during local reads. */
     public final TableHistogram purgeableTombstoneScannedHistogram;
-    /** Live rows scanned in queries on this CF */
+    /** Live rows scanned per local read. */
     public final TableHistogram liveScannedHistogram;
     /** Total number of live rows read from this CF (cumulative counter, suitable for rate/windowed calculations) */
     public final Counter totalRowsRead;
     /** Total number of rows mutated in writes to this CF (cumulative counter, suitable for rate/windowed calculations) */
     public final Counter totalRowsMutated;
-    /** Rows mutated in writes on this CF */
+    /** Affected rows per local partition update. */
     public final TableHistogram rowsMutatedPerWriteHistogram;
-    /** Column update time delta on this CF */
+    /**
+     * Minimum absolute timestamp difference between overwritten cells in a partition update, in microseconds.
+     * Omits updates without a previous cell and caps samples at 18165375903306.
+     */
     public final TableHistogram colUpdateTimeDeltaHistogram;
-    /** time taken acquiring the partition lock for materialized view updates for this table */
+    /** Time to acquire the partition lock for a materialized-view update. Recorded on the base table. */
     public final TableTimer viewLockAcquireTime;
-    /** time taken during the local read of a materialized view update */
+    /** Time for the local read needed to construct a materialized-view update. Recorded on the base table. */
     public final TableTimer viewReadTime;
-    /** Disk space used by snapshot files which */
+    /** Additional disk bytes retained by snapshots, excluding files still present in the live table. */
     public final Gauge<Long> trueSnapshotsSize;
-    /** Row cache hits, but result out of range */
+    /** Row-cache entries found but unable to cover the requested rows, requiring a regular read. */
     public final Counter rowCacheHitOutOfRange;
     /** Number of row cache hits */
     public final Counter rowCacheHit;
     /** Number of row cache misses */
     public final Counter rowCacheMiss;
-    /**
-     * Number of tombstone read failures
-     */
+    /** Local replica reads aborted because the tombstone failure threshold was exceeded. */
     public final Counter tombstoneFailures;
-    /**
-     * Number of tombstone read warnings
-     */
+    /** Local replica reads exceeding the tombstone warning threshold but below the failure threshold. */
     public final Counter tombstoneWarnings;
-    /** CAS Prepare metrics */
+    /** Time spent in the Paxos prepare phase of compare-and-set operations. */
     public final LatencyMetrics casPrepare;
-    /** CAS Propose metrics */
+    /** Time spent in the Paxos propose phase of compare-and-set operations. */
     public final LatencyMetrics casPropose;
-    /** CAS Commit metrics */
+    /** Time spent in the Paxos commit phase of compare-and-set operations. */
     public final LatencyMetrics casCommit;
-    /** Latency for locally run key migrations **/
+    /** Time for locally run key migrations between consensus systems. */
     public final LatencyMetrics keyMigration;
-    /** Latency for range migrations run by locally coordinated Accord repairs **/
+    /** Time for range migrations performed by locally coordinated Accord repairs. */
     public final LatencyMetrics accordRepair;
+    /** Time for Accord range migration after receiving streamed data. */
     public final LatencyMetrics accordPostStreamRepair;
+    /** Unexpected failures of locally coordinated Accord repair range migrations. */
     public final TableMeter accordRepairUnexpectedFailures;
+    /** Mutation rejections caused by routing a request to the wrong consensus system during migration. */
     public final TableMeter mutationsRejectedOnWrongSystem;
+    /** Read rejections caused by routing a request to the wrong consensus system during migration. */
     public final TableMeter readsRejectedOnWrongSystem;
-    /** percent of the data that is repaired */
+    /** Percentage of canonical SSTable uncompressed bytes marked repaired. Returns 100 for an empty table. */
     public final Gauge<Double> percentRepaired;
-    /** Reports the size of sstables in repaired, unrepaired, and any ongoing repair buckets */
+    /** Uncompressed bytes in canonical SSTables marked repaired. */
     public final Gauge<Long> bytesRepaired;
+    /** Uncompressed bytes in canonical SSTables that are neither repaired nor pending repair. */
     public final Gauge<Long> bytesUnrepaired;
+    /** Uncompressed bytes in canonical SSTables assigned to a pending repair. */
     public final Gauge<Long> bytesPendingRepair;
-    /** Number of started repairs as coordinator on this table */
+    /** Repair jobs started as coordinator. */
     public final Counter repairsStarted;
-    /** Number of completed repairs as coordinator on this table */
+    /** Repair jobs that finished as coordinator, including failed jobs. */
     public final Counter repairsCompleted;
-    /** time spent anticompacting data before participating in a consistent repair */
+    /** Duration of anticompaction to separate repaired and unrepaired data. */
     public final TableTimer anticompactionTime;
-    /** time spent creating merkle trees */
+    /** Time spent building Merkle trees for repair validation. */
     public final TableTimer validationTime;
-    /** time spent syncing data in a repair */
+    /** Time spent synchronizing data during repair. */
     public final TableTimer repairSyncTime;
-    /** approximate number of bytes read while creating merkle trees */
+    /** Approximate bytes read per repair validation. */
     public final TableHistogram bytesValidated;
-    /** number of partitions read creating merkle trees */
+    /** Partitions read per repair validation. */
     public final TableHistogram partitionsValidated;
-    /** number of bytes read while doing anticompaction */
+    /** Bytes processed by anticompaction to split SSTables along repair ranges. */
     public final TableMeter bytesAnticompacted;
-    /** number of bytes where the whole sstable was contained in a repairing range so that we only mutated the repair status */
+    /**
+     * Bytes in SSTables wholly contained in repair ranges, whose repair status could change without rewriting
+     * their data.
+     */
     public final TableMeter bytesMutatedAnticompaction;
-    /** number of bytes that were scanned during preview repair */
+    /** Bytes examined during preview repair. */
     public final TableMeter bytesPreviewed;
-    /** number of desynchronized token ranges that were detected during preview repair */
+    /** Token ranges with mismatching data detected by preview repair. */
     public final TableMeter tokenRangesPreviewedDesynchronized;
-    /** number of desynchronized bytes that were detected during preview repair */
+    /** Estimated bytes associated with mismatching data detected by preview repair. */
     public final TableMeter bytesPreviewedDesynchronized;
-    /** ratio of how much we anticompact vs how much we could mutate the repair status*/
+    /**
+     * Fraction of processed bytes whose repair status changed without rewriting: mutated bytes divided by mutated
+     * plus anticompacted bytes. Returns zero before activity.
+     */
     public final Gauge<Double> mutatedAnticompactionGauge;
 
+    /** Coordinator duration of single-partition reads, including communication with replicas. */
     public final SnapshottingTimer coordinatorReadLatency;
+    /** Coordinator duration of partition-range reads, including communication with replicas. */
     public final Timer coordinatorScanLatency;
+    /** Coordinator duration of writes, including waiting for the requested consistency level. */
     public final SnapshottingTimer coordinatorWriteLatency;
 
     private final TableMetricNameFactory factory;
     private final TableMetricNameFactory aliasFactory;
 
+    /** Speculative read retries sent to additional replicas. */
     public final Counter speculativeRetries;
+    /** Reads that timed out despite sending a speculative retry. */
     public final Counter speculativeFailedRetries;
+    /** Reads that needed speculation but had no additional eligible replica. */
     public final Counter speculativeInsufficientReplicas;
+    /**
+     * Current speculative-read threshold derived from coordinator read latency and speculative_retry, in
+     * nanoseconds.
+     */
     public final Gauge<Long> speculativeSampleLatencyNanos;
 
+    /**
+     * Writes for which the coordinator contacted additional replicas after the additional-write latency threshold
+     * elapsed.
+     */
     public final Counter additionalWrites;
+    /**
+     * Current additional-write threshold derived from coordinator write latency and additional_write_policy, in
+     * nanoseconds.
+     */
     public final Gauge<Long> additionalWriteLatencyNanos;
 
+    /** Number of level-zero SSTables under leveled compaction. Returns zero for other compaction strategies. */
     public final Gauge<Integer> unleveledSSTables;
 
     /**
-     * Metrics for inconsistencies detected between repaired data sets across replicas. These
-     * are tracked on the coordinator.
+     * Repaired-data mismatches detected by the coordinator with no pending repair sessions that could explain the
+     * mismatch.
      */
-    // Incremented where an inconsistency is detected and there are no pending repair sessions affecting
-    // the data being read, indicating a genuine mismatch between replicas' repaired data sets.
     public final TableMeter confirmedRepairedInconsistencies;
-    // Incremented where an inconsistency is detected, but there are pending & uncommitted repair sessions
-    // in play on at least one replica. This may indicate a false positive as the inconsistency could be due to
-    // replicas marking the repair session as committed at slightly different times and so some consider it to
-    // be part of the repaired set whilst others do not.
+    /**
+     * Repaired-data mismatches detected by the coordinator while pending repair sessions could explain different
+     * repaired sets.
+     */
     public final TableMeter unconfirmedRepairedInconsistencies;
 
-    // Tracks the amount overreading of repaired data replicas perform in order to produce digests
-    // at query time. For each query, on a full data read following an initial digest mismatch, the replicas
-    // may read extra repaired data, up to the DataLimit of the command, so that the coordinator can compare
-    // the repaired data on each replica. These are tracked on each replica.
+    /** Extra repaired rows read on a replica to compare repaired-data digests after a digest mismatch. */
     public final TableHistogram repairedDataTrackingOverreadRows;
+    /** Time spent on replica overreads needed for repaired-data digest comparison. */
     public final TableTimer repairedDataTrackingOverreadTime;
 
     /** When sampler activated, will track the most frequently read partitions **/
@@ -295,30 +353,62 @@ public class TableMetrics
     /** When sample activated, will track partitions read with the most merged sstables **/
     public final Sampler<ByteBuffer> topReadPartitionSSTableCount;
 
+    /**
+     * Read commands for which the coordinator reports a replica tombstone warning to the client; counts commands,
+     * not replicas.
+     */
     public final TableMeter clientTombstoneWarnings;
+    /**
+     * Read commands for which the coordinator reports a replica tombstone abort to the client; counts commands,
+     * not replicas.
+     */
     public final TableMeter clientTombstoneAborts;
 
+    /** Read results that exceed the coordinator result-size warning threshold. */
     public final TableMeter coordinatorReadSizeWarnings;
+    /** Read results rejected by the coordinator result-size abort threshold. */
     public final TableMeter coordinatorReadSizeAborts;
+    /**
+     * Result bytes accumulated at the coordinator when read-size checks run, including samples at size-triggered
+     * aborts.
+     */
     public final TableHistogram coordinatorReadSize;
 
+    /** Read commands for which the coordinator reports a replica local-read-size warning. */
     public final TableMeter localReadSizeWarnings;
+    /** Read commands for which the coordinator reports a replica local-read-size abort. */
     public final TableMeter localReadSizeAborts;
+    /** Estimated data bytes accumulated by local replica reads while local read-size tracking is enabled. */
     public final TableHistogram localReadSize;
 
+    /** Read commands for which the coordinator reports a replica row-index-size warning. */
     public final TableMeter rowIndexSizeWarnings;
+    /** Read commands for which the coordinator reports a replica row-index-size abort. */
     public final TableMeter rowIndexSizeAborts;
+    /**
+     * Estimated in-memory bytes for materialized Big-format row-index entries when the row-index size check runs.
+     */
     public final TableHistogram rowIndexSize;
 
+    /**
+     * Read commands for which the coordinator reports a replica warning about the number of SSTable indexes
+     * accessed.
+     */
     public final TableMeter tooManySSTableIndexesReadWarnings;
+    /**
+     * Read commands for which the coordinator reports a replica abort due to the number of SSTable indexes
+     * accessed.
+     */
     public final TableMeter tooManySSTableIndexesReadAborts;
 
+    /** Writes for which the coordinator reports a mutation-size threshold warning. */
     public final TableMeter writeSizeWarnings;
+    /** Writes for which the coordinator reports a mutation tombstone-count threshold warning. */
     public final TableMeter writeTombstoneWarnings;
 
     public final ImmutableMap<SSTableFormat<?, ?>, ImmutableMap<String, Gauge<? extends Number>>> formatSpecificGauges;
 
-    // Time spent building SSTableIntervalTree when constructing a new View under the Tracker lock
+    /** Time to build the SSTable interval tree for a new tracker view while holding the tracker lock. */
     public final LatencyMetrics viewSSTableIntervalTree;
 
     private static Pair<Long, Long> totalNonSystemTablesSize(Predicate<SSTableReader> predicate)
@@ -377,16 +467,18 @@ public class TableMetrics
         Metrics.register(GLOBAL_FACTORY.createMetricName("BytesPendingRepair"),
                          () -> totalNonSystemTablesSize(SSTableReader::isPendingRepair).left);
 
+    /** Replica requests sent to repair inconsistent data during reads. */
     public final Meter readRepairRequests;
+    /** Additional replica read requests used to fetch missing rows or partitions after short reads. */
     public final Meter shortReadProtectionRequests;
     
+    /** Additional replica requests used to complete results during replica filtering protection. */
     public final Meter replicaFilteringProtectionRequests;
     
     /**
-     * This histogram records the maximum number of rows {@link org.apache.cassandra.service.reads.ReplicaFilteringProtection}
-     * caches at a point in time per query. With no replica divergence, this is equivalent to the maximum number of
-     * cached rows in a single partition during a query. It can be helpful when choosing appropriate values for the
-     * replica_filtering_protection thresholds in cassandra.yaml.
+     * Maximum rows cached at once by replica filtering protection per query. With no replica divergence, this
+     * equals the largest cached partition during the query. Use this to tune replica_filtering_protection
+     * thresholds in cassandra.yaml.
      */
     public final Histogram rfpRowsCachedPerQuery;
 

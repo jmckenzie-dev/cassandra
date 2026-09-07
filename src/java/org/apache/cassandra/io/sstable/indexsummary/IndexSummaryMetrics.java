@@ -37,6 +37,7 @@ public class IndexSummaryMetrics<R extends SSTableReader & IndexSummarySupport<R
         return null;
     }
 
+    /** Off-heap bytes used by index summaries of compatible live SSTables. */
     private final GaugeProvider<Long> indexSummaryOffHeapMemoryUsed = newGaugeProvider("IndexSummaryOffHeapMemoryUsed",
                                                                                        0L,
                                                                                        r -> r.getIndexSummary().getOffHeapSize(),

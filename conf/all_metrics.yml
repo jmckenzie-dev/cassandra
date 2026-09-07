@@ -1,0 +1,275 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Profile definition only: Cassandra does not load or enforce this file yet.
+# See conf/README.txt for scope, aliases, and aggregate dependencies.
+#
+# required: always recorded and exposed; preserve Cassandra's internal inputs.
+# optional: enabled metrics that an operator may move to disabled.
+# disabled: metrics excluded from exposure and optional recording.
+# Internal or enabled-aggregate dependencies can still require backing state.
+#
+# Names are case-sensitive and apply to every table or keyspace in that family.
+# Use canonical names; existing aliases follow the same selection.
+# Table includes IndexTable. SSTable-format gauges are included in both scopes.
+# Other metric families and unregistered operational statistics are outside scope.
+
+# All known metrics in the covered families are enabled.
+mode: allowlist
+
+table:
+  # CompressionRatio is retained conservatively for a conditional sizing helper.
+  # Coordinator latencies drive speculation; TotalDiskSpaceUsed orders auto-repair.
+  required:
+    - CompressionRatio
+    - CoordinatorReadLatency
+    - CoordinatorWriteLatency
+    - TotalDiskSpaceUsed
+
+  optional:
+    - AccordPostStreamRepairLatency
+    - AccordPostStreamRepairTotalLatency
+    - AccordRepairLatency
+    - AccordRepairTotalLatency
+    - AccordRepairUnexpectedFailures
+    - AdditionalWriteLatencyNanos
+    - AdditionalWrites
+    - AllMemtablesLiveDataSize
+    - AllMemtablesOffHeapDataSize
+    - AllMemtablesOnHeapDataSize
+    - AnticompactionTime
+    - BloomFilterDiskSpaceUsed
+    - BloomFilterFalsePositives
+    - BloomFilterFalseRatio
+    - BloomFilterOffHeapMemoryUsed
+    - BytesAnticompacted
+    - BytesFlushed
+    - BytesMutatedAnticompaction
+    - BytesPendingRepair
+    - BytesPreviewed
+    - BytesPreviewedDesynchronized
+    - BytesRepaired
+    - BytesUnrepaired
+    - BytesValidated
+    - CasCommitLatency
+    - CasCommitTotalLatency
+    - CasPrepareLatency
+    - CasPrepareTotalLatency
+    - CasProposeLatency
+    - CasProposeTotalLatency
+    - ClientTombstoneAborts
+    - ClientTombstoneWarnings
+    - ColUpdateTimeDeltaHistogram
+    - CompactionBytesWritten
+    - CompressionDictionariesMemoryUsed
+    - CompressionMetadataOffHeapMemoryUsed
+    - CoordinatorReadSize
+    - CoordinatorReadSizeAborts
+    - CoordinatorReadSizeWarnings
+    - CoordinatorScanLatency
+    - EstimatedColumnCountHistogram
+    - EstimatedPartitionCount
+    - EstimatedPartitionSizeHistogram
+    - IndexSummaryOffHeapMemoryUsed
+    - KeyCacheHitRate
+    - KeyMigrationLatency
+    - KeyMigrationTotalLatency
+    - LiveDiskSpaceUsed
+    - LiveSSTableCount
+    - LiveScannedHistogram
+    - LocalReadSize
+    - LocalReadSizeAborts
+    - LocalReadSizeWarnings
+    - MaxPartitionSize
+    - MaxSSTableDuration
+    - MaxSSTableSize
+    - MeanPartitionSize
+    - MemtableColumnsCount
+    - MemtableLiveDataSize
+    - MemtableOffHeapDataSize
+    - MemtableOnHeapDataSize
+    - MemtableSwitchCount
+    - MinPartitionSize
+    - MutatedAnticompactionGauge
+    - MutationsRejectedOnWrongSystem
+    - OldVersionSSTableCount
+    - PartitionsValidated
+    - PendingCompactions
+    - PendingFlushes
+    - PercentRepaired
+    - PurgeableTombstoneScannedHistogram
+    - RangeLatency
+    - RangeTotalLatency
+    - ReadLatency
+    - ReadRepairRequests
+    - ReadTotalLatency
+    - ReadsRejectedOnWrongSystem
+    - RecentBloomFilterFalsePositives
+    - RecentBloomFilterFalseRatio
+    - RepairJobsCompleted
+    - RepairJobsStarted
+    - RepairSyncTime
+    - RepairedDataInconsistenciesConfirmed
+    - RepairedDataInconsistenciesUnconfirmed
+    - RepairedDataTrackingOverreadRows
+    - RepairedDataTrackingOverreadTime
+    - ReplicaFilteringProtectionRequests
+    - ReplicaFilteringProtectionRowsCachedPerQuery
+    - RowCacheHit
+    - RowCacheHitOutOfRange
+    - RowCacheMiss
+    - RowIndexSize
+    - RowIndexSizeAborts
+    - RowIndexSizeWarnings
+    - RowsMutatedPerWriteHistogram
+    - SSTablesPerRangeReadHistogram
+    - SSTablesPerReadHistogram
+    - ShortReadProtectionRequests
+    - SnapshotsSize
+    - SpeculativeFailedRetries
+    - SpeculativeInsufficientReplicas
+    - SpeculativeRetries
+    - SpeculativeSampleLatencyNanos
+    - TokenRangesPreviewedDesynchronized
+    - TombstoneFailures
+    - TombstoneScannedHistogram
+    - TombstoneWarnings
+    - TooManySSTableIndexesReadAborts
+    - TooManySSTableIndexesReadWarnings
+    - TotalRowsMutated
+    - TotalRowsRead
+    - UncompressedLiveDiskSpaceUsed
+    - UnleveledSSTables
+    - ValidationTime
+    - ViewLockAcquireTime
+    - ViewReadTime
+    - ViewSSTableIntervalTreeLatency
+    - ViewSSTableIntervalTreeTotalLatency
+    - WriteLatency
+    - WriteSizeWarnings
+    - WriteTombstoneWarnings
+    - WriteTotalLatency
+
+  disabled: []
+
+keyspace:
+  # No registered Keyspace metric has a confirmed database control dependency.
+  required: []
+
+  optional:
+    - AccordGetMaxConflictsLatency
+    - AccordGetMaxConflictsTotalLatency
+    - AccordPostStreamRepairLatency
+    - AccordPostStreamRepairTotalLatency
+    - AccordRepairLatency
+    - AccordRepairTotalLatency
+    - AdditionalWrites
+    - AllMemtablesLiveDataSize
+    - AllMemtablesOffHeapDataSize
+    - AllMemtablesOnHeapDataSize
+    - AntiCompactionTime
+    - BloomFilterDiskSpaceUsed
+    - BloomFilterFalsePositives
+    - BloomFilterFalseRatio
+    - BloomFilterOffHeapMemoryUsed
+    - BytesAnticompacted
+    - BytesMutatedAnticompaction
+    - BytesPreviewed
+    - BytesPreviewedDesynchronized
+    - BytesValidated
+    - CasCommitLatency
+    - CasCommitTotalLatency
+    - CasPrepareLatency
+    - CasPrepareTotalLatency
+    - CasProposeLatency
+    - CasProposeTotalLatency
+    - ClientTombstoneAborts
+    - ClientTombstoneWarnings
+    - ColUpdateTimeDeltaHistogram
+    - CompressionMetadataOffHeapMemoryUsed
+    - CoordinatorReadSize
+    - CoordinatorReadSizeAborts
+    - CoordinatorReadSizeWarnings
+    - IdealCLWriteLatency
+    - IdealCLWriteTotalLatency
+    - IndexSummaryOffHeapMemoryUsed
+    - KeyCacheHitRate
+    - KeyMigrationLatency
+    - KeyMigrationTotalLatency
+    - LiveDiskSpaceUsed
+    - LiveScannedHistogram
+    - LocalReadSize
+    - LocalReadSizeAborts
+    - LocalReadSizeWarnings
+    - MemtableColumnsCount
+    - MemtableLiveDataSize
+    - MemtableOffHeapDataSize
+    - MemtableOnHeapDataSize
+    - MemtableSwitchCount
+    - MutationsRejectedOnWrongSystem
+    - PartitionsValidated
+    - PaxosOutOfRangeToken
+    - PendingCompactions
+    - PendingFlushes
+    - PurgeableTombstoneScannedHistogram
+    - RangeLatency
+    - RangeMigrationUnexpectedFailures
+    - RangeTotalLatency
+    - ReadLatency
+    - ReadOutOfRangeToken
+    - ReadTotalLatency
+    - ReadsRejectedOnWrongSystem
+    - RecentBloomFilterFalsePositives
+    - RecentBloomFilterFalseRatio
+    - RepairJobsCompleted
+    - RepairJobsStarted
+    - RepairPrepareTime
+    - RepairSyncTime
+    - RepairTime
+    - RepairedDataInconsistenciesConfirmed
+    - RepairedDataInconsistenciesUnconfirmed
+    - RepairedDataTrackingOverreadRows
+    - RepairedDataTrackingOverreadTime
+    - RowIndexSize
+    - RowIndexSizeAborts
+    - RowIndexSizeWarnings
+    - RowsMutatedPerWriteHistogram
+    - SSTablesPerRangeReadHistogram
+    - SSTablesPerReadHistogram
+    - SpeculativeFailedRetries
+    - SpeculativeInsufficientReplicas
+    - SpeculativeRetries
+    - TokenRangesPreviewedDesynchronized
+    - TombstoneScannedHistogram
+    - TooManySSTableIndexesReadAborts
+    - TooManySSTableIndexesReadWarnings
+    - TotalDiskSpaceUsed
+    - UncompressedLiveDiskSpaceUsed
+    - UnreplicatedLiveDiskSpaceUsed
+    - UnreplicatedUncompressedLiveDiskSpaceUsed
+    - ValidationTime
+    - ViewLockAcquireTime
+    - ViewReadTime
+    - ViewSSTableIntervalTreeLatency
+    - ViewSSTableIntervalTreeTotalLatency
+    - WriteFailedIdealCL
+    - WriteLatency
+    - WriteOutOfRangeToken
+    - WriteSizeWarnings
+    - WriteTombstoneWarnings
+    - WriteTotalLatency
+
+  disabled: []

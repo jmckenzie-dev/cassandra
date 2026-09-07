@@ -22,6 +22,9 @@ exec > >(tee "$project_root/logs/$(date +%Y%m%d-%H%M%S)-run_tests.log") 2>&1
 if [[ $# == 0 ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" --retirement
 fi
+if [[ $# == 1 && "$1" == --metrics-ref ]]; then
+    exec "$project_root/.build/sh/ai-generate-metrics-reference" --test
+fi
 if [[ $# == 1 && "$1" == --harness ]]; then
     exec "$project_root/run_property_tests.sh"
 fi
@@ -37,5 +40,5 @@ fi
 if [[ $# == 1 && ( "$1" == --histograms || "$1" == --meters || "$1" == --reservoirs ) ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" "$1"
 fi
-echo 'Usage: run_tests.sh [--harness|--long|--lazy|--histograms|--meters|--reservoirs]' >&2
+echo 'Usage: run_tests.sh [--harness|--long|--lazy|--histograms|--meters|--reservoirs|--metrics-ref]' >&2
 exit 2

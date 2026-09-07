@@ -39,7 +39,8 @@ public class BloomFilterMetrics<R extends SSTableReaderWithFilter> extends Abstr
     }
 
     /**
-     * Number of false positives in bloom filter
+     * Bloom-filter false positives accumulated by the current live SSTable readers. Reader replacement can reset
+     * these counts.
      */
     public final GaugeProvider<Long> bloomFilterFalsePositives = newGaugeProvider("BloomFilterFalsePositives",
                                                                                   0L,
@@ -47,7 +48,8 @@ public class BloomFilterMetrics<R extends SSTableReaderWithFilter> extends Abstr
                                                                                   Long::sum);
 
     /**
-     * Number of false positives in bloom filter from last read
+     * Bloom-filter false positives since each reader's previous recent-count query. Reading this gauge advances
+     * shared cursors also used by RecentBloomFilterFalseRatio and other scopes.
      */
     public final GaugeProvider<Long> recentBloomFilterFalsePositives = newGaugeProvider("RecentBloomFilterFalsePositives",
                                                                                         0L,
@@ -55,7 +57,7 @@ public class BloomFilterMetrics<R extends SSTableReaderWithFilter> extends Abstr
                                                                                         Long::sum);
 
     /**
-     * Disk space used by bloom filter
+     * Serialized Bloom-filter bytes for live SSTables.
      */
     public final GaugeProvider<Long> bloomFilterDiskSpaceUsed = newGaugeProvider("BloomFilterDiskSpaceUsed",
                                                                                  0L,
@@ -63,7 +65,7 @@ public class BloomFilterMetrics<R extends SSTableReaderWithFilter> extends Abstr
                                                                                  Long::sum);
 
     /**
-     * Off heap memory used by bloom filter
+     * Off-heap Bloom-filter bytes for live SSTables.
      */
     public final GaugeProvider<Long> bloomFilterOffHeapMemoryUsed = newGaugeProvider("BloomFilterOffHeapMemoryUsed",
                                                                                      0L,
@@ -71,7 +73,8 @@ public class BloomFilterMetrics<R extends SSTableReaderWithFilter> extends Abstr
                                                                                      Long::sum);
 
     /**
-     * False positive ratio of bloom filter
+     * Bloom-filter false positives divided by true positives plus false positives plus true negatives across live
+     * SSTable readers. Returns zero without positive observations. This uses all tracked outcomes as the denominator.
      */
     public final GaugeProvider<Double> bloomFilterFalseRatio = newGaugeProvider("BloomFilterFalseRatio", readers -> {
         long falsePositiveCount = 0L;
@@ -89,7 +92,9 @@ public class BloomFilterMetrics<R extends SSTableReaderWithFilter> extends Abstr
     });
 
     /**
-     * False positive ratio of bloom filter from last read
+     * Recent Bloom-filter false positives divided by recent true positives plus false positives plus true negatives.
+     * Returns zero without positive observations. Queries advance shared per-reader cursors; polling other recent
+     * Bloom-filter gauges can change the sampling intervals.
      */
     public final GaugeProvider<Double> recentBloomFilterFalseRatio = newGaugeProvider("RecentBloomFilterFalseRatio", readers -> {
         long falsePositiveCount = 0L;

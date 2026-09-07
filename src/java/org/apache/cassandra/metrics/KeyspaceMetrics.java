@@ -42,105 +42,142 @@ import static org.apache.cassandra.metrics.CassandraMetricsRegistry.resolveShort
 public class KeyspaceMetrics
 {
     public static final String TYPE_NAME = "keyspace";
-    /** Total amount of live data stored in the memtable, excluding any data structure overhead */
+    /** Sum of live data bytes in current table memtables, excluding data structure overhead. */
     public final Gauge<Long> memtableLiveDataSize;
-    /** Total amount of data stored in the memtable that resides on-heap, including column related overhead and partitions overwritten. */
+    /**
+     * Sum of on-heap bytes owned by current table memtables, including allocator overhead and overwritten data.
+     */
     public final Gauge<Long> memtableOnHeapDataSize;
-    /** Total amount of data stored in the memtable that resides off-heap, including column related overhead and partitions overwritten. */
+    /**
+     * Sum of off-heap bytes owned by current table memtables, including allocator overhead and overwritten data.
+     */
     public final Gauge<Long> memtableOffHeapDataSize;
-    /** Total amount of live data stored in the memtables (2i and pending flush memtables included) that resides off-heap, excluding any data structure overhead */
+    /**
+     * Live data bytes in current memtables across tables and their backing secondary-index tables, excluding
+     * overhead and memtables pending flush.
+     */
     public final Gauge<Long> allMemtablesLiveDataSize;
-    /** Total amount of data stored in the memtables (2i and pending flush memtables included) that resides on-heap. */
+    /**
+     * On-heap bytes owned by current memtables across tables and their backing secondary-index tables. Excludes
+     * memtables pending flush.
+     */
     public final Gauge<Long> allMemtablesOnHeapDataSize;
-    /** Total amount of data stored in the memtables (2i and pending flush memtables included) that resides off-heap. */
+    /**
+     * Off-heap bytes owned by current memtables across tables and their backing secondary-index tables. Excludes
+     * memtables pending flush.
+     */
     public final Gauge<Long> allMemtablesOffHeapDataSize;
-    /** Total number of columns present in the memtable. */
+    /**
+     * Sum of operations accumulated in current table memtables, as counted by PartitionUpdate.operationCount();
+     * this is not a count of distinct live columns.
+     */
     public final Gauge<Long> memtableColumnsCount;
     /** Number of times flush has resulted in the memtable being switched out. */
     public final Gauge<Long> memtableSwitchCount;
-    /** Estimated number of tasks pending for this column family */
+    /** Flushes started but not yet finished with post-flush processing. */
     public final Gauge<Long> pendingFlushes;
-    /** Estimate of number of pending compactios for this CF */
+    /** Estimated remaining compaction tasks. */
     public final Gauge<Long> pendingCompactions;
-    /** Disk space used by SSTables belonging to tables in this keyspace */
+    /** Physical bytes used by live SSTables. */
     public final Gauge<Long> liveDiskSpaceUsed;
-    /** Disk space used by SSTables belonging to tables in this keyspace, scaled down by replication factor */
+    /**
+     * Sum of each table's live physical SSTable bytes divided by the keyspace's full replication factor. This is a
+     * local estimate, not a measured cluster-wide unique data size.
+     */
     public final Gauge<Long> unreplicatedLiveDiskSpaceUsed;
-    /** Uncompressed/logical size of SSTables belonging to tables in this keyspace */
+    /** Uncompressed logical bytes used by live SSTables. */
     public final Gauge<Long> uncompressedLiveDiskSpaceUsed;
-    /** Uncompressed/logical size of SSTables belonging to tables in this keyspace, scaled down by replication factor */
+    /** Sum of each table's live uncompressed SSTable bytes divided by the keyspace's full replication factor. */
     public final Gauge<Long> unreplicatedUncompressedLiveDiskSpaceUsed;
+    /** Physical bytes used by SSTables, including obsolete SSTables awaiting deletion. */
     public final Gauge<Long> totalDiskSpaceUsed;
-    /** Off heap memory used by compression meta data*/
+    /** Off-heap bytes used by compression metadata for live SSTables. */
     public final Gauge<Long> compressionMetadataOffHeapMemoryUsed;
-    /** (Local) read metrics */
+    /** Local replica execution time for single-partition reads. */
     public final LatencyMetrics readLatency;
-    /** (Local) range slice metrics */
+    /** Local replica execution time for partition-range reads. */
     public final LatencyMetrics rangeLatency;
-    /** (Local) write metrics */
+    /**
+     * Time to apply partition updates locally, including memtable and index updates; excludes waiting for replica
+     * acknowledgements.
+     */
     public final LatencyMetrics writeLatency;
-    /** Histogram of the number of sstable data files accessed per single partition read */
+    /** Number of SSTable data files accessed per local single-partition read. */
     public final Histogram sstablesPerReadHistogram;
-    /** Histogram of the number of sstable data files accessed per partition range read */
+    /** Number of SSTable data files accessed per local partition-range read. */
     public final Histogram sstablesPerRangeReadHistogram;
-    /** Tombstones scanned in queries on this Keyspace */
+    /** Tombstones scanned per local read, after any purgeable tombstones have been removed. */
     public final Histogram tombstoneScannedHistogram;
-    /** Purgeable tombstones scanned in queries on this Keyspace */
+    /** Purgeable tombstones encountered during local reads. */
     public final Histogram purgeableTombstoneScannedHistogram;
-    /** Live cells scanned in queries on this Keyspace */
+    /** Live rows scanned per local read. */
     public final Histogram liveScannedHistogram;
-    /** Rows mutated in writes on this Keyspace */
+    /** Affected rows per local partition update. */
     public final Histogram rowsMutatedPerWriteHistogram;
-    /** Column update time delta on this Keyspace */
+    /**
+     * Minimum absolute timestamp difference between overwritten cells in a partition update, in microseconds.
+     * Omits updates without a previous cell and caps samples at 18165375903306.
+     */
     public final Histogram colUpdateTimeDeltaHistogram;
-    /** time taken acquiring the partition lock for materialized view updates on this keyspace */
+    /** Time to acquire the partition lock for a materialized-view update. Recorded on the base table. */
     public final Timer viewLockAcquireTime;
-    /** time taken during the local read of a materialized view update */
+    /** Time for the local read needed to construct a materialized-view update. Recorded on the base table. */
     public final Timer viewReadTime;
-    /** CAS Prepare metric */
+    /** Time spent in the Paxos prepare phase of compare-and-set operations. */
     public final LatencyMetrics casPrepare;
-    /** CAS Propose metrics */
+    /** Time spent in the Paxos propose phase of compare-and-set operations. */
     public final LatencyMetrics casPropose;
-    /** CAS Commit metrics */
+    /** Time spent in the Paxos commit phase of compare-and-set operations. */
     public final LatencyMetrics casCommit;
-    /** Latency for locally run key migrations **/
+    /** Time for locally run key migrations between consensus systems. */
     public final LatencyMetrics keyMigration;
+    /** Time to obtain Accord maximum-conflict information during key migration. */
     public final LatencyMetrics accordGetMaxConflicts;
-    /** Latency for range migrations run by locally coordinated Accord repairs **/
+    /** Time for range migrations performed by locally coordinated Accord repairs. */
     public final LatencyMetrics accordRepair;
+    /** Time for Accord range migration after receiving streamed data. */
     public final LatencyMetrics accordPostStreamRepair;
+    /** Unexpected failures of locally coordinated Accord repair range migrations. */
     public final Meter rangeMigrationUnexpectedFailures;
+    /** Mutation rejections caused by routing a request to the wrong consensus system during migration. */
     public final Meter mutationsRejectedOnWrongSystem;
+    /** Read rejections caused by routing a request to the wrong consensus system during migration. */
     public final Meter readsRejectedOnWrongSystem;
-    /** Writes failed ideal consistency **/
+    /**
+     * Writes that achieved the requested consistency level but failed to achieve the configured ideal consistency
+     * level.
+     */
     public final Counter writeFailedIdealCL;
-    /** Ideal CL write latency metrics */
+    /** Write latency measured against the configured ideal consistency level. */
     public final LatencyMetrics idealCLWriteLatency;
-    /** Speculative retries **/
+    /** Speculative read retries sent to additional replicas. */
     public final Counter speculativeRetries;
-    /** Speculative retry occured but still timed out **/
+    /** Reads that timed out despite sending a speculative retry. */
     public final Counter speculativeFailedRetries;
-    /** Needed to speculate, but didn't have enough replicas **/
+    /** Reads that needed speculation but had no additional eligible replica. */
     public final Counter speculativeInsufficientReplicas;
-    /** Needed to write to a transient replica to satisfy quorum **/
+    /**
+     * Writes for which the coordinator contacted additional replicas after the additional-write latency threshold
+     * elapsed.
+     */
     public final Counter additionalWrites;
-    /** Number of started repairs as coordinator on this keyspace */
+    /** Repair jobs started as coordinator. */
     public final Counter repairsStarted;
-    /** Number of completed repairs as coordinator on this keyspace */
+    /** Repair jobs that finished as coordinator, including failed jobs. */
     public final Counter repairsCompleted;
-    /** total time spent as a repair coordinator */
+    /** Duration of repair operations coordinated by this node. */
     public final Timer repairTime;
-    /** total time spent preparing for repair */
+    /** Duration of the preparation phase of repair operations coordinated by this node. */
     public final Timer repairPrepareTime;
-    /** Time spent anticompacting */
+    /** Duration of anticompaction to separate repaired and unrepaired data. */
     public final Timer anticompactionTime;
-    /** total time spent creating merkle trees */
+    /** Time spent building Merkle trees for repair validation. */
     public final Timer validationTime;
-    /** total time spent syncing data after repair */
+    /** Time spent synchronizing data during repair. */
     public final Timer repairSyncTime;
-    /** histogram over the number of bytes we have validated */
+    /** Approximate bytes read per repair validation. */
     public final Histogram bytesValidated;
-    /** histogram over the number of partitions we have validated */
+    /** Partitions read per repair validation. */
     public final Histogram partitionsValidated;
     /** Lifetime count of reads for keys outside the node's owned token ranges for this keyspace **/
     public final Counter outOfRangeTokenReads;
@@ -155,54 +192,89 @@ public class KeyspaceMetrics
      */
 
     /**
-     * Incremented where an inconsistency is detected and there are no pending repair sessions affecting
-     * the data being read, indicating a genuine mismatch between replicas' repaired data sets.
+     * Repaired-data mismatches detected by the coordinator with no pending repair sessions that could explain the
+     * mismatch.
      */
     public final Meter confirmedRepairedInconsistencies;
     /**
-     * Incremented where an inconsistency is detected, but there are pending & uncommitted repair sessions
-     * in play on at least one replica. This may indicate a false positive as the inconsistency could be due to
-     * replicas marking the repair session as committed at slightly different times and so some consider it to
-     * be part of the repaired set whilst others do not.
+     * Repaired-data mismatches detected by the coordinator while pending repair sessions could explain different
+     * repaired sets.
      */
     public final Meter unconfirmedRepairedInconsistencies;
 
-    /**
-     * Tracks the amount overreading of repaired data replicas perform in order to produce digests
-     * at query time. For each query, on a full data read following an initial digest mismatch, the replicas
-     * may read extra repaired data, up to the DataLimit of the command, so that the coordinator can compare
-     * the repaired data on each replica. These are tracked on each replica.
-     */
+    /** Extra repaired rows read on a replica to compare repaired-data digests after a digest mismatch. */
     public final Histogram repairedDataTrackingOverreadRows;
+    /** Time spent on replica overreads needed for repaired-data digest comparison. */
     public final Timer repairedDataTrackingOverreadTime;
 
+    /**
+     * Read commands for which the coordinator reports a replica tombstone warning to the client; counts commands,
+     * not replicas.
+     */
     public final Meter clientTombstoneWarnings;
+    /**
+     * Read commands for which the coordinator reports a replica tombstone abort to the client; counts commands,
+     * not replicas.
+     */
     public final Meter clientTombstoneAborts;
 
+    /** Read results that exceed the coordinator result-size warning threshold. */
     public final Meter coordinatorReadSizeWarnings;
+    /** Read results rejected by the coordinator result-size abort threshold. */
     public final Meter coordinatorReadSizeAborts;
+    /**
+     * Result bytes accumulated at the coordinator when read-size checks run, including samples at size-triggered
+     * aborts.
+     */
     public final Histogram coordinatorReadSize;
 
+    /** Read commands for which the coordinator reports a replica local-read-size warning. */
     public final Meter localReadSizeWarnings;
+    /** Read commands for which the coordinator reports a replica local-read-size abort. */
     public final Meter localReadSizeAborts;
+    /** Estimated data bytes accumulated by local replica reads while local read-size tracking is enabled. */
     public final Histogram localReadSize;
 
+    /** Read commands for which the coordinator reports a replica row-index-size warning. */
     public final Meter rowIndexSizeWarnings;
+    /** Read commands for which the coordinator reports a replica row-index-size abort. */
     public final Meter rowIndexSizeAborts;
+    /**
+     * Estimated in-memory bytes for materialized Big-format row-index entries when the row-index size check runs.
+     */
     public final Histogram rowIndexSize;
 
+    /**
+     * Read commands for which the coordinator reports a replica warning about the number of SSTable indexes
+     * accessed.
+     */
     public final Meter tooManySSTableIndexesReadWarnings;
+    /**
+     * Read commands for which the coordinator reports a replica abort due to the number of SSTable indexes
+     * accessed.
+     */
     public final Meter tooManySSTableIndexesReadAborts;
 
+    /** Writes for which the coordinator reports a mutation-size threshold warning. */
     public final Meter writeSizeWarnings;
+    /** Writes for which the coordinator reports a mutation tombstone-count threshold warning. */
     public final Meter writeTombstoneWarnings;
 
+    /** Bytes processed by anticompaction to split SSTables along repair ranges. */
     public final Meter bytesAnticompacted;
+    /**
+     * Bytes in SSTables wholly contained in repair ranges, whose repair status could change without rewriting
+     * their data.
+     */
     public final Meter bytesMutatedAnticompaction;
+    /** Bytes examined during preview repair. */
     public final Meter bytesPreviewed;
+    /** Token ranges with mismatching data detected by preview repair. */
     public final Meter tokenRangesPreviewedDesynchronized;
+    /** Estimated bytes associated with mismatching data detected by preview repair. */
     public final Meter bytesPreviewedDesynchronized;
 
+    /** Time to build the SSTable interval tree for a new tracker view while holding the tracker lock. */
     public final LatencyMetrics viewSSTableIntervalTree;
 
     public final ImmutableMap<SSTableFormat<?, ?>, ImmutableMap<String, Gauge<? extends Number>>> formatSpecificGauges;

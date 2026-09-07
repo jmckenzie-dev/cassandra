@@ -37,7 +37,10 @@ public class KeyCacheMetrics<R extends SSTableReader & KeyCacheSupport<R>> exten
         return null;
     }
 
-    /** Key cache hit rate  for this CF */
+    /**
+     * Key-cache hits divided by requests across compatible live SSTable readers. Returns zero without requests.
+     * This is a ratio, not an events-per-second rate.
+     */
     private final GaugeProvider<Double> keyCacheHitRate = newGaugeProvider("KeyCacheHitRate", readers -> {
         long hits = 0L;
         long requests = 0L;
