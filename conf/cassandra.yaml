@@ -2091,14 +2091,17 @@ sstables_per_read_log_threshold: 100
 tombstone_warn_threshold: 1000
 tombstone_failure_threshold: 100000
 
-# When a query hits the tombstone_paging_threshold count, paged queries will return a short-circuited set of results
+# When a query exceeds the tombstone_paging_threshold count, paged queries will return a short-circuited set of results
 # in a page with a continuation set to the clustering key of the last row upon which the paging hit
 # the tombstone threshold. This approach to paging *can return no results in a page* if you page
 # across a large number of contiguous tombstones. It is recommended that clients use the async API's
 # for ResultSet gathering in order to be able to control for how long they want to page across
 # results, as the sync approach will continue to page and spin until it fills the requested
 # ResultSet size or hits the end of the queried range.
-# tombstone_paging_threshold: 25000
+# If unspecified, this defaults to 100000, the default numeric value of tombstone_failure_threshold.
+# Changing tombstone_failure_threshold does not change this default. When paging is enabled, this threshold
+# controls the cutoff instead of tombstone_failure_threshold. Set to -1 to disable paging across tombstones.
+# tombstone_paging_threshold: 100000
 
 # Controls the granularity of purgeable tombstones reported to PurgeableTombstoneScannedHistogram table metric
 # Possible values:

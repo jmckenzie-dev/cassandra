@@ -85,6 +85,56 @@ public class ShortReadProtectionTombstonePagingTest extends TestBaseImpl
     }
 
     @Test
+    public void checkpointWithoutClusteringReturnsTypedFailureAtOne()
+    {
+        for (String repair : new String[]{ "NONE", "BLOCKING" })
+        {
+            String table = "srp_no_clustering_" + repair.toLowerCase(java.util.Locale.ROOT);
+            cluster.schemaChange("CREATE TABLE " + qualified(table) +
+                                 " (pk int PRIMARY KEY, m map<int, int>) WITH read_repair = '" + repair +
+                                 "' AND speculative_retry = 'NONE'");
+            cluster.forEach(node -> {
+                node.executeInternal("INSERT INTO " + qualified(table) + " (pk, m) VALUES (0, {9: 9}) USING TIMESTAMP 1");
+                node.executeInternal("DELETE m[0], m[1], m[2] FROM " + qualified(table) + " USING TIMESTAMP 2 WHERE pk = 0");
+            });
+            for (boolean flushed : new boolean[]{ false, true })
+            {
+                if (flushed)
+                    flush();
+                for (int coordinator : new int[]{ 1, 3 })
+                {
+                    String host = cluster.get(coordinator).broadcastAddress().getHostString();
+                    try (com.datastax.driver.core.Cluster client = com.datastax.driver.core.Cluster.builder()
+                                                                                                   .addContactPoint(host)
+                                                                                                   .withRetryPolicy(FallthroughRetryPolicy.INSTANCE)
+                                                                                                   .withLoadBalancingPolicy(new WhiteListPolicy(new RoundRobinPolicy(),
+                                                                                                                                               Collections.singletonList(new InetSocketAddress(host, 9042))))
+                                                                                                   .build();
+                         Session session = client.connect())
+                    {
+                        for (com.datastax.driver.core.ConsistencyLevel consistency : new com.datastax.driver.core.ConsistencyLevel[]{ com.datastax.driver.core.ConsistencyLevel.ONE,
+                                                                                                                                    com.datastax.driver.core.ConsistencyLevel.LOCAL_ONE })
+                        {
+                            SimpleStatement statement = new SimpleStatement("SELECT m FROM " + qualified(table) + " WHERE pk = 0 LIMIT 2");
+                            statement.setConsistencyLevel(consistency);
+                            statement.setFetchSize(1);
+                            statement.setReadTimeoutMillis(15000);
+                            assertThatThrownBy(() -> session.execute(statement))
+                            .as("repair=%s, coordinator=%s, flushed=%s, consistency=%s", repair, coordinator, flushed, consistency)
+                            .isInstanceOf(com.datastax.driver.core.exceptions.ReadFailureException.class)
+                            .satisfies(error -> {
+                                com.datastax.driver.core.exceptions.ReadFailureException failure = (com.datastax.driver.core.exceptions.ReadFailureException) error;
+                                org.junit.Assert.assertEquals(consistency, failure.getConsistencyLevel());
+                                assertTrue(failure.getFailuresMap().containsValue(RequestFailureReason.READ_TOO_MANY_TOMBSTONES.code));
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     public void staticTombstoneCheckpointFailsBeforeReturningRows()
     {
         String table = "srp_static_checkpoint";

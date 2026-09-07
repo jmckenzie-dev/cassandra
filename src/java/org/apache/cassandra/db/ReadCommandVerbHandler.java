@@ -57,7 +57,7 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
     {
         ReadResponse response;
         try (ReadExecutionController controller = command.executionController(trackRepairedData);
-             UnfilteredPartitionIterator iterator = command.executeLocally(controller))
+             UnfilteredPartitionIterator iterator = command.executeLocally(controller, DatabaseDescriptor.getTombstonePagingThreshold()))
         {
             response = command.createResponse(iterator, controller.getRepairedDataInfo());
         }

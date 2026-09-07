@@ -579,21 +579,21 @@ public abstract class ReadCommand extends AbstractReadQuery
                                   // iterators created inside the try as long as we do close the original resultIterator), or by closing the result.
     public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController)
     {
-        return executeLocally(executionController, null, DatabaseDescriptor.getTombstonePagingThreshold());
+        return executeLocally(executionController, null, -1);
     }
 
     // ClusterMetadata is null on startup when there are local reads from system tables before it's initialized
     public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, @Nullable ClusterMetadata cm)
     {
-        return executeLocally(executionController, cm, DatabaseDescriptor.getTombstonePagingThreshold());
+        return executeLocally(executionController, cm, -1);
     }
 
     /**
      * {@inheritDoc}
      *
-     * <p>When {@code tombstonePagingThreshold != -1}, rather than throwing a {@link TombstoneOverwhelmingException} on
-     * reaching the tombstone failure threshold, iteration is stopped early (the current page is short-circuited) and the
-     * caller can introspect {@link #tombstoneLimitedRow()} to resume paging past the tombstones.
+     * <p>When {@code tombstonePagingThreshold != -1}, exceeding that threshold stops iteration early. The caller can
+     * inspect {@link #tombstoneLimitedRow()} to resume paging past the tombstones. When paging is disabled, exceeding
+     * the tombstone failure threshold throws a {@link TombstoneOverwhelmingException}.
      */
     @Override
     public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, int tombstonePagingThreshold)
@@ -723,7 +723,9 @@ public abstract class ReadCommand extends AbstractReadQuery
     {
         class MetricRecording extends StoppingTransformation<UnfilteredRowIterator>
         {
-            private final int failureThreshold = DatabaseDescriptor.getTombstoneFailureThreshold();
+            private final int tombstoneThreshold = tombstonePagingThreshold == -1
+                                                   ? DatabaseDescriptor.getTombstoneFailureThreshold()
+                                                   : tombstonePagingThreshold;
             private final int warningThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
 
             private final boolean respectTombstoneThresholds = !SchemaConstants.isLocalSystemKeyspace(ReadCommand.this.metadata().keyspace);
@@ -798,18 +800,18 @@ public abstract class ReadCommand extends AbstractReadQuery
             }
 
             /**
-             * This will signal a {@link #stopInPartition()} to iteration if we're past our failure
-             * threshold for tombstones and are configured to gracefully end paging at that time
-             * rather than simply throwing an exception.
+             * Stop at a resumable row after exceeding the paging threshold, or throw after exceeding
+             * the failure threshold when paging is disabled.
              */
             private void countTombstone(ClusteringPrefix<?> clustering) throws TombstoneOverwhelmingException
             {
                 ++tombstones;
-                if (tombstones > failureThreshold && respectTombstoneThresholds)
+                if (tombstones > tombstoneThreshold && respectTombstoneThresholds)
                 {
                     String query = ReadCommand.this.toCQLString();
                     String actionTaken = tombstonePagingThreshold == -1 ? "query aborted" : "page ended early";
-                    Tracing.trace("Scanned over {} tombstones for query {}; " + actionTaken + " (see tombstone_failure_threshold)", failureThreshold, query);
+                    String setting = tombstonePagingThreshold == -1 ? "tombstone_failure_threshold" : "tombstone_paging_threshold";
+                    Tracing.trace("Scanned over {} tombstones for query {}; " + actionTaken + " (see " + setting + ")", tombstoneThreshold, query);
 
                     metric.tombstoneFailures.inc();
 
@@ -838,7 +840,7 @@ public abstract class ReadCommand extends AbstractReadQuery
                             else
                             {
                                 msg = String.format("Scanned over %d tombstones for query %s in this page; short-circuiting paging to prevent coordinator pressure.",
-                                                    failureThreshold,
+                                                    tombstoneThreshold,
                                                     query);
                                 stopInPartition();
                             }
@@ -891,7 +893,7 @@ public abstract class ReadCommand extends AbstractReadQuery
                         MessageParams.add(ParamType.TOMBSTONE_WARNING, tombstones);
                     else
                         ClientWarn.instance.warn(msg);
-                    if (tombstones < failureThreshold)
+                    if (tombstones < tombstoneThreshold)
                     {
                         metric.tombstoneWarnings.inc();
                     }

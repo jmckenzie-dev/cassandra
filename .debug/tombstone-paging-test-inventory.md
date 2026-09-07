@@ -16,23 +16,26 @@ limitations under the License.
 # Tests and defects since the original implementation
 
 Baseline: `0c202df78b`, the original paging-across-tombstones implementation.
-Current scope: commits `458b9b699c` and `168966f1c9`, plus the follow-up fixes and
-tests prepared on 2026-09-07 UTC. Counts include earlier agent work and the current
-fixes.
+Current scope: commits `458b9b699c`, `168966f1c9`, and `2761428ed3`, plus the
+correctness and performance follow-up on 2026-09-07 UTC. Counts include earlier
+agent work and the current fixes.
 
 ## Test additions
 
-There are **88 new `@Test` methods: 41 unit and 47 distributed**. This counts
+There are **93 new `@Test` methods: 43 unit and 50 distributed**. This counts
 distinct source methods, not parameter combinations, queries, assertions, seeds,
-or generated examples. No baseline test method was removed. All 88 added methods
+or generated examples. No baseline test method was removed. All 93 added methods
 now have passing execution evidence across the recorded validation passes,
 including the four deterministic [5.0.10-to-current upgrade tests and the mixed-version fuzzer](mixed-version-tombstone-paging.md).
-The latest [coverage follow-up](close-paging-coverage-gaps.md) adds nine methods
-and strengthens the paging-state round-trip property.
+The [coverage follow-up](close-paging-coverage-gaps.md) adds nine methods and
+strengthens the paging-state round-trip property. The latest
+[correctness and performance audit](paging-correctness-and-performance.md) adds
+three regression methods and one bounded performance method, and makes the
+current-version fuzzer use bounded native-page traversal throughout.
 
 | Class | New methods |
 | --- | ---: |
-| Unit: ReadCommandTest | 4 |
+| Unit: ReadCommandTest | 6 |
 | Unit: TombstonePageContinuationTest | 2 |
 | Unit: QueryPagerTest | 14 |
 | Unit: PagingStateTest | 8 |
@@ -44,14 +47,15 @@ and strengthens the paging-state round-trip property.
 | Distributed: PagingAcrossTombstonesDistributedTest | 13 |
 | Distributed: PagingAcrossTombstonesFuzzTest | 3 |
 | Distributed: PagingAcrossTombstonesInteractionTest | 16 |
-| Distributed: PagingAcrossTombstonesTransientTest | 1 |
-| Distributed: ShortReadProtectionTombstonePagingTest | 9 |
+| Distributed: PagingAcrossTombstonesTransientTest | 2 |
+| Distributed: ShortReadProtectionTombstonePagingTest | 10 |
+| Distributed: PagingAcrossTombstonesPerformanceTest | 1 |
 | Upgrade: MixedVersionPagingAcrossTombstonesTest | 4 |
 | Upgrade: MixedVersionPagingAcrossTombstonesFuzzTest | 1 |
 
 Eight existing empty methods in `MixedConfigPagingAcrossTombstonesTest` now
 perform real reads and assertions across four configurations: 32 executed cases.
-These eight methods are additional implemented coverage, excluded from the 88
+These eight methods are additional implemented coverage, excluded from the 93
 new-method count. The two existing distributed `PagingTest` methods now run
 with the feature disabled and enabled, giving four cases. Existing synchronous
 reverse-paging checks also now execute and assert their reads.
@@ -87,6 +91,10 @@ earlier follow-up fix.
 | After a grouped checkpoint, short-read protection used the original row limit to judge a smaller refill. It stopped the deletion-bearing replica and exposed deleted `ck=1`, changing count 3 to 4. | Apply the original exhaustion check only before the first refill. `groupedCheckpointsReconcileReplicaDifferences`. |
 | Deserializing paging state from a read-only heap buffer crashed the JVM. | Distinguish direct buffers from heap buffers without an exposed array. The enabled crash regression, buffer-copy test, and 1,024-example state property pass. |
 | A static-row tombstone cutoff escaped coordinator reconciliation as `ServerError`, causing the driver to defunct the connection. | Report the failed per-replica retry as `ReadFailureException` with `READ_TOO_MANY_TOMBSTONES`. The three-node regression checks identical/divergent replicas, two coordinators, memory/flushed data, and disabled controls. |
+| A local checkpoint without clustering columns entered unsupported ONE read repair and returned `ServerError`. | Reject unsupported initial checkpoints through `ReadCallback`; native ONE/LOCAL_ONE, NONE/BLOCKING repair, two coordinators, and memory/flushed cases pass. |
+| A speculative transient response followed by a full-replica checkpoint at ONE required a nonexistent coordinator cursor, causing a null-pointer `ServerError`. | Build the typed tombstone failure from the response endpoint. A native RF 2/1 regression delivers real responses in a latched order. |
+| Default unpaged local reads inherited the global paging setting and could silently omit a live tail after a tombstone cutoff. | Default local reads disable checkpoints; replica handlers and pagers opt in explicitly. The regression covers filtered and unfiltered APIs, including the cluster-metadata overload, in memory and after flush. |
+| The numeric paging threshold did not control the cutoff; reads used the failure threshold. | Select the paging threshold when enabled and default it to 100000. `tombstonePagingThresholdIsIndependentOfFailureThreshold` checks unequal thresholds, disabled behavior, and the default; the strengthened fixed-seed property also reproduces the old cutoff error. |
 
 Historical reproduction and validation records:
 [initial read investigation](paging-initial-checkpoint.md),

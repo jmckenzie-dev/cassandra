@@ -186,8 +186,9 @@ this does not test rejection by an overwhelmed disabled node.
 Enabled cases check ascending and descending reads, memtables and flushed data,
 and matching, differing, and partly disabled configurations. Fetch size must be
 strictly below LIMIT so Cassandra creates a pager. Every enabled configuration
-must cross a replica tombstone threshold. The driver consumes all pages before
-the test compares rows; empty pages with continuation state are valid.
+must cross a replica tombstone threshold. The bounded native-page reader checks
+state progress, row/page budgets, and a deadline before comparing all returned
+rows; empty pages with continuation state are valid.
 
 The deterministic `PagingAcrossTombstonesDistributedTest` checks empty pages with
 matching digests and continuations, full-data reconciliation on mismatch,
@@ -235,10 +236,27 @@ for the historical 95.7% line / 89.7% branch measurement and the
 The latest [coverage follow-up](../.debug/close-paging-coverage-gaps.md) adds nine
 methods for static cutoffs, empty-page iteration, legacy static boundaries,
 continuation rejection, transient reconciliation, state equality, and management
-accessors. It also strengthens the state round-trip property. Pager coverage is
-96.37% of lines and 93.12% of branches. The new methods took about 9.1 seconds,
+accessors. It also strengthens the state round-trip property. At that revision,
+pager coverage was 96.37% of lines and 93.12% of branches. The new methods took about 9.1 seconds,
 excluding shared class/JVM setup, and add no sleeps. A static cutoff without a
 row cursor now returns a typed read failure instead of a generic server error.
+
+The [correctness audit](../.debug/paging-correctness-and-performance.md) adds native
+ONE/LOCAL_ONE failure checks without clustering columns and a latched speculative
+transient-replica regression. Default local reads now reject tombstone overflow;
+replica handlers and pagers explicitly enable resumable checkpoints. A local-read
+regression covers filtered and unfiltered APIs, including cluster metadata.
+
+Run the bounded three-node performance comparison without JaCoCo instrumentation:
+
+    bash run_tests.sh test org.apache.cassandra.distributed.test.PagingAcrossTombstonesPerformanceTest -Dno-build-test=true -DmaxMemory=8G -Dtest.timeout=180000
+
+It measures complete native ALL queries with fetch size 100 and LIMIT 101 in
+memory and after flush. The four modes are clean reads with paging disabled or
+enabled, matching checkpoints, and full-data reconciliation. It asserts results
+and replica read counts, and reports timing without a latency pass/fail threshold.
+Measurements are written to `logs/paging-performance-<UTC timestamp>.log` and stdout.
+The audit records the measurement design and its limits.
 
 `PagingAcrossTombstonesTransientTest` exercises an actual 3/1 replication factor
 and all three coordinators. `MixedConfigPagingAcrossTombstonesTest` now applies

@@ -31,7 +31,6 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 import com.datastax.driver.core.Session;
-import com.datastax.driver.core.SimpleStatement;
 import com.datastax.driver.core.policies.RoundRobinPolicy;
 import com.datastax.driver.core.policies.WhiteListPolicy;
 
@@ -306,10 +305,7 @@ public class PagingAcrossTombstonesFuzzTest extends TestBaseImpl
             assertRows(cluster.get(1).executeInternal(query, -pk - 1), expected);
             for (Session session : sessions)
             {
-                SimpleStatement statement = new SimpleStatement(query, pk);
-                statement.setConsistencyLevel(com.datastax.driver.core.ConsistencyLevel.ALL);
-                statement.setFetchSize(Integer.MAX_VALUE);
-                Object[][] actual = session.execute(statement).all().stream()
+                Object[][] actual = readPages(session, query.replace("?", Integer.toString(pk)), Integer.MAX_VALUE, ROWS).stream()
                                            .map(row -> new Object[]{ row.getInt("ck"), row.getInt("v") })
                                            .toArray(Object[][]::new);
                 assertRows(actual, expected);
@@ -342,7 +338,7 @@ public class PagingAcrossTombstonesFuzzTest extends TestBaseImpl
             boolean enabled = mode != 3 && (mode != 2 || node != 2);
             cluster.get(node).runOnInstance(() -> {
                 DatabaseDescriptor.setTombstonePagingThreshold(enabled ? threshold : -1);
-                DatabaseDescriptor.setTombstoneFailureThreshold(enabled ? threshold : 10000);
+                DatabaseDescriptor.setTombstoneFailureThreshold(enabled ? threshold + 3 : 10000);
             });
         }
     }
@@ -378,10 +374,7 @@ public class PagingAcrossTombstonesFuzzTest extends TestBaseImpl
                             continue;
                         try
                         {
-                            SimpleStatement statement = new SimpleStatement(query, pk);
-                            statement.setConsistencyLevel(com.datastax.driver.core.ConsistencyLevel.ALL);
-                            statement.setFetchSize(pageSize);
-                            Object[][] actual = sessions[coordinator - 1].execute(statement).all().stream()
+                            Object[][] actual = readPages(sessions[coordinator - 1], query.replace("?", Integer.toString(pk)), pageSize, ROWS).stream()
                                                                          .map(row -> new Object[]{ row.getInt("ck"), row.getInt("v") })
                                                                          .toArray(Object[][]::new);
                             assertRows(actual, expected);

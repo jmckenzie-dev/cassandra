@@ -36,6 +36,7 @@ import org.apache.cassandra.db.ReadQuery;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
+import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
 import org.apache.cassandra.db.rows.BaseRowIterator;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.RowIterator;
@@ -120,7 +121,7 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
             exhausted = true;
             return EmptyIterators.partition();
         }
-        return Transformation.apply(readQuery.executeInternal(executionController), pager);
+        return Transformation.apply(UnfilteredPartitionIterators.filter(readQuery.executeLocally(executionController, tombstonePagingThreshold), query.nowInSec()), pager);
     }
 
     public UnfilteredPartitionIterator fetchPageUnfiltered(TableMetadata metadata, int pageSize, ReadExecutionController executionController)

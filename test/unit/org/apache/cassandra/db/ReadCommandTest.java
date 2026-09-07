@@ -808,6 +808,60 @@ public class ReadCommandTest
     }
 
     @Test
+    public void unpagedInternalReadDoesNotSilentlyStopAtCheckpoint()
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF2);
+        String key = "unpaged-checkpoint";
+        int originalFailureThreshold = DatabaseDescriptor.getTombstoneFailureThreshold();
+        int originalPagingThreshold = DatabaseDescriptor.getTombstonePagingThreshold();
+        try
+        {
+            DatabaseDescriptor.setTombstoneFailureThreshold(2);
+            DatabaseDescriptor.setTombstonePagingThreshold(2);
+            for (String clustering : new String[]{ "aa", "bb", "cc" })
+                RowUpdateBuilder.deleteRow(cfs.metadata(), 10, ByteBufferUtil.bytes(key), clustering).applyUnsafe();
+            new RowUpdateBuilder(cfs.metadata(), 10, ByteBufferUtil.bytes(key)).clustering("zz").add("a", "live").build().applyUnsafe();
+            for (boolean flushed : new boolean[]{ false, true })
+            {
+                if (flushed)
+                    Util.flush(cfs);
+                SinglePartitionReadCommand command = getWholePartitionReadCommand(cfs, key, FBUtilities.nowInSeconds());
+                try (ReadExecutionController controller = command.executionController())
+                {
+                    org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+                        try (org.apache.cassandra.db.partitions.PartitionIterator partitions = command.executeInternal(controller))
+                        {
+                            while (partitions.hasNext())
+                                try (org.apache.cassandra.db.rows.RowIterator rows = partitions.next())
+                                {
+                                    while (rows.hasNext())
+                                        rows.next();
+                                }
+                        }
+                    }).isInstanceOf(org.apache.cassandra.db.filter.TombstoneOverwhelmingException.class);
+                    for (boolean withMetadata : new boolean[]{ false, true })
+                        org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+                            try (UnfilteredPartitionIterator partitions = withMetadata
+                                                                          ? command.executeLocally(controller, org.apache.cassandra.tcm.ClusterMetadata.current())
+                                                                          : command.executeLocally(controller))
+                            {
+                                ReadResponse.createDataResponse(partitions, command);
+                            }
+                        }).isInstanceOf(org.apache.cassandra.db.filter.TombstoneOverwhelmingException.class);
+                    Assert.assertNull(command.tombstoneLimitedRow());
+                    assertEquals(0, command.tombstoneLimitedCount());
+                }
+            }
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstoneFailureThreshold(originalFailureThreshold);
+            DatabaseDescriptor.setTombstonePagingThreshold(originalPagingThreshold);
+            cfs.truncateBlocking();
+        }
+    }
+
+    @Test
     public void staticTombstoneCheckpointHasNoRowContinuation()
     {
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
@@ -889,6 +943,56 @@ public class ReadCommandTest
     }
 
     @Test
+    public void tombstonePagingThresholdIsIndependentOfFailureThreshold()
+    {
+        Config defaults = new Config();
+        assertEquals(100000, defaults.tombstone_paging_threshold);
+        assertEquals(defaults.tombstone_failure_threshold, defaults.tombstone_paging_threshold);
+        defaults.tombstone_failure_threshold = 3;
+        assertEquals(100000, defaults.tombstone_paging_threshold);
+
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF2);
+        String key = "independent-thresholds";
+        int originalFailureThreshold = DatabaseDescriptor.getTombstoneFailureThreshold();
+        try
+        {
+            for (String clustering : new String[]{ "aa", "bb", "cc", "dd" })
+                RowUpdateBuilder.deleteRow(cfs.metadata(), 10, ByteBufferUtil.bytes(key), clustering).applyUnsafe();
+            for (boolean flushed : new boolean[]{ false, true })
+            {
+                if (flushed)
+                    Util.flush(cfs);
+                for (int failureThreshold : new int[]{ 0, 2, 6 })
+                {
+                    DatabaseDescriptor.setTombstoneFailureThreshold(failureThreshold);
+                    for (int pagingThreshold : new int[]{ 0, 1, 2, 4, 6 })
+                    {
+                        SinglePartitionReadCommand command = getWholePartitionReadCommand(cfs, key, FBUtilities.nowInSeconds());
+                        executeAndConsume(command, pagingThreshold);
+                        assertEquals(pagingThreshold < 4 ? pagingThreshold + 1 : 0, command.tombstoneLimitedCount());
+                        if (pagingThreshold < 4)
+                            Assert.assertNotNull(command.tombstoneLimitedRow());
+                        else
+                            Assert.assertNull(command.tombstoneLimitedRow());
+                    }
+                    SinglePartitionReadCommand command = getWholePartitionReadCommand(cfs, key, FBUtilities.nowInSeconds());
+                    if (failureThreshold < 4)
+                        org.assertj.core.api.Assertions.assertThatThrownBy(() -> executeAndConsume(command, Config.TOMBSTONE_PAGING_DISABLED))
+                                                       .isInstanceOf(org.apache.cassandra.db.filter.TombstoneOverwhelmingException.class);
+                    else
+                        executeAndConsume(command, Config.TOMBSTONE_PAGING_DISABLED);
+                    Assert.assertNull(command.tombstoneLimitedRow());
+                }
+            }
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstoneFailureThreshold(originalFailureThreshold);
+            cfs.truncateBlocking();
+        }
+    }
+
+    @Test
     public void tombstonePageCheckpointStateIsThresholdBoundedProperty()
     {
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF2);
@@ -900,31 +1004,31 @@ public class ReadCommandTest
             qt().withFixedSeed(TOMBSTONE_CHECKPOINT_PROPERTY_SEED)
                 .withExamples(24)
                 .forAll(integers().between(1, 12), integers().between(1, 12))
-                .checkAssert((failureThreshold, extraTombstones) -> {
+                .checkAssert((pagingThreshold, extraTombstones) -> {
                     cfs.truncateBlocking();
                     try
                     {
-                        DatabaseDescriptor.setTombstoneFailureThreshold(failureThreshold);
-                        int tombstoneCount = failureThreshold + extraTombstones;
+                        DatabaseDescriptor.setTombstoneFailureThreshold(extraTombstones);
+                        int tombstoneCount = pagingThreshold + extraTombstones;
                         for (int clustering = 0; clustering < tombstoneCount; clustering++)
                             RowUpdateBuilder.deleteRow(cfs.metadata(), 10, ByteBufferUtil.bytes(partitionKey), Integer.toString(clustering)).applyUnsafe();
 
                         SinglePartitionReadCommand command = getWholePartitionReadCommand(cfs, partitionKey, FBUtilities.nowInSeconds())
                                                            .withUpdatedLimit(DataLimits.cqlLimits(1));
-                        executeAndConsume(command, failureThreshold);
+                        executeAndConsume(command, pagingThreshold);
 
                         Assert.assertNotNull(command.tombstoneLimitedRow());
-                        assertEquals(failureThreshold + 1, command.tombstoneLimitedCount());
+                        assertEquals(pagingThreshold + 1, command.tombstoneLimitedCount());
                         Assert.assertNotNull(command.consumeTombstoneLimitedRow());
                         Assert.assertNull(command.tombstoneLimitedRow());
                         assertEquals(0, command.tombstoneLimitedCount());
 
-                        executeAndConsume(command, failureThreshold);
+                        executeAndConsume(command, pagingThreshold);
                         Assert.assertNotNull(command.tombstoneLimitedRow());
-                        assertEquals(failureThreshold + 1, command.tombstoneLimitedCount());
+                        assertEquals(pagingThreshold + 1, command.tombstoneLimitedCount());
 
                         cfs.truncateBlocking();
-                        executeAndConsume(command, failureThreshold);
+                        executeAndConsume(command, pagingThreshold);
                         Assert.assertNull(command.tombstoneLimitedRow());
                         assertEquals(0, command.tombstoneLimitedCount());
                     }

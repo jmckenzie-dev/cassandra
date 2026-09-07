@@ -91,11 +91,8 @@ public abstract class AbstractReadExecutor
         this.readRepair = ReadRepair.create(coordinator, command, this.replicaPlan, requestTime);
         this.digestResolver = new DigestResolver<>(coordinator, command, this.replicaPlan, requestTime);
         this.compareTombstonePageContinuations = digestResolver.supportsTombstonePageCheckpoints();
-        boolean useLocalCommand = command.hasTombstonePageCheckpointOwner() && !command.isTopK();
         ReadCallback.TombstonePageCheckpointPolicy tombstonePageCheckpointPolicy = compareTombstonePageContinuations
                                                                                    ? ReadCallback.TombstonePageCheckpointPolicy.COMPARE
-                                                                                   : useLocalCommand
-                                                                                   ? ReadCallback.TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND
                                                                                    : ReadCallback.TombstonePageCheckpointPolicy.REJECT;
         this.handler = new ReadCallback<>(digestResolver,
                                           command,

@@ -19,6 +19,7 @@ package org.apache.cassandra.service.reads;
 
 import java.nio.ByteBuffer;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -29,12 +30,12 @@ import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.TombstonePageContinuation;
-import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
-import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.transform.Transformation;
+import org.apache.cassandra.exceptions.ReadFailureException;
+import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
@@ -133,12 +134,8 @@ public class DigestResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRea
             int tombstoneLimitedCount = (int) dataResponse.header.params().getOrDefault(ParamType.TOMBSTONE_PAGE_CHECKPOINT, 0);
             if (tombstoneLimitedCount > 0 && !dataResolver.supportsTombstonePageCheckpoints())
             {
-                Row checkpoint = Preconditions.checkNotNull(command.tombstoneLimitedRow(), "Local checkpoint response has no command cursor");
-                throw new TombstoneOverwhelmingException(tombstoneLimitedCount,
-                                                         command.toCQLString(),
-                                                         command.metadata(),
-                                                         ((SinglePartitionReadCommand) command).partitionKey(),
-                                                         checkpoint.clustering());
+                throw new ReadFailureException(replicaPlan().consistencyLevel(), 0, replicaPlan().readQuorum(), false,
+                                               Collections.singletonMap(dataResponse.from(), RequestFailureReason.READ_TOO_MANY_TOMBSTONES));
             }
 
             dataResolver.preprocess(dataResponse);

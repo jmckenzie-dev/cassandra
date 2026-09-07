@@ -19,6 +19,10 @@ under the License.
 
 # DONE
 
+- [x] Use the numeric tombstone paging threshold independently and default it to 100000. Document that changing the configured failure threshold does not change this default. The regression, strengthened property, and three-node fuzz and mixed-configuration tests pass: 78 unit and 35 distributed executions. See `.debug/paging-correctness-and-performance.md`.
+- [x] Measure bounded paging performance in two saved runs. Clean reads use 6 replica reads/query, matching checkpoints 9, and reconciliation 12 in memory and after flush. Record latency distributions and their limits in `.debug/paging-correctness-and-performance.md`. All 120 selected test executions and targeted style checks pass.
+- [x] Review the complete paging feature diff and fuzzer models. Fix silent truncation in unpaged local reads and bound all current-version fuzzer traversals. Unit, distributed, and both mixed-version upgrade stages pass; record the threshold configuration mismatch for follow-up.
+- [x] Audit coordinator tombstone failure paths. Fix native ServerError responses for no-clustering ONE reads and speculative transient checkpoints; all 32 selected distributed tests pass. See `.debug/paging-correctness-and-performance.md`.
 - [x] Add nine focused paging tests and strengthen the state property; fix static-cutoff error reporting. All 110 selected executions pass. Pager coverage is 96.37% lines and 93.12% branches; see `.debug/close-paging-coverage-gaps.md` for remaining guards.
 - [x] Add mixed-version paging fuzzing after the deterministic upgrade combinations pass. Seeds 18424 and 1 pass with one and two upgraded nodes, generated replica divergence, reverse reads, and IN queries.
 - [x] Extend mixed-version paging tests through two upgraded nodes and cover GROUP BY, static columns, TTL, and partition-key IN together with paging limits. All four methods pass in 209.825 seconds.

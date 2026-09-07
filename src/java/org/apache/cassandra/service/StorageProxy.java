@@ -2753,7 +2753,7 @@ public class StorageProxy implements StorageProxyMBean
 
                 ReadResponse response;
                 try (ReadExecutionController controller = command.executionController(trackRepairedStatus);
-                     UnfilteredPartitionIterator iterator = command.executeLocally(controller))
+                     UnfilteredPartitionIterator iterator = command.executeLocally(controller, DatabaseDescriptor.getTombstonePagingThreshold()))
                 {
                     if (command.isLimitedToOnePartition() && !command.isDigestQuery())
                     {

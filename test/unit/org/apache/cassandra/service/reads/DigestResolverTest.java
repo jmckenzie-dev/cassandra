@@ -44,7 +44,6 @@ import org.apache.cassandra.db.SimpleBuilders;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.TombstonePageContinuation;
 import org.apache.cassandra.db.filter.DataLimits;
-import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.db.partitions.PartitionIterator;
@@ -485,7 +484,7 @@ public class DigestResolverTest extends AbstractReadResponseTest
                                     rows.next();
                             }
                     }
-                }).isInstanceOf(TombstoneOverwhelmingException.class);
+                }).isInstanceOf(ReadFailureException.class);
             }
         }
         finally
