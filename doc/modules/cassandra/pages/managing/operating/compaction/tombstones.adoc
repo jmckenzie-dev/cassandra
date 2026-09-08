@@ -71,6 +71,7 @@ This is basically the same as in the "Deletes without Tombstones" section.
 == Tombstone-triggered partition compaction
 
 When a local read purges more tombstones from one partition than `tombstone_warn_threshold`, Cassandra can queue a compaction for that partition.
+The trigger counts successful deletion-purge evaluations, including each purgeable range bound and each purgeable side of a range boundary; this count can differ from the read warning and histogram counts.
 This node-local fallback indicates that regular compaction has not removed eligible tombstones promptly.
 Each replica makes its own queue decision.
 Local system keyspaces retain the tombstone purge behavior but do not submit reactive compaction requests.
@@ -82,6 +83,7 @@ Set the capacity to `0` to reject new requests without cancelling accepted work.
 
 Cassandra suppresses new requests for the same table and partition for 60 seconds after an attempt completes or fails.
 Rejected reads do not extend this cooldown, and requests waiting for busy SSTables keep their existing retry behavior.
+An interrupted worker discards its active and queued requests without adding a cooldown for those requests.
 Each node tracks at most 1,024 recently completed requests separately from active and queued requests.
 The cooldown is best-effort: cache eviction or a node restart can allow an earlier retry.
 

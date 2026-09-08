@@ -1309,19 +1309,25 @@ public class CompactionStrategyManager implements INotificationConsumer
         try
         {
             List<GroupedSSTableContainer> groupedSSTables = groupSSTables(sstables);
-            outer:
             for (int i = 0; i < holders.size(); i++)
             {
                 for (AbstractCompactionTask task : holders.get(i).getUserDefinedTasks(groupedSSTables.get(i), gcBefore))
                 {
                     if (task == null)
-                    {
                         available = false;
-                        break outer;
-                    }
-                    tasks.add(task.setCompactionType(operationType));
+                    else
+                        tasks.add(task);
                 }
+                if (!available)
+                    break;
             }
+            for (AbstractCompactionTask task : tasks)
+                task.setCompactionType(operationType);
+        }
+        catch (Throwable t)
+        {
+            CompactionTasks.closeAndAddSuppressed(t, tasks);
+            throw t;
         }
         finally
         {

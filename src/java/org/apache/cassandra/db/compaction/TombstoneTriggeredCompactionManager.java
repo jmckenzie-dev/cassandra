@@ -35,6 +35,8 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.utils.Clock;
+import org.apache.cassandra.utils.JVMStabilityInspector;
+import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 import org.apache.cassandra.utils.memory.HeapCloner;
 
 final class TombstoneTriggeredCompactionManager
@@ -188,6 +190,13 @@ final class TombstoneTriggeredCompactionManager
         active = null;
     }
 
+    private synchronized void discardOutstanding()
+    {
+        active = null;
+        pending.clear();
+        draining = false;
+    }
+
     private void drain()
     {
         int consecutiveBusy = 0;
@@ -234,23 +243,33 @@ final class TombstoneTriggeredCompactionManager
                     consecutiveBusy = 0;
                 }
             }
-            catch (InterruptedException e)
+            catch (InterruptedException | UncheckedInterruptedException | CompactionInterruptedException e)
             {
                 Thread.currentThread().interrupt();
-                synchronized (this)
-                {
-                    if (active != null)
-                        complete(request);
-                    draining = false;
-                }
+                discardOutstanding();
                 return;
             }
-            catch (Exception e)
+            catch (Throwable t)
             {
-                logger.error("Tombstone-triggered compaction failed for table {} at token {}",
-                             request.tableId, request.key.getToken(), e);
-                complete(request);
-                consecutiveBusy = 0;
+                try
+                {
+                    JVMStabilityInspector.inspectThrowable(t);
+                    logger.error("Tombstone-triggered compaction failed for table {} at token {}",
+                                 request.tableId, request.key.getToken(), t);
+                    complete(request);
+                    consecutiveBusy = 0;
+                }
+                catch (UncheckedInterruptedException e)
+                {
+                    Thread.currentThread().interrupt();
+                    discardOutstanding();
+                    return;
+                }
+                catch (Throwable fatal)
+                {
+                    discardOutstanding();
+                    throw fatal;
+                }
             }
         }
     }

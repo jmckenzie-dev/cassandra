@@ -102,6 +102,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -736,6 +737,32 @@ public class CompactionsTest
                     assertThat(closeableOwner.originals()).containsExactly(sstable);
                 }
             }
+
+            AtomicInteger started = new AtomicInteger();
+            try (CompactionTasks tasks = store.getCompactionStrategyManager()
+                                             .getUserDefinedTasksIfAvailable(Collections.singleton(sstable),
+                                                                            store.getDefaultGcBefore(FBUtilities.nowInSeconds()),
+                                                                            OperationType.TOMBSTONE_COMPACTION))
+            {
+                assertThat(tasks).hasSize(1);
+                for (AbstractCompactionTask task : tasks)
+                {
+                    task.execute(new ActiveCompactionsTracker()
+                    {
+                        public void beginCompaction(CompactionInfo.Holder holder)
+                        {
+                            assertEquals(OperationType.TOMBSTONE_COMPACTION, holder.getCompactionInfo().getTaskType());
+                            started.incrementAndGet();
+                        }
+
+                        public void finishCompaction(CompactionInfo.Holder holder)
+                        {
+                            assertEquals(OperationType.TOMBSTONE_COMPACTION, holder.getCompactionInfo().getTaskType());
+                        }
+                    });
+                }
+            }
+            assertEquals(1, started.get());
         }
         finally
         {
@@ -822,6 +849,72 @@ public class CompactionsTest
                 executor.shutdownNow();
             store.truncateBlocking();
             store.enableAutoCompaction();
+        }
+    }
+
+    @Test
+    public void testReactiveReservationFailureReleasesEarlierGroups() throws Exception
+    {
+        ColumnFamilyStore store = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD4);
+        TableMetadata previousMetadata = store.metadata();
+        store.truncateBlocking();
+        store.disableAutoCompaction();
+        try
+        {
+            Map<String, String> options = new HashMap<>(previousMetadata.params.compaction.options());
+            options.put("class", FailingUserDefinedStrategy.class.getName());
+            SchemaTestUtil.announceTableUpdate(previousMetadata.unbuild().compaction(CompactionParams.fromMap(options)).build());
+            populate(KEYSPACE1, CF_STANDARD4, 0, 0, 0);
+            Util.flush(store);
+            SSTableReader repaired = store.getLiveSSTables().iterator().next();
+            markRepaired(store, repaired);
+            populate(KEYSPACE1, CF_STANDARD4, 0, 0, 0);
+            Util.flush(store);
+
+            assertThatThrownBy(() -> store.getCompactionStrategyManager()
+                                         .getUserDefinedTasksIfAvailable(store.getLiveSSTables(), 0,
+                                                                        OperationType.TOMBSTONE_COMPACTION))
+                .isInstanceOf(AssertionError.class).hasMessage("expected reservation failure");
+            assertThat(store.getTracker().getCompacting()).isEmpty();
+            try (ILifecycleTransaction reacquired = store.getTracker().tryModify(store.getLiveSSTables(), OperationType.COMPACTION))
+            {
+                assertThat(reacquired).isNotNull();
+                assertThat(reacquired.originals()).contains(repaired).hasSize(2);
+            }
+        }
+        finally
+        {
+            for (AbstractCompactionStrategy strategy : com.google.common.collect.Iterables.concat(store.getCompactionStrategyManager().getStrategies()))
+            {
+                if (strategy instanceof FailingUserDefinedStrategy)
+                {
+                    AbstractCompactionTask reserved = ((FailingUserDefinedStrategy) strategy).reserved;
+                    if (reserved != null)
+                        reserved.rejected();
+                }
+            }
+            SchemaTestUtil.announceTableUpdate(previousMetadata);
+            store.truncateBlocking();
+            store.enableAutoCompaction();
+        }
+    }
+
+    public static class FailingUserDefinedStrategy extends SizeTieredCompactionStrategy
+    {
+        private AbstractCompactionTask reserved;
+
+        public FailingUserDefinedStrategy(ColumnFamilyStore cfs, Map<String, String> options)
+        {
+            super(cfs, options);
+        }
+
+        @Override
+        public AbstractCompactionTask getUserDefinedTask(Collection<SSTableReader> sstables, long gcBefore)
+        {
+            if (!sstables.iterator().next().isRepaired())
+                throw new AssertionError("expected reservation failure");
+            reserved = super.getUserDefinedTask(sstables, gcBefore);
+            return reserved;
         }
     }
 
@@ -941,10 +1034,15 @@ public class CompactionsTest
             assertThat(store.getLiveSSTables()).doesNotContain(second);
 
             Set<SSTableReader> compacted = new HashSet<>(store.getLiveSSTables());
-            manager.submitTombstoneTriggeredCompaction(store, firstKey, 1001);
-            manager.submitTombstoneTriggeredCompaction(store, secondKey, 1001);
-            assertFalse(manager.hasOngoingOrPendingTasks());
-            assertThat(store.getLiveSSTables()).containsExactlyInAnyOrderElementsOf(compacted);
+            assertThat(compacted).isNotEmpty();
+            try (ILifecycleTransaction cooldownOwner = store.getTracker().tryModify(compacted, OperationType.ANTICOMPACTION))
+            {
+                assertThat(cooldownOwner).isNotNull();
+                manager.submitTombstoneTriggeredCompaction(store, firstKey, 1001);
+                manager.submitTombstoneTriggeredCompaction(store, secondKey, 1001);
+                assertFalse(manager.hasOngoingOrPendingTasks());
+                assertThat(store.getLiveSSTables()).containsExactlyInAnyOrderElementsOf(compacted);
+            }
         }
         finally
         {

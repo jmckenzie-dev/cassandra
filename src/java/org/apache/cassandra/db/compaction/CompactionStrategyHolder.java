@@ -128,14 +128,22 @@ public class CompactionStrategyHolder extends AbstractStrategyHolder
     public Collection<AbstractCompactionTask> getUserDefinedTasks(GroupedSSTableContainer sstables, long gcBefore)
     {
         List<AbstractCompactionTask> tasks = new ArrayList<>(strategies.size());
-        for (int i = 0; i < strategies.size(); i++)
+        try
         {
-            if (sstables.isGroupEmpty(i))
-                continue;
+            for (int i = 0; i < strategies.size(); i++)
+            {
+                if (sstables.isGroupEmpty(i))
+                    continue;
 
-            tasks.add(strategies.get(i).getUserDefinedTask(sstables.getGroup(i), gcBefore));
+                tasks.add(strategies.get(i).getUserDefinedTask(sstables.getGroup(i), gcBefore));
+            }
+            return tasks;
         }
-        return tasks;
+        catch (Throwable t)
+        {
+            CompactionTasks.closeAndAddSuppressed(t, tasks);
+            throw t;
+        }
     }
 
     @Override

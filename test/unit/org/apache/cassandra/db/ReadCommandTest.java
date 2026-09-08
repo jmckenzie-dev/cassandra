@@ -47,11 +47,13 @@ import org.apache.cassandra.Util;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.compaction.AbstractCompactionStrategy;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.CompactionPipelineCounts;
 import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.RowFilter;
+import org.apache.cassandra.db.lifecycle.ILifecycleTransaction;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.CounterColumnType;
@@ -111,6 +113,7 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -885,17 +888,19 @@ public class ReadCommandTest
                                                                                                       userCommand.nowInSec(),
                                                                                                       userCommand.partitionKey());
 
-            try (ReadExecutionController controller = userCommand.executionController();
+            try (ILifecycleTransaction owner =
+                     cfs.getTracker().tryModify(Collections.singleton(sstable), org.apache.cassandra.db.compaction.OperationType.COMPACTION);
+                 ReadExecutionController controller = userCommand.executionController();
                  UnfilteredPartitionIterator purged = systemCommand.withoutPurgeableTombstones(userCommand.queryStorage(cfs, controller),
                                                                                                 cfs,
                                                                                                 controller))
             {
+                assertNotNull(owner);
                 assertFalse(purged.hasNext());
+                await().atMost(5, java.util.concurrent.TimeUnit.SECONDS)
+                       .until(() -> !CompactionManager.instance.hasOngoingOrPendingTasks());
+                assertTrue(cfs.getLiveSSTables().contains(sstable));
             }
-
-            await().pollDelay(1, java.util.concurrent.TimeUnit.SECONDS)
-                   .atMost(5, java.util.concurrent.TimeUnit.SECONDS)
-                   .untilAsserted(() -> assertTrue(cfs.getLiveSSTables().contains(sstable)));
         }
         finally
         {
@@ -1014,10 +1019,15 @@ public class ReadCommandTest
 
             String key = "repaired-trigger";
             SSTableReader sstable = flushOperations(cfs, TestWriteOperation.deleteRow(key, "aa", PURGEABLE_DELETION));
-            runPartitionReadCommands(cfs, Collections.singleton(key));
-            await().pollDelay(1, java.util.concurrent.TimeUnit.SECONDS)
-                   .atMost(5, java.util.concurrent.TimeUnit.SECONDS)
-                   .untilAsserted(() -> assertTrue(cfs.getLiveSSTables().contains(sstable)));
+            try (ILifecycleTransaction owner =
+                     cfs.getTracker().tryModify(Collections.singleton(sstable), org.apache.cassandra.db.compaction.OperationType.COMPACTION))
+            {
+                assertNotNull(owner);
+                runPartitionReadCommands(cfs, Collections.singleton(key));
+                await().atMost(5, java.util.concurrent.TimeUnit.SECONDS)
+                       .until(() -> !CompactionManager.instance.hasOngoingOrPendingTasks());
+                assertTrue(cfs.getLiveSSTables().contains(sstable));
+            }
 
             mutateRepaired(cfs, sstable, FBUtilities.nowInSeconds(), null);
             cfs.getTracker().notifySSTableRepairedStatusChanged(Collections.singleton(sstable));

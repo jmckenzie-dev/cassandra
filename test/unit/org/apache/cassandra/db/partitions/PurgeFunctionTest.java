@@ -106,6 +106,38 @@ public final class PurgeFunctionTest
     }
 
     @Test
+    public void testPurgeableRangeEvaluationCounts()
+    {
+        for (boolean reversed : new boolean[] { false, true })
+        {
+            for (int eligibleSides = 0; eligibleSides < 4; eligibleSides++)
+            {
+                long closeDeletionTime = (eligibleSides & 1) == 0 ? 10 : 0;
+                long openDeletionTime = (eligibleSides & 2) == 0 ? 10 : 0;
+                Unfiltered start = bound(Kind.INCL_START_BOUND, 0L, closeDeletionTime, "a");
+                Unfiltered middle = boundary(Kind.EXCL_END_INCL_START_BOUNDARY,
+                                             0L, closeDeletionTime, 1L, openDeletionTime, "b");
+                Unfiltered end = bound(Kind.INCL_END_BOUND, 1L, openDeletionTime, "c");
+                AtomicInteger purged = new AtomicInteger();
+                try (UnfilteredPartitionIterator partitions = withoutPurgeableTombstones(reversed ? iter(true, end, middle, start)
+                                                                                                 : iter(false, start, middle, end),
+                                                                                         1, purged))
+                {
+                    while (partitions.hasNext())
+                    {
+                        try (UnfilteredRowIterator rows = partitions.next())
+                        {
+                            while (rows.hasNext())
+                                rows.next();
+                        }
+                    }
+                }
+                assertEquals(2 * Integer.bitCount(eligibleSides), purged.get());
+            }
+        }
+    }
+
+    @Test
     public void testNothingIsPurgeableASC()
     {
         UnfilteredPartitionIterator original = iter(false

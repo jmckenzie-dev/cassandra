@@ -481,7 +481,18 @@ class PendingRepairManager
     public Collection<AbstractCompactionTask> createUserDefinedTasks(Collection<SSTableReader> sstables, long gcBefore)
     {
         Map<TimeUUID, List<SSTableReader>> group = sstables.stream().collect(Collectors.groupingBy(s -> s.getSSTableMetadata().pendingRepair));
-        return group.entrySet().stream().map(g -> strategies.get(g.getKey()).getUserDefinedTask(g.getValue(), gcBefore)).collect(Collectors.toList());
+        List<AbstractCompactionTask> tasks = new ArrayList<>();
+        try
+        {
+            for (Map.Entry<TimeUUID, List<SSTableReader>> entry : group.entrySet())
+                tasks.add(strategies.get(entry.getKey()).getUserDefinedTask(entry.getValue(), gcBefore));
+            return tasks;
+        }
+        catch (Throwable t)
+        {
+            CompactionTasks.closeAndAddSuppressed(t, tasks);
+            throw t;
+        }
     }
 
     @VisibleForTesting

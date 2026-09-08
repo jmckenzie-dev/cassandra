@@ -56,6 +56,10 @@ public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator
 
     protected abstract LongPredicate getPurgeEvaluator();
 
+    /**
+     * Called for each successful purge-predicate evaluation, including each purgeable side of a range boundary.
+     * This counts deletion evaluations, not deleted rows or distinct range tombstones.
+     */
     protected void onPurgeableDeletion()
     {
     }

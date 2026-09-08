@@ -22,9 +22,11 @@ import java.util.AbstractCollection;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Throwables;
 
 public class CompactionTasks extends AbstractCollection<AbstractCompactionTask> implements AutoCloseable
 {
@@ -47,6 +49,14 @@ public class CompactionTasks extends AbstractCollection<AbstractCompactionTask> 
     public static CompactionTasks empty()
     {
         return EMPTY;
+    }
+
+    static void closeAndAddSuppressed(Throwable failure, Collection<AbstractCompactionTask> tasks)
+    {
+        Throwables.closeAndAddSuppressed(failure, tasks.stream()
+                                                      .filter(Objects::nonNull)
+                                                      .map(task -> (AutoCloseable) task.transaction)
+                                                      .collect(Collectors.toList()));
     }
 
     public Iterator<AbstractCompactionTask> iterator()

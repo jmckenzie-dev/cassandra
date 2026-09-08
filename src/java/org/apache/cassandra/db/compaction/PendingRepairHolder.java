@@ -138,15 +138,22 @@ public class PendingRepairHolder extends AbstractStrategyHolder
     public Collection<AbstractCompactionTask> getUserDefinedTasks(GroupedSSTableContainer sstables, long gcBefore)
     {
         List<AbstractCompactionTask> tasks = new ArrayList<>(managers.size());
-
-        for (int i = 0; i < managers.size(); i++)
+        try
         {
-            if (sstables.isGroupEmpty(i))
-                continue;
+            for (int i = 0; i < managers.size(); i++)
+            {
+                if (sstables.isGroupEmpty(i))
+                    continue;
 
-            tasks.addAll(managers.get(i).createUserDefinedTasks(sstables.getGroup(i), gcBefore));
+                tasks.addAll(managers.get(i).createUserDefinedTasks(sstables.getGroup(i), gcBefore));
+            }
+            return tasks;
         }
-        return tasks;
+        catch (Throwable t)
+        {
+            CompactionTasks.closeAndAddSuppressed(t, tasks);
+            throw t;
+        }
     }
 
     @Override

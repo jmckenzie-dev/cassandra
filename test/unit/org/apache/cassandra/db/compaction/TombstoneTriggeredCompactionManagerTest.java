@@ -45,6 +45,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.db.compaction.TombstoneTriggeredCompactionManager.AdmissionResult.ACCEPTED;
@@ -197,6 +198,78 @@ public class TombstoneTriggeredCompactionManagerTest implements WithQuickTheorie
         finally
         {
             manager.shutdown(true);
+        }
+    }
+
+    @Test
+    public void errorDoesNotStopQueue()
+    {
+        ManualExecutor executor = new ManualExecutor();
+        List<DecoratedKey> completed = new ArrayList<>();
+        TombstoneTriggeredCompactionManager manager = newManager(() -> 2, (table, key) -> {
+            if (key.equals(key("error")))
+                throw new AssertionError("expected task failure");
+            completed.add(key);
+            return COMPLETED;
+        }, executor);
+        try
+        {
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("error")));
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("queued")));
+            executor.runAll();
+            assertEquals(List.of(key("queued")), completed);
+            assertEquals(0, manager.outstandingTasks());
+            assertTrue(!manager.hasTasks());
+            assertEquals(COOLDOWN, manager.enqueue(TABLE_ID, key("error")));
+            assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("later")));
+            executor.runAll();
+            assertEquals(List.of(key("queued"), key("later")), completed);
+        }
+        finally
+        {
+            manager.shutdown(true);
+        }
+    }
+
+    @Test
+    public void interruptedAttemptsReleaseWorkWithoutCooldown()
+    {
+        for (int failureMode = 0; failureMode < 5; failureMode++)
+        {
+            int mode = failureMode;
+            ManualExecutor executor = new ManualExecutor();
+            TombstoneTriggeredCompactionManager manager = newManager(() -> 2, (table, key) -> {
+                switch (mode)
+                {
+                    case 0:
+                        throw new InterruptedException("expected task interruption");
+                    case 1:
+                        throw new UncheckedInterruptedException(new InterruptedException("expected scanner interruption"));
+                    case 2:
+                        throw new CompactionInterruptedException("expected cancellation");
+                    case 3:
+                        throw new IllegalStateException(new InterruptedException("expected wrapped interruption"));
+                    default:
+                        Thread.currentThread().interrupt();
+                        return BUSY;
+                }
+            }, executor);
+            try
+            {
+                assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("interrupted")));
+                assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("queued")));
+                executor.runAll();
+                assertTrue(Thread.interrupted());
+                assertEquals(0, manager.outstandingTasks());
+                assertTrue(!manager.hasTasks());
+                assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("interrupted")));
+                assertEquals(ACCEPTED, manager.enqueue(TABLE_ID, key("queued")));
+            }
+            finally
+            {
+                Thread.interrupted();
+                manager.shutdown(true);
+            }
         }
     }
 

@@ -256,6 +256,31 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
         }
     }
 
+    @Test
+    public void busyPendingSessionReleasesAllOtherReservations()
+    {
+        PendingRepairManager prm = csm.getPendingRepairManagers().get(0);
+        SSTableReader first = makeSSTable(true);
+        SSTableReader second = makeSSTable(true);
+        mutateRepaired(first, registerSession(cfs, true, true), false);
+        mutateRepaired(second, registerSession(cfs, true, true), false);
+        prm.addSSTable(first);
+        prm.addSSTable(second);
+
+        for (SSTableReader busy : Lists.newArrayList(first, second))
+        {
+            try (org.apache.cassandra.db.lifecycle.LifecycleTransaction owner =
+                     cfs.getTracker().tryModify(Collections.singleton(busy), OperationType.ANTICOMPACTION))
+            {
+                Assert.assertNotNull(owner);
+                Assert.assertNull(csm.getUserDefinedTasksIfAvailable(Lists.newArrayList(first, second), 100,
+                                                                     OperationType.TOMBSTONE_COMPACTION));
+                Assert.assertEquals(Collections.singleton(busy), cfs.getTracker().getCompacting());
+            }
+            Assert.assertTrue(cfs.getTracker().getCompacting().isEmpty());
+        }
+    }
+
     /**
      * Tests that a IllegalSSTableArgumentException is thrown if we try to get
      * scanners for an sstable that isn't pending repair
