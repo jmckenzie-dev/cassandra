@@ -240,7 +240,7 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
                 }
                 catch (IllegalStateException ise)
                 {
-                    // This shouldn't happen; snapshot the state so we have an idea of what went down
+                    // Record the query state to diagnose the invalid checkpoint.
                     StringBuilder errorDetails = new StringBuilder().append("CQL Query with failure: ").append(query.toCQLString());
                     if (pageQueries != null)
                     {
@@ -252,7 +252,7 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
                 }
             }
             if (hitTombstoneLimit)
-                logger.debug("Hit tombstone limit while paging; setting clustering to resume page to: " + lastRow.clustering().toString(query.metadata()));
+                logger.debug("Hit tombstone limit while paging; setting clustering to resume page to: {}", lastRow.clustering().toString(query.metadata()));
 
             rowCounter.onClose(!hitTombstoneLimit);
             recordLast(lastKey, lastRow);

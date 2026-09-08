@@ -228,7 +228,7 @@ public class PagingFuzzTest extends CQLTester
 
                 logger.error("Seed: " + runSeed);
 
-                logger.error("\n\n[STEPS TO REPRODUCE]\nTo reproduce this test run, re-run the test with the 'cassandra.test.seed' env var set: [cassandra.test.env=" + runSeed + "]\n" +
+                logger.error("\n\n[STEPS TO REPRODUCE]\nTo reproduce this test run, re-run the test with the 'cassandra.test.seed' env var set: [cassandra.test.seed=" + runSeed + "]\n" +
                              "Alternatively, copy and paste the following as the first line int the test fuzzer's main method: \n" +
                              "   RandomHelpers.setUserSeed(" + runSeed + "L);\n\n");
 

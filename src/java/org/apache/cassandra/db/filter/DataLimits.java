@@ -364,7 +364,7 @@ public abstract class DataLimits
             super.onClose();
         }
 
-        /** Close the counter without completing an unfinished group at a tombstone checkpoint. */
+        /** Close the counter. Subclasses can use isEndOfData to preserve an unfinished group at a checkpoint. */
         public void onClose(boolean isEndOfData)
         {
             onClose();

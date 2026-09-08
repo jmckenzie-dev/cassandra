@@ -19,6 +19,7 @@ package org.apache.cassandra.db;
 
 import javax.annotation.Nullable;
 
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.cql3.statements.SelectOptions;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.filter.DataLimits;
@@ -167,16 +168,15 @@ public interface ReadQuery
     PartitionIterator executeInternal(ReadExecutionController controller);
 
     /**
-     * If no specific behavior is specified for local query execution, we fall back on throwing an exception
-     * and not short-circuiting on tombstones. We don't want regular non-paged queries to accidentally
-     * pick up the short-circuit behavior since it takes an external actor to introspect on {@link ReadCommand#tombstoneLimitedRow()}
-     * to determine if the query returned all the requested data or not.
+     * Execute locally with tombstone paging disabled. Exceeding the tombstone failure threshold throws
+     * an exception instead of returning a partial result.
+     *
      * @param executionController the {@code ReadExecutionController} protecting the read.
-     * @return the result of the read query, potentially short-circuited if a tombstone threshold is reached.
+     * @return the unfiltered result of the read query.
      */
     default UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController)
     {
-        return executeLocally(executionController, -1);
+        return executeLocally(executionController, Config.TOMBSTONE_PAGING_DISABLED);
     }
 
     /**
@@ -184,14 +184,14 @@ public interface ReadQuery
      * but it returns an unfiltered partition iterator that can be merged later on.
      *
      * @param executionController the {@code ReadExecutionController} protecting the read.
-     * @param tombstonePagingThreshold The value at which a page should short-circuit if enabled. -1 indicates disabled.
+     * @param tombstonePagingThreshold the tombstone count above which execution can stop at a resumable row;
+     *                                 {@link Config#TOMBSTONE_PAGING_DISABLED} disables paging.
      * @return the result of the read query.
      */
     UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, int tombstonePagingThreshold);
 
     /**
-     * If not null, this indicates paging across tombstones was requested at time of query creation
-     * and the query was stopped based on hitting tombstone count.
+     * Return the row used to resume a tombstone-limited page, or {@code null} if no checkpoint exists.
      */
     default @Nullable Row tombstoneLimitedRow()
     {
@@ -316,7 +316,7 @@ public interface ReadQuery
     }
 
     /**
-     * Optionally provides a more easily human-readable format of the query, resolving clustering and other data.
+     * Return a CQL representation when the implementation provides one; otherwise return {@link #toString()}.
      */
     default String toCQLString()
     {

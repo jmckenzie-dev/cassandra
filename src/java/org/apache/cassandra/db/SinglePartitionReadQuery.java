@@ -235,7 +235,7 @@ public interface SinglePartitionReadQuery extends ReadQuery
         @Override
         public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController)
         {
-            return executeLocally(executionController, -1, true);
+            return executeLocally(executionController, Config.TOMBSTONE_PAGING_DISABLED, true);
         }
 
         @Override

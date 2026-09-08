@@ -16,8 +16,12 @@ under the License.
 -->
 
 # TODO
+- [ ] Reproduce the remaining tombstone paging review findings, fix confirmed defects, and commit the verified changes.
+- [ ] Check out opencode review on the branch
 
 # DONE
+
+- [x] Apply the mechanical review cleanup: paging sentinel constants, checkpoint and threshold documentation, debug formatting, and fuzz replay hint.
 
 - [x] Use the numeric tombstone paging threshold independently and default it to 100000. Document that changing the configured failure threshold does not change this default. The regression, strengthened property, and three-node fuzz and mixed-configuration tests pass: 78 unit and 35 distributed executions. See `.debug/paging-correctness-and-performance.md`.
 - [x] Measure bounded paging performance in two saved runs. Clean reads use 6 replica reads/query, matching checkpoints 9, and reconciliation 12 in memory and after flush. Record latency distributions and their limits in `.debug/paging-correctness-and-performance.md`. All 120 selected test executions and targeted style checks pass.

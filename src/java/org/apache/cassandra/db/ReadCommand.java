@@ -164,7 +164,7 @@ public abstract class ReadCommand extends AbstractReadQuery
 
     private final Kind kind;
 
-    /** If the command is stopped due to reaching a tombstone limit, we cache the Row on which it was stopped */
+    /** Resume row from a local tombstone stop or an accepted coordinator continuation. */
     private Row tombstoneLimitedRow;
     private int tombstoneLimitedCount;
     private boolean hasTombstonePageCheckpointOwner;
@@ -579,13 +579,13 @@ public abstract class ReadCommand extends AbstractReadQuery
                                   // iterators created inside the try as long as we do close the original resultIterator), or by closing the result.
     public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController)
     {
-        return executeLocally(executionController, null, -1);
+        return executeLocally(executionController, null, Config.TOMBSTONE_PAGING_DISABLED);
     }
 
     // ClusterMetadata is null on startup when there are local reads from system tables before it's initialized
     public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, @Nullable ClusterMetadata cm)
     {
-        return executeLocally(executionController, cm, -1);
+        return executeLocally(executionController, cm, Config.TOMBSTONE_PAGING_DISABLED);
     }
 
     /**
@@ -645,7 +645,6 @@ public abstract class ReadCommand extends AbstractReadQuery
                 iterator = maybeRecordPurgeableTombstones(iterator, cfs);
                 iterator = RTBoundValidator.validate(withoutPurgeableTombstones(iterator, cfs, executionController), Stage.PURGED, false);
                 iterator = withMetricsRecording(iterator, cfs.metric, startTimeNanos, tombstonePagingThreshold);
-
 
                 // If we've used a 2ndary index, we know the result already satisfy the primary expression used, so
                 // no point in checking it again.
@@ -723,7 +722,7 @@ public abstract class ReadCommand extends AbstractReadQuery
     {
         class MetricRecording extends StoppingTransformation<UnfilteredRowIterator>
         {
-            private final int tombstoneThreshold = tombstonePagingThreshold == -1
+            private final int tombstoneThreshold = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED
                                                    ? DatabaseDescriptor.getTombstoneFailureThreshold()
                                                    : tombstonePagingThreshold;
             private final int warningThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
@@ -809,8 +808,8 @@ public abstract class ReadCommand extends AbstractReadQuery
                 if (tombstones > tombstoneThreshold && respectTombstoneThresholds)
                 {
                     String query = ReadCommand.this.toCQLString();
-                    String actionTaken = tombstonePagingThreshold == -1 ? "query aborted" : "page ended early";
-                    String setting = tombstonePagingThreshold == -1 ? "tombstone_failure_threshold" : "tombstone_paging_threshold";
+                    String actionTaken = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED ? "query aborted" : "page ended early";
+                    String setting = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED ? "tombstone_failure_threshold" : "tombstone_paging_threshold";
                     Tracing.trace("Scanned over {} tombstones for query {}; " + actionTaken + " (see " + setting + ")", tombstoneThreshold, query);
 
                     metric.tombstoneFailures.inc();
@@ -818,7 +817,7 @@ public abstract class ReadCommand extends AbstractReadQuery
                     String msg = "";
                     try
                     {
-                        if (tombstonePagingThreshold == -1)
+                        if (tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED)
                         {
                             msg = "Paging across tombstones is not enabled. Aborting query to prevent coordinator memory pressure.";
                             if (trackWarnings)
@@ -830,9 +829,8 @@ public abstract class ReadCommand extends AbstractReadQuery
                         }
                         else
                         {
-                            // We don't want to stop and snapshot our last clustering as a range tombstone boundary; this will
-                            // cause issues with RTBoundCloser appropriately making sure we always close range tombstones
-                            // during iteration.
+                            // Never checkpoint on a range tombstone bound or boundary.
+                            // RTBoundCloser needs a row to close the open range tombstone.
                             if (clustering.kind().isBound() || clustering.kind().isBoundary())
                             {
                                 msg = "Hit our tombstone limit on a RangeTombstone marker. Continuing iteration until we hit data to terminate paging";
@@ -848,7 +846,7 @@ public abstract class ReadCommand extends AbstractReadQuery
                     }
                     finally
                     {
-                        if (tombstonePagingThreshold != -1)
+                        if (tombstonePagingThreshold != Config.TOMBSTONE_PAGING_DISABLED)
                         {
                             // Throttle logging to server logs and ClientWarn for any unique CQL query
                             if (criticalTombstoneThresholdNoSpamLogger.warn(msg))
