@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 import com.datastax.driver.core.Session;
@@ -50,6 +51,50 @@ import static org.junit.Assert.assertTrue;
 
 public class MixedVersionPagingAcrossTombstonesTest extends UpgradeTestBase
 {
+    @Test
+    public void asymmetricTombstonesWithOldReplicaMissingRows() throws Throwable
+    {
+        upgradeCase(10000).setup(cluster -> {
+            for (String repair : new String[]{ "NONE", "BLOCKING" })
+                cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".asymmetric_" + repair.toLowerCase(Locale.ROOT) +
+                                     " (pk int, ck int, v int, PRIMARY KEY (pk, ck))" +
+                                     " WITH read_repair = '" + repair + "' AND speculative_retry = 'NONE'");
+        }).runAfterNodeUpgrade((cluster, upgraded) -> {
+            for (String repair : new String[]{ "NONE", "BLOCKING" })
+                for (boolean flushed : new boolean[]{ false, true })
+                    for (int coordinator = 1; coordinator <= 3; coordinator++)
+                    {
+                        String table = "asymmetric_" + repair.toLowerCase(Locale.ROOT);
+                        int pk = upgraded * 100 + coordinator * 10 + (flushed ? 1 : 0);
+                        // Each read gets fresh divergence; blocking repair must not mask the next case.
+                        for (int node = 1; node <= 3; node++)
+                            for (int ck = 0; ck < 15; ck++)
+                            {
+                                if (ck >= 12)
+                                    cluster.get(node).executeInternal("INSERT INTO " + KEYSPACE + '.' + table +
+                                                                     " (pk, ck, v) VALUES (?, ?, ?) USING TIMESTAMP 1", pk, ck, ck);
+                                else if (node <= upgraded)
+                                    cluster.get(node).executeInternal("DELETE FROM " + KEYSPACE + '.' + table +
+                                                                     " USING TIMESTAMP 2 WHERE pk = ? AND ck = ?", pk, ck);
+                            }
+                        if (flushed)
+                            cluster.forEach(node -> node.flush(KEYSPACE));
+                        try (com.datastax.driver.core.Cluster client = client(cluster, coordinator);
+                             Session session = client.connect())
+                        {
+                            String cql = "SELECT ck, v FROM " + KEYSPACE + '.' + table + " WHERE pk = " + pk + " LIMIT 4";
+                            long before = thresholdCrossings(cluster, upgraded, table);
+                            if (coordinator <= upgraded)
+                                assertRows(rows(session, cql, 2), row(12, 12), row(13, 13), row(14, 14));
+                            else
+                                assertThatThrownBy(() -> rows(session, cql, 2)).isInstanceOf(ReadFailureException.class);
+                            assertTrue(cql + ": expected an upgraded replica checkpoint",
+                                       thresholdCrossings(cluster, upgraded, table) > before);
+                        }
+                    }
+        }).run();
+    }
+
     @Test
     public void upgradedCoordinatorReconcilesOldFullResponses() throws Throwable
     {

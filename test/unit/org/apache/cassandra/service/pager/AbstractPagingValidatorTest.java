@@ -17,17 +17,23 @@
  */
 package org.apache.cassandra.service.pager;
 
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.Row;
+import com.datastax.driver.core.Session;
+import com.datastax.driver.core.SimpleStatement;
+
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datastax.driver.core.Session;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.distributed.shared.WithProperties;
 import org.apache.cassandra.utils.RandomHelpers;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_SEED;
 import static org.apache.cassandra.service.pager.AbstractPagingValidator.AsyncTombstonePagingValidator;
 import static org.apache.cassandra.service.pager.AbstractPagingValidator.CellState;
 import static org.apache.cassandra.service.pager.AbstractPagingValidator.DEFAULT_FAILURE_THRESHOLD;
@@ -37,6 +43,7 @@ import static org.apache.cassandra.service.pager.AbstractPagingValidator.tombsto
 import static org.apache.cassandra.service.pager.AbstractPagingValidator.trace;
 import static org.apache.cassandra.utils.RandomHelpers.nextInt;
 import static org.apache.cassandra.utils.RandomHelpers.randomFromRange;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -90,6 +97,114 @@ public class AbstractPagingValidatorTest extends CQLTester
     {
         validator.prepareTest(10, 3);
         assertEquals(3, DatabaseDescriptor.getTombstonePagingThreshold());
+    }
+
+    @Test
+    public void testFuzzReplayUsesJvmSeed()
+    {
+        long original = RandomHelpers.getSeed();
+        try (WithProperties properties = new WithProperties().set(TEST_SEED, 18424L))
+        {
+            RandomHelpers.setSeed(18424);
+            long expected = RandomHelpers.nextLong();
+            RandomHelpers.setSeed(1);
+            assertTrue(RandomHelpers.maybeSetToUserSeed());
+            assertEquals(18424, RandomHelpers.getSeed());
+            assertEquals(expected, RandomHelpers.nextLong());
+            assertTrue(RandomHelpers.maybeSetToUserSeed());
+            assertEquals(expected, RandomHelpers.nextLong());
+        }
+        finally
+        {
+            RandomHelpers.setSeed(original);
+        }
+    }
+
+    @Test
+    public void testTraversalRejectsRepeatedEmptyCheckpoint()
+    {
+        validator.prepareTest(2, 2);
+        validator.generateLinear(0, 8);
+        validator.deleteLinear(0, 6, LivenessState.ROW_TOMBSTONE);
+        SimpleStatement statement = validator.generateQueryStatement();
+        statement.setFetchSize(2);
+        ResultSet page = session.execute(statement);
+        assertEquals(0, page.getAvailableWithoutFetching());
+        assertTrue(page.getExecutionInfo().getPagingState() != null);
+
+        AbstractPagingValidator.Traversal traversal = new AbstractPagingValidator.Traversal(8, false);
+        traversal.beforePage();
+        traversal.state(page.getExecutionInfo().getPagingState());
+        traversal.beforePage();
+        assertThatThrownBy(() -> traversal.state(page.getExecutionInfo().getPagingState()))
+        .isInstanceOf(AssertionError.class).hasMessageContaining("Repeated paging state");
+    }
+
+    @Test
+    public void testTraversalRejectsPageBudgetOverrun()
+    {
+        AbstractPagingValidator.Traversal traversal = new AbstractPagingValidator.Traversal(0, false);
+        for (int page = 0; page < 4; page++)
+            traversal.beforePage();
+        assertThatThrownBy(traversal::beforePage)
+        .isInstanceOf(AssertionError.class).hasMessageContaining("Page budget exceeded");
+    }
+
+    @Test
+    public void testTraversalRejectsRewoundEmptyCheckpoint()
+    {
+        validator.prepareTest(2, 2);
+        validator.generateLinear(0, 8);
+        validator.deleteLinear(0, 6, LivenessState.ROW_TOMBSTONE);
+        SimpleStatement statement = validator.generateQueryStatement();
+        statement.setFetchSize(2);
+        ResultSet first = session.execute(statement);
+        statement.setPagingState(first.getExecutionInfo().getPagingState());
+        ResultSet second = session.execute(statement);
+        assertEquals(0, first.getAvailableWithoutFetching());
+        assertEquals(0, second.getAvailableWithoutFetching());
+
+        AbstractPagingValidator.Traversal traversal = new AbstractPagingValidator.Traversal(8, false);
+        validator.processPage(second, traversal);
+        assertThatThrownBy(() -> validator.processPage(first, traversal))
+        .isInstanceOf(AssertionError.class).hasMessageContaining("Paging mark did not advance");
+    }
+
+    @Test
+    public void testTraversalRejectsDuplicateAndReversedRows()
+    {
+        validator.prepareTest(2, 2);
+        validator.generateLinear(0, 2);
+        ResultSet result = session.execute(validator.generateQueryStatement());
+        Row first = result.one();
+        Row second = result.one();
+        for (boolean reversed : new boolean[]{ false, true })
+        {
+            Row start = reversed ? second : first;
+            Row end = reversed ? first : second;
+            AbstractPagingValidator.Traversal traversal = new AbstractPagingValidator.Traversal(2, reversed);
+            traversal.row(start);
+            assertThatThrownBy(() -> traversal.row(start))
+            .isInstanceOf(AssertionError.class).hasMessageContaining("Rows did not advance");
+
+            AbstractPagingValidator.Traversal backwards = new AbstractPagingValidator.Traversal(2, reversed);
+            backwards.row(end);
+            assertThatThrownBy(() -> backwards.row(start))
+            .isInstanceOf(AssertionError.class).hasMessageContaining("Rows did not advance");
+        }
+    }
+
+    @Test
+    public void testTraversalRejectsRowBudgetOverrun()
+    {
+        validator.prepareTest(2, 2);
+        validator.generateLinear(0, 2);
+        ResultSet result = session.execute(validator.generateQueryStatement());
+        AbstractPagingValidator.Traversal traversal = new AbstractPagingValidator.Traversal(0, false);
+        traversal.row(result.one());
+        Row extra = result.one();
+        assertThatThrownBy(() -> traversal.row(extra))
+        .isInstanceOf(AssertionError.class).hasMessageContaining("Row budget exceeded");
     }
 
     @Test

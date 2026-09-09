@@ -20,11 +20,15 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.PagingState;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
@@ -49,6 +53,9 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import static org.apache.cassandra.distributed.impl.TestEndpointCache.toCassandraInetAddressAndPort;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
+import static org.apache.cassandra.distributed.util.TombstonePagingTestUtil.recordPagingState;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -106,6 +113,37 @@ public class PagingAcrossTombstonesDistributedTest extends TestBaseImpl
     public void belowThresholdCompletesAtAll()
     {
         verify("below_threshold", 2, true, false, ConsistencyLevel.ALL);
+    }
+
+    @Test
+    public void traversalRejectsEquivalentCheckpointObjects()
+    {
+        String table = KEYSPACE + ".replayed_checkpoint";
+        cluster.schemaChange("CREATE TABLE " + table + " (pk int, ck int, PRIMARY KEY (pk, ck))" +
+                             " WITH read_repair = 'NONE' AND speculative_retry = 'NONE'");
+        for (int node = 1; node <= 3; node++)
+        {
+            configure(node, 2);
+            for (int ck = 0; ck < 6; ck++)
+                cluster.get(node).executeInternal("DELETE FROM " + table + " USING TIMESTAMP 2 WHERE pk = 0 AND ck = ?", ck);
+            cluster.get(node).executeInternal("INSERT INTO " + table + " (pk, ck) VALUES (0, 6) USING TIMESTAMP 1");
+        }
+        SimpleStatement statement = new SimpleStatement("SELECT ck FROM " + table + " WHERE pk = 0 LIMIT 4");
+        statement.setConsistencyLevel(ConsistencyLevel.ALL);
+        statement.setFetchSize(2);
+        ResultSet first = session.execute(statement);
+        ResultSet second = session.execute(statement);
+        assertEquals(0, first.getAvailableWithoutFetching());
+        assertEquals(0, second.getAvailableWithoutFetching());
+        PagingState firstState = first.getExecutionInfo().getPagingState();
+        PagingState secondState = second.getExecutionInfo().getPagingState();
+        assertNotNull(firstState);
+        assertNotNull(secondState);
+        assertArrayEquals(firstState.toBytes(), secondState.toBytes());
+        List<ByteBuffer> states = new ArrayList<>();
+        recordPagingState(states, firstState);
+        assertThatThrownBy(() -> recordPagingState(states, secondState))
+        .isInstanceOf(AssertionError.class).hasMessageContaining("Repeated paging state");
     }
 
     @Test

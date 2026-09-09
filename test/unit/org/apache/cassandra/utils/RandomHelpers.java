@@ -35,6 +35,8 @@ import org.slf4j.LoggerFactory;
 import org.quicktheories.core.RandomnessSource;
 import org.quicktheories.impl.Constraint;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_SEED;
+
 /**
  * Provides a more uniform generator w/a longer period, replacability, and some convenience methods around seeds for reproducibility.
  */
@@ -63,8 +65,8 @@ public final class RandomHelpers
     }
 
     /**
-     * Will set the seed to the user defined value in env var {@link #USER_SEED} if set, otherwise current time in millis
-     * @return true if set to user specified seed, false if using clock
+     * Uses the JVM seed property, legacy environment seed, or current time.
+     * @return true if a replay seed is configured
      */
     public static boolean setSeed()
     {
@@ -85,6 +87,11 @@ public final class RandomHelpers
 
     public static boolean maybeSetToUserSeed()
     {
+        if (TEST_SEED.isPresent())
+        {
+            setSeed(TEST_SEED.getLong());
+            return true;
+        }
         if (userSeed != null)
         {
             setSeed(userSeed);

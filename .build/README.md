@@ -286,6 +286,14 @@ Run the existing single-node synchronous/asynchronous fuzzer separately:
 
     bash run_property_tests.sh --long -Dno-build-test=true '-Dtest.jvm.args=-Dcassandra.test.paging_fuzz_duration_min=1'
 
+Replay one command-sequence iteration per validator profile with a fixed seed:
+
+    bash run_property_tests.sh --long -Dno-build-test=true '-Dtest.jvm.args=-Dcassandra.test.seed=18424'
+
+The long suite also runs a fixed-seed live-row model property with bounded
+paging. Use the JVM property for replay: some shell launchers drop the legacy
+`cassandra.test.seed` environment variable because its name contains dots.
+
 Inspect the pager package and the changed read/repair classes in the report.
 Line coverage and branch coverage measure executed code; neither proves correct
 reconciliation or that every paging mode was exercised.

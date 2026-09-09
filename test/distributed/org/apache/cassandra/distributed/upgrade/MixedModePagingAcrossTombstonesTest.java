@@ -22,10 +22,6 @@ import org.apache.cassandra.distributed.api.*;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.Iterator;
-
-import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
-import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 import static org.apache.cassandra.distributed.test.ReadDigestConsistencyTest.*;
 
 public class MixedModePagingAcrossTombstonesTest extends UpgradeTestBase {
@@ -67,102 +63,6 @@ public class MixedModePagingAcrossTombstonesTest extends UpgradeTestBase {
                 .run();
     }
 
-    /**
-     * We want to confirm that, in the case where an older version node doesn't hit the limit (i.e. is missing data)
-     * and a new version node _does_ hit the tombstone limit, that things don't cycle endlessly on read repair or otherwise
-     * fail in catastrophically weird ways
-     *
-     * @throws Throwable
-     */
-    @Test
-    @org.junit.Ignore("Unimplemented asymmetric mixed-version case; see MixedVersionPagingAcrossTombstonesTest for active upgrade coverage")
-    public void mixedModeMismatchReturn() throws Throwable {
-        //pass
-    }
-
-    @Test
-    public void mixedModeReadColumnSubsetDigestCheck() throws Throwable {
-        new TestCase()
-                .withConfig(c -> c.with(Feature.GOSSIP, Feature.NETWORK))
-                .nodes(2)
-                .nodesToUpgrade(1)
-                .singleUpgradeToCurrentFrom(v41)
-                .setup(cluster -> {
-                    cluster.schemaChange(CREATE_TABLE);
-                    insertDataOnAll(cluster.coordinator(1));
-                    testDigestConsistency(cluster.coordinator(1));
-                    testDigestConsistency(cluster.coordinator(2));
-                })
-                .runAfterClusterUpgrade(cluster -> {
-                    // should not cause a digest mismatch in mixed mode
-                    testDigestConsistency(cluster.coordinator(1));
-                    testDigestConsistency(cluster.coordinator(2));
-                })
-                .run();
-    }
-
-    @Test
-    public void testPagingWithCompactStorage() throws Throwable {
-        new TestCase()
-                .withConfig(c -> c.with(Feature.GOSSIP, Feature.NETWORK))
-                .nodes(2)
-                .nodesToUpgrade(2)
-                .upgradesToCurrentFrom(v41)
-                .setup((cluster) -> {
-                    cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck)) WITH COMPACT STORAGE");
-                    for (int i = 1; i < 10; i++)
-                        cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (?, ?, ?)", ConsistencyLevel.ALL, 1, i, i);
-                })
-                .runAfterNodeUpgrade((cluster, i) -> {
-                    for (int coord = 1; coord <= 2; coord++) {
-                        Iterator<Object[]> iter = cluster.coordinator(coord).executeWithPaging("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", ConsistencyLevel.ALL, 2);
-                        for (int j = 1; j < 10; j++) {
-                            Assert.assertTrue(iter.hasNext());
-                            Assert.assertArrayEquals(new Object[]{1, j, j}, iter.next());
-                        }
-                        Assert.assertFalse(iter.hasNext());
-                    }
-                }).run();
-    }
-
-    /**
-     * Test that queries repair rows that exist in both replicas but have been deleted only in one replica.
-     * The row deletion can be either in the upgraded or in the not-upgraded node.
-     */
-    @Test
-    public void mixedModeReadRepairDeleteRow() throws Throwable {
-        // rows for columns (k, c, v, s)
-        Object[] row1 = row(0, 1, 10, 8);
-        Object[] row2 = row(0, 2, 20, 8);
-
-        allUpgrades(2, 1)
-                .setup(cluster -> {
-                    cluster.schemaChange(withKeyspace("CREATE TABLE %s.t (k int, c int, v int, s int static, PRIMARY KEY (k, c))"));
-
-                    // insert the rows in all the nodes
-                    String insert = withKeyspace("INSERT INTO %s.t (k, c, v, s) VALUES (?, ?, ?, ?)");
-                    cluster.coordinator(1).execute(insert, ConsistencyLevel.ALL, row1);
-                    cluster.coordinator(2).execute(insert, ConsistencyLevel.ALL, row2);
-                })
-                .runAfterClusterUpgrade(cluster -> {
-
-                    // internally delete one row per replica
-                    String delete = withKeyspace("DELETE FROM %s.t WHERE k=? AND c=?");
-                    cluster.get(1).executeInternal(delete, 0, 1);
-                    cluster.get(2).executeInternal(delete, 0, 2);
-
-                    // query to trigger read repair
-                    String query = withKeyspace("SELECT k, c, v, s FROM %s.t");
-                    assertRows(cluster.get(1).executeInternal(query), row2);
-                    assertRows(cluster.get(2).executeInternal(query), row1);
-                    Object[] emptyPartition = row(0, null, null, 8);
-                    assertRows(cluster.coordinator(2).execute(query, ConsistencyLevel.ALL), emptyPartition);
-                    assertRows(cluster.get(1).executeInternal(query), emptyPartition);
-                    assertRows(cluster.get(2).executeInternal(query), emptyPartition);
-                })
-                .run();
-
-    }
 
     public static void insertDataOnAll(ICoordinator coordinator) { insertDataOnAll(coordinator, 1000); }
 

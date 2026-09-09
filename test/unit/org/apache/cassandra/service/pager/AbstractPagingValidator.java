@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.service.pager;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -47,9 +48,11 @@ import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
 import junit.framework.AssertionFailedError;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.Cells;
+import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.RandomHelpers;
 
 import static org.junit.Assert.assertEquals;
@@ -1134,14 +1137,87 @@ public abstract class AbstractPagingValidator
         TRACE_SEEN = true;
     }
 
-    /**
-     * Uses the "lazy fetch and fill automatically" approach to using the driver; we don't have the ability to introspect
-     * on paging states using this paradigm, but we can reasonably expect some users out in the wild to be using the driver
-     * with this pattern so want to confirm the Cell results returned match our model expectations.
-     *
-     * We have no intention of using this as a root class for an actual unit test; we instead want to access the mechanisms
-     * inside {@link CQLTester} to setup a server and driver connection to exercise paging.
-     */
+    /** Bounds empty pages as well as returned rows for this single-partition fixture. */
+    static final class Traversal
+    {
+        private final int rowBudget;
+        private final boolean reversed;
+        private final Set<ByteBuffer> states = new HashSet<>();
+        private final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        private long pages;
+        private long rows;
+        private Integer previousClustering;
+        private Integer previousMark;
+
+        Traversal(int rowBudget, boolean reversed)
+        {
+            this.rowBudget = rowBudget;
+            this.reversed = reversed;
+        }
+
+        void beforePage()
+        {
+            assertTrue("Page budget exceeded; states=" + states, ++pages <= (long) rowBudget + 4);
+            assertTrue("Paging deadline exceeded; states=" + states, System.nanoTime() < deadline);
+        }
+
+        void state(com.datastax.driver.core.PagingState state)
+        {
+            if (state != null)
+                assertTrue("Repeated paging state: " + state, states.add(ByteBuffer.wrap(state.toBytes())));
+        }
+
+        void row(Row row)
+        {
+            assertTrue("Row budget exceeded", ++rows <= (long) rowBudget + 1);
+            if (!row.isNull(CLUSTERING))
+            {
+                int clustering = row.getInt(CLUSTERING);
+                if (previousClustering != null)
+                    assertTrue("Rows did not advance: previous=" + previousClustering + ", current=" + clustering,
+                               reversed ? clustering < previousClustering : clustering > previousClustering);
+                previousClustering = clustering;
+            }
+        }
+
+        void mark(int clustering)
+        {
+            if (previousMark != null)
+                assertTrue("Paging mark did not advance: previous=" + previousMark + ", current=" + clustering,
+                           reversed ? clustering < previousMark : clustering > previousMark);
+            previousMark = clustering;
+        }
+    }
+
+    protected void processPage(ResultSet result, Traversal traversal)
+    {
+        traversal.state(result.getExecutionInfo().getPagingState());
+        byte[] rawState = result.getExecutionInfo().getPagingStateUnsafe();
+        PagingState state = PagingState.deserialize(rawState == null ? null : ByteBuffer.wrap(rawState),
+                                                   ProtocolVersion.decode(session.getCluster().getConfiguration()
+                                                                                 .getProtocolOptions().getProtocolVersion().toInt(), true));
+        if (state != null && state.rowMark != null)
+        {
+            Clustering<?> mark = state.rowMark.clustering(Schema.instance.getTableMetadata(KEYSPACE, TABLE));
+            if (mark.size() > 0)
+                traversal.mark(mark.bufferAt(0).getInt());
+        }
+        int available = result.getAvailableWithoutFetching();
+        for (int i = 0; i < available; i++)
+        {
+            Row row = result.one();
+            traversal.row(row);
+            if (!row.isNull(STATIC_COL))
+                seenStaticCell = new CellState(STATIC_CLUSTERING, row.getString(STATIC_COL), LivenessState.LIVE, -1);
+            if (!row.isNull(CLUSTERING))
+            {
+                CellState cell = CellState.fromRow(row);
+                seenCellState.put(cell.clustering, cell);
+            }
+        }
+    }
+
+    /** Reads one page per synchronous request so empty continuations remain bounded. */
     @SuppressWarnings("UnconstructableJUnitTestCase")
     public static class SyncTombstonePagingValidator extends AbstractPagingValidator
     {
@@ -1153,43 +1229,25 @@ public abstract class AbstractPagingValidator
         @Override
         public void queryData() throws ExecutionException, InterruptedException, TimeoutException
         {
-            SimpleStatement statement = generateQueryStatement();
-            statement.setFetchSize(pageSize);
-            ResultSet rs = session.execute(statement);
-
-            Integer previousClustering = null;
-            for (Row r : rs.all())
+            Traversal traversal = new Traversal(expectedCellState.size(), reversed);
+            com.datastax.driver.core.PagingState state = null;
+            do
             {
-                if (!r.isNull(STATIC_COL))
-                {
-                    traceSeen("Static cell is not null; adding as live seen.");
-                    seenStaticCell = new CellState(STATIC_CLUSTERING, r.getString(STATIC_COL), LivenessState.LIVE, -1);
-                }
-                CellState state = CellState.fromRow(r);
-
-                if (!r.isNull(CLUSTERING))
-                {
-                    if (previousClustering != null)
-                        assertTrue("Rows arrived in the wrong clustering order",
-                                   reversed ? state.clustering < previousClustering : state.clustering > previousClustering);
-                    previousClustering = state.clustering;
-                }
-
-                traceSeen("Adding cell: " + state);
-                seenCellState.put(state.clustering, state);
+                traversal.beforePage();
+                SimpleStatement statement = generateQueryStatement();
+                statement.setFetchSize(pageSize);
+                statement.setReadTimeoutMillis(5000);
+                if (state != null)
+                    statement.setPagingState(state);
+                ResultSet result = session.execute(statement);
+                processPage(result, traversal);
+                state = result.getExecutionInfo().getPagingState();
             }
+            while (state != null);
         }
     }
 
-    /**
-     * This tester's paradigm is to get the count of available rows, fetch them, update the count of items seen and paging
-     * states as far as the client space understands (i.e. no row or range tombstones are visible), and step through the
-     * paging state page by page. This is the paradigm we expect clients to use if they want to have more control over
-     * when they continue to page in the face of a large number of tombstones.
-     *
-     * We have no intention of using this as a root class for an actual unit test; we instead want to access the mechanisms
-     * inside {@link CQLTester} to setup a server and driver connection to exercise paging.
-     */
+    /** Consumes only available rows before explicitly fetching the next page. */
     @SuppressWarnings("UnconstructableJUnitTestCase")
     public static class AsyncTombstonePagingValidator extends AbstractPagingValidator
     {
@@ -1201,80 +1259,20 @@ public abstract class AbstractPagingValidator
         @Override
         public void queryData() throws ExecutionException, InterruptedException, TimeoutException
         {
-            populateAsyncQueryData();
-        }
-
-        @Override
-        public void prepareTest(int newPageSize, int failureThreshold)
-        {
-            super.prepareTest(newPageSize, failureThreshold);
-        }
-
-        @Override
-        public void reset()
-        {
-            super.reset();
-        }
-
-        private void populateAsyncQueryData() throws ExecutionException, InterruptedException, TimeoutException
-        {
-            traceSeen("populating");
+            Traversal traversal = new Traversal(expectedCellState.size(), reversed);
             SimpleStatement statement = generateQueryStatement();
             statement.setFetchSize(pageSize);
-            ResultSet rs = session.executeAsync(statement).getUninterruptibly();
-
-            if (rs.getExecutionInfo().getPagingState() == null)
-                traceSeen("PAGING STATE NULL ON FIRST EXECUTION.");
-            while (rs.getExecutionInfo().getPagingState() != null)
+            statement.setReadTimeoutMillis(5000);
+            traversal.beforePage();
+            ResultSet result = session.executeAsync(statement).get(5, TimeUnit.SECONDS);
+            while (true)
             {
-                processResultSet(rs);
-                rs = rs.fetchMoreResults().get(5, TimeUnit.SECONDS);
+                processPage(result, traversal);
+                if (result.getExecutionInfo().getPagingState() == null)
+                    return;
+                traversal.beforePage();
+                result = result.fetchMoreResults().get(5, TimeUnit.SECONDS);
             }
-            processResultSet(rs);
-        }
-
-        /**
-         * For a given async fetched ResultSet, we'll process all the rows that are currently fetched without triggering
-         * another page.
-         */
-        private void processResultSet(ResultSet rs)
-        {
-            int liveRows = rs.getAvailableWithoutFetching();
-
-            int firstClustering = -1;
-            boolean printedFirstKey = false;
-            for (int i = 0; i < liveRows; i++)
-            {
-                Row r = rs.one();
-
-                if (!printedFirstKey)
-                    printedFirstKey = true;
-
-                if (firstClustering == -1)
-                    firstClustering = r.getInt(CLUSTERING);
-
-                if (!r.isNull(STATIC_COL))
-                {
-                    traceSeen("Static cell is not null; adding live static.");
-                    seenStaticCell = new CellState(STATIC_CLUSTERING, r.getString(STATIC_COL), LivenessState.LIVE, -1);
-                }
-
-                // Handle the case where the row is live due to static but clustering tombstoned
-                if (r.getString(STATIC_COL) != null && r.isNull(CLUSTERING))
-                {
-                    traceSeen("Static cell is live but row is dead; decrementing live row count.");
-                    liveRows--;
-                }
-
-                if (!r.isNull(CLUSTERING))
-                {
-                    // TODO: Consider whether to use writetime() to query out writetimes of data we see to help debug failures
-                    CellState cell = CellState.fromRow(r);
-                    seenCellState.put(cell.clustering, cell);
-                }
-            }
-            traceSeen("LIVE processResults: firstClustering: " + firstClustering + ", liveRows: " + liveRows + ", pageSize: " + pageSize);
-            traceSeen("seenLiveCells: " + liveCellCount(seenCellState) + ", seenTombstoneCells: " + tombstonedCellCount(seenCellState));
         }
     }
 }

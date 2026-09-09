@@ -15,6 +15,9 @@ limitations under the License.
 
 # Tombstone review reproduction results
 
+Later test work: [test follow-ups](tombstone-test-followups.md) closes the
+remaining FUL-006, FUL-023, FUL-024, and FUL-036 test items listed below.
+
 Review: `.reviews/review-full-tombstone-paging-branch-2026-09-08.md`.
 Mechanical cleanup commit: `081999b31b`. The tests below first ran against
 that commit's production behavior unless stated otherwise.

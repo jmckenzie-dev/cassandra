@@ -16,10 +16,11 @@ under the License.
 -->
 
 # TODO
-- [ ] Assess remaining review follow-ups: specialized ownership/error paths, local-copy allocation, legacy validator budgets, and API/design suggestions. See `.debug/tombstone-review-reproductions.md` for the evidence and limits.
+- [ ] Assess remaining review follow-ups: specialized ownership/error paths, local-copy allocation, and API/design suggestions. See `.debug/tombstone-review-reproductions.md` and `.debug/tombstone-test-followups.md` for the evidence and limits.
 
 # DONE
 
+- [x] Address the remaining test work (FUL-006, FUL-023, FUL-024, FUL-036): implement the asymmetric upgrade case, remove three redundant copies, bound both legacy validators, and replace the logger sleep with grouped diagnostics. Fix checkpoint-state comparison and JVM seed replay in the test helpers. Record unit, property, distributed, Java 17 upgrade, and Java 11 legacy-upgrade validation in `.debug/tombstone-test-followups.md`.
 - [x] Test the tombstone paging review claims and fix reproduced range-pager, marker-scan, metric, and decoder defects. Repair and refill regressions pass without the proposed cursor/loop changes. Record targeted tests, real upgrades, coverage, and repository check limits in `.debug/tombstone-review-reproductions.md`.
 - [x] Check out the opencode review on the branch and record a disposition for every finding.
 - [x] Apply the mechanical review cleanup: paging sentinel constants, checkpoint and threshold documentation, debug formatting, and fuzz replay hint.

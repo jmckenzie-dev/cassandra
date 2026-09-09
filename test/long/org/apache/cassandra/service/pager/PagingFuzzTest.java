@@ -37,6 +37,7 @@ import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.Session;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.RandomHelpers;
 
@@ -48,6 +49,8 @@ import static org.apache.cassandra.utils.RandomHelpers.nextLong;
 import static org.apache.cassandra.utils.RandomHelpers.randomFromRange;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.quicktheories.QuickTheory.qt;
+import static org.quicktheories.generators.SourceDSL.integers;
 
 @RunWith(Parameterized.class)
 public class PagingFuzzTest extends CQLTester
@@ -191,10 +194,48 @@ public class PagingFuzzTest extends CQLTester
     }
 
     @Test
+    public void testBoundedTraversalMatchesLiveRowModel()
+    {
+        qt().withFixedSeed(18424).withExamples(20)
+            .forAll(integers().between(0, 12), integers().between(0, 4),
+                    integers().between(1, 3), integers().between(1, 4))
+            .checkAssert((deleted, live, pageSize, threshold) -> {
+                for (boolean withStatic : new boolean[]{ false, true })
+                {
+                    validator.beforeTest();
+                    validator.prepareTest(pageSize, threshold);
+                    validator.generateLinear(0, deleted + live);
+                    validator.deleteLinear(0, deleted, AbstractPagingValidator.LivenessState.ROW_TOMBSTONE);
+                    if (withStatic)
+                        validator.generateStaticData();
+                    for (boolean reversed : new boolean[]{ false, true })
+                    {
+                        validator.prepareTest(pageSize, threshold);
+                        long before = Keyspace.open(AbstractPagingValidator.KEYSPACE)
+                                              .getColumnFamilyStore(AbstractPagingValidator.TABLE).metric.tombstonePages.getCount();
+                        try
+                        {
+                            validator.runTest(reversed);
+                        }
+                        catch (ExecutionException | InterruptedException | TimeoutException e)
+                        {
+                            throw new AssertionError(e);
+                        }
+                        if (deleted > threshold)
+                            assertTrue("Expected a tombstone checkpoint",
+                                       Keyspace.open(AbstractPagingValidator.KEYSPACE)
+                                               .getColumnFamilyStore(AbstractPagingValidator.TABLE).metric.tombstonePages.getCount() > before);
+                    }
+                }
+            });
+    }
+
+    @Test
     public void testFuzzPagingAcrossTombstones() throws ExecutionException, InterruptedException, TimeoutException
     {
         boolean isRepro = RandomHelpers.maybeSetToUserSeed();
         long runSeed = RandomHelpers.getSeed();
+        logger.info("Fuzz run seed: {}, replay: {}", runSeed, isRepro);
 
         // TODO: Consider making the runtime configurable via env var
         long end = Clock.Global.currentTimeMillis() + TimeUnit.MINUTES.toMillis(TEST_DURATION_MIN);
@@ -223,16 +264,11 @@ public class PagingFuzzTest extends CQLTester
             }
             catch (AssertionError ae)
             {
-                logger.error("Error found during run! Seed: " + RandomHelpers.getSeed());
-                logger.error("State of validator: " + validator);
-
-                logger.error("Seed: " + runSeed);
-
-                logger.error("\n\n[STEPS TO REPRODUCE]\nTo reproduce this test run, re-run the test with the 'cassandra.test.seed' env var set: [cassandra.test.seed=" + runSeed + "]\n" +
-                             "Alternatively, copy and paste the following as the first line int the test fuzzer's main method: \n" +
-                             "   RandomHelpers.setUserSeed(" + runSeed + "L);\n\n");
-
                 StringBuilder sb = new StringBuilder();
+                appendLine(sb, "Error found during run! Seed: " + runSeed);
+                appendLine(sb, "State of validator: " + validator);
+                appendLine(sb, "[STEPS TO REPRODUCE]");
+                appendLine(sb, "bash run_property_tests.sh --long -Dtest.jvm.args=-Dcassandra.test.seed=" + runSeed);
                 appendLine(sb, "----------------- ");
                 appendLine(sb, "Alternatively, copy and paste the following unit test into a test file and run it:");
                 appendLine(sb, "[UNIT TEST TO REPRODUCE]");
@@ -246,13 +282,11 @@ public class PagingFuzzTest extends CQLTester
                     appendLine(sb, "    " + cmd);
                 appendLine(sb, "    validator.runTest();");
                 appendLine(sb, "}");
-                logger.error(sb.toString());
+                logger.error(sb.toString(), ae);
                 throw ae;
             }
             finally
             {
-                // error and info are interleaving
-                Thread.sleep(250);
                 logger.info("----------------" + '\n' +
                             "[PROGRESS]: " + '\n' +
                             "iterations: " + iterations + '\n' +
@@ -264,6 +298,8 @@ public class PagingFuzzTest extends CQLTester
                             "statics: " + statics + '\n');
             }
         }
+        if (isRepro)
+            assertEquals("A seed replay must run exactly one iteration", 1, iterations);
     }
 
     private List<PagingFuzzCommand> generateCommands()

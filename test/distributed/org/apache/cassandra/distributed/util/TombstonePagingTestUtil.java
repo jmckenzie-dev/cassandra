@@ -18,6 +18,7 @@
  */
 package org.apache.cassandra.distributed.util;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -42,7 +43,7 @@ public final class TombstonePagingTestUtil
     public static List<Row> readPages(Session session, String cql, int fetchSize, int rowBudget)
     {
         List<Row> rows = new ArrayList<>();
-        List<PagingState> states = new ArrayList<>();
+        List<ByteBuffer> states = new ArrayList<>();
         PagingState state = null;
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         do
@@ -63,11 +64,17 @@ public final class TombstonePagingTestUtil
             assertTrue(cql + ": row budget exceeded; states=" + states, rows.size() <= rowBudget);
             if (state != null)
             {
-                assertFalse(cql + ": repeated paging state " + state, states.contains(state));
-                states.add(state);
+                recordPagingState(states, state);
             }
         }
         while (state != null);
         return rows;
+    }
+
+    public static void recordPagingState(List<ByteBuffer> states, PagingState state)
+    {
+        ByteBuffer bytes = ByteBuffer.wrap(state.toBytes());
+        assertFalse("Repeated paging state: " + state, states.contains(bytes));
+        states.add(bytes);
     }
 }
