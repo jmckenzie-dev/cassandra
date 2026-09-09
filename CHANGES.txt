@@ -6,7 +6,7 @@
  * Add prepared statement cache stats to nodetool info (CASSANDRA-14366)
  * Don't increment client metrics on messaging service connection unpause (CASSANDRA-21491)
  * Add nodetool getreplicas (CASSANDRA-17665)
- * Implement graceful paging across tombstones with short-circuit on paging rather than throwing TombstoneOverwhelmingExceptions (CASSANDRA-18424)
+ * Allow supported paged reads to resume across tombstone-heavy partitions (CASSANDRA-18424)
  * Implementation of CEP-49: Hardware-accelerated compression (CASSANDRA-20975)
  * Avoid using ObjectUtils.getFirstNonNull in Schema (CASSANDRA-21394)
  * Allow nodetool garbagecollect to take a user defined list of SSTables (CASSANDRA-16767)

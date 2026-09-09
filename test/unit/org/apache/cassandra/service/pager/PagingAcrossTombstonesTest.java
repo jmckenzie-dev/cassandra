@@ -622,6 +622,7 @@ public class PagingAcrossTombstonesTest extends CQLTester
 
         // Confirm we see all the contents we expect to see in all the maps populated above
         DatabaseDescriptor.setTombstoneFailureThreshold(5);
+        DatabaseDescriptor.setTombstonePagingThreshold(5);
 
         String query = String.format("SELECT * FROM %s WHERE key = 'key'", table);
         SimpleStatement statement = new SimpleStatement(query);
@@ -680,6 +681,7 @@ public class PagingAcrossTombstonesTest extends CQLTester
         execute(String.format("CREATE TABLE %s.%s (pk int, c int, v text, PRIMARY KEY (pk, c))", KEYSPACE, table));
 
         DatabaseDescriptor.setTombstoneFailureThreshold(10);
+        DatabaseDescriptor.setTombstonePagingThreshold(10);
 
         try (SimpleClient client = new SimpleClient(nativeAddr.getHostAddress(), nativePort, ProtocolVersion.CURRENT))
         {

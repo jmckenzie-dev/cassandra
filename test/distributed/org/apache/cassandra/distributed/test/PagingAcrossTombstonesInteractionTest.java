@@ -687,7 +687,7 @@ public class PagingAcrossTombstonesInteractionTest extends TestBaseImpl
         String table = qualified.substring(qualified.indexOf('.') + 1);
         long count = 0;
         for (int node = 1; node <= 3; node++)
-            count += cluster.get(node).callOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstoneFailures.getCount());
+            count += cluster.get(node).callOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstonePages.getCount());
         return count;
     }
 }

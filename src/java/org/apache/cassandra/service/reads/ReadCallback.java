@@ -70,8 +70,7 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
     {
         REJECT,
         ACCEPT,
-        COMPARE,
-        USE_LOCAL_COMMAND
+        COMPARE
     }
 
     protected static final Logger logger = LoggerFactory.getLogger(ReadCallback.class);
@@ -294,27 +293,17 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
 
     public void response(ReadResponse result)
     {
-        response(result, null, true);
+        response(result, null);
     }
 
-    private void response(ReadResponse result, ReadCommand executedCommand, boolean failOnTombstonePageCheckpoint)
+    public void response(ReadResponse result, ReadCommand executedCommand)
     {
         Verb kind = command.isRangeRequest() ? Verb.RANGE_RSP : Verb.READ_RSP;
         Message<ReadResponse> message = Message.internalResponse(kind, result);
         message = MessageParams.addToMessage(message);
         if (executedCommand != null)
-            message = executedCommand.addTombstonePageCheckpoint(message, failOnTombstonePageCheckpoint);
+            message = executedCommand.addTombstonePageCheckpoint(message, true);
         onResponse(message);
-    }
-
-    public void response(ReadResponse result, ReadCommand executedCommand)
-    {
-        if (tombstonePageCheckpointPolicy == TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND
-            && command == executedCommand
-            && command.hasTombstonePageCheckpointOwner())
-            response(result, executedCommand, false);
-        else
-            response(result, executedCommand, true);
     }
 
     @Override

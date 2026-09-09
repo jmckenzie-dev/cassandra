@@ -39,6 +39,7 @@ import org.apache.cassandra.db.ClusteringComparator;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.MessageParams;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadExecutionController;
@@ -62,6 +63,7 @@ import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.TableMetadata;
@@ -577,6 +579,150 @@ public class QueryPagerTest
     }
 
     @Test
+    public void localRangePagerRejectsTombstoneCheckpoint()
+    {
+        int paging = DatabaseDescriptor.getTombstonePagingThreshold();
+        int failure = DatabaseDescriptor.getTombstoneFailureThreshold();
+        try
+        {
+            DatabaseDescriptor.setTombstonePagingThreshold(2);
+            DatabaseDescriptor.setTombstoneFailureThreshold(2);
+            String key = "range_checkpoint_rejection";
+            checkpointQuery(key, 3, false, DataLimits.NONE);
+            ColumnFamilyStore table = Keyspace.open(KEYSPACE_CQL).getColumnFamilyStore(CF_CQL);
+            for (boolean unfiltered : new boolean[]{ false, true })
+            {
+                QueryPager pager = ((PartitionRangeReadCommand) Util.cmd(table).fromKeyIncl(key).toKeyIncl(key).build())
+                                  .withUpdatedLimit(DataLimits.cqlLimits(10)).getPager(null, ProtocolVersion.CURRENT);
+                assertThatThrownBy(() -> {
+                    try (ReadExecutionController controller = pager.executionController())
+                    {
+                        if (unfiltered)
+                        {
+                            try (UnfilteredPartitionIterator partitions = ((PartitionRangeQueryPager) pager).fetchPageUnfiltered(table.metadata(), 8, controller))
+                            {
+                                while (partitions.hasNext())
+                                    try (UnfilteredRowIterator rows = partitions.next())
+                                    {
+                                        while (rows.hasNext())
+                                            rows.next();
+                                    }
+                            }
+                        }
+                        else
+                        {
+                            readPageRows(pager, 8);
+                        }
+                    }
+                }).isInstanceOf(org.apache.cassandra.db.filter.TombstoneOverwhelmingException.class);
+            }
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstonePagingThreshold(paging);
+            DatabaseDescriptor.setTombstoneFailureThreshold(failure);
+        }
+    }
+
+    @Test
+    public void successfulCheckpointIsNotATombstoneFailure()
+    {
+        int paging = DatabaseDescriptor.getTombstonePagingThreshold();
+        int warning = DatabaseDescriptor.getTombstoneWarnThreshold();
+        try
+        {
+            DatabaseDescriptor.setTombstonePagingThreshold(2);
+            DatabaseDescriptor.setTombstoneWarnThreshold(1);
+            SinglePartitionReadCommand command = checkpointQuery("checkpoint_metrics", 3, false, DataLimits.NONE);
+            ColumnFamilyStore table = Keyspace.open(KEYSPACE_CQL).getColumnFamilyStore(CF_CQL);
+            long failures = table.metric.tombstoneFailures.getCount();
+            long warnings = table.metric.tombstoneWarnings.getCount();
+            SinglePartitionPager pager = command.getPager(null, ProtocolVersion.CURRENT);
+            assertTrue(readPageRows(pager, 8).isEmpty());
+            assertFalse(pager.isExhausted());
+            assertEquals(failures, table.metric.tombstoneFailures.getCount());
+            assertEquals(warnings + 1, table.metric.tombstoneWarnings.getCount());
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstonePagingThreshold(paging);
+            DatabaseDescriptor.setTombstoneWarnThreshold(warning);
+        }
+    }
+
+    @Test
+    public void smallPagingThresholdsMakeProgress()
+    {
+        int original = DatabaseDescriptor.getTombstonePagingThreshold();
+        try
+        {
+            for (int threshold : new int[]{ -2, 0, 1, 2 })
+            {
+                DatabaseDescriptor.setTombstonePagingThreshold(threshold);
+                for (boolean reversed : new boolean[]{ false, true })
+                {
+                    String key = "small_threshold_" + threshold + '_' + reversed;
+                    SinglePartitionPager pager = checkpointQuery(key, 4, reversed, DataLimits.cqlLimits(3))
+                                                 .getPager(null, ProtocolVersion.CURRENT);
+                    List<String> rows = new ArrayList<>();
+                    for (int page = 0; !pager.isExhausted(); page++)
+                    {
+                        assertTrue("Paging did not terminate at threshold " + threshold, page < 7);
+                        rows.addAll(readPageRows(pager, 2));
+                    }
+                    assertEquals(reversed ? Arrays.asList(key + "/c1", key + "/c0")
+                                          : Arrays.asList(key + "/c4", key + "/c5"), rows);
+                }
+            }
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstonePagingThreshold(original);
+        }
+    }
+
+    @Test
+    public void markerOnlyScanHasBoundedThresholdOverrun()
+    {
+        int failure = DatabaseDescriptor.getTombstoneFailureThreshold();
+        try
+        {
+            DatabaseDescriptor.setTombstoneFailureThreshold(4);
+            String key = "marker_scan_limit";
+            for (int i = 0; i < 2200; i += 2)
+                executeInternal("DELETE FROM " + KEYSPACE_CQL + '.' + CF_CQL +
+                                " USING TIMESTAMP 2 WHERE k = ? AND c >= ? AND c < ?",
+                                key, String.format("c%04d", i), String.format("c%04d", i + 1));
+            ColumnFamilyStore table = Keyspace.open(KEYSPACE_CQL).getColumnFamilyStore(CF_CQL);
+            SinglePartitionReadCommand command = (SinglePartitionReadCommand) Util.cmd(table, key).build();
+            command.trackWarnings();
+            MessageParams.reset();
+            long failures = table.metric.tombstoneFailures.getCount();
+            assertThatThrownBy(() -> {
+                try (ReadExecutionController controller = command.executionController();
+                     UnfilteredPartitionIterator partitions = command.executeLocally(controller, 2))
+                {
+                    while (partitions.hasNext())
+                        try (UnfilteredRowIterator rows = partitions.next())
+                        {
+                            while (rows.hasNext())
+                                rows.next();
+                        }
+                }
+            }).isInstanceOf(org.apache.cassandra.db.filter.TombstoneOverwhelmingException.class)
+              .hasMessageContaining("Scanned over 1027 tombstones");
+            assertEquals(failures + 1, table.metric.tombstoneFailures.getCount());
+            assertEquals(Integer.valueOf(1027), MessageParams.get(ParamType.TOMBSTONE_FAIL));
+            assertNull(command.tombstoneLimitedRow());
+        }
+        finally
+        {
+            DatabaseDescriptor.setTombstoneFailureThreshold(failure);
+            MessageParams.reset();
+        }
+    }
+
+    @Test
     public void tombstoneCheckpointSurvivesPagingStateRoundTrip()
     {
         verifyTombstoneCheckpoint(true);
@@ -740,13 +886,13 @@ public class QueryPagerTest
                 String key = "aggregate_checkpoint_" + reversed;
                 SinglePartitionReadCommand command = checkpointQuery(key, 6, reversed, DataLimits.cqlLimits(5));
                 ColumnFamilyStore table = Keyspace.open(KEYSPACE_CQL).getColumnFamilyStore(CF_CQL);
-                long crossings = table.metric.tombstoneFailures.getCount();
+                long crossings = table.metric.tombstonePages.getCount();
                 QueryPager pager = new AggregationQueryPager(command.getPager(null, ProtocolVersion.CURRENT), command.limits());
                 assertNull(pager.state());
                 assertEquals(Arrays.asList(key + (reversed ? "/c1" : "/c6"), key + (reversed ? "/c0" : "/c7")), readPageRows(pager, 1));
                 assertTrue(pager.isExhausted());
                 assertEquals(3, pager.maxRemaining());
-                assertEquals(2, table.metric.tombstoneFailures.getCount() - crossings);
+                assertEquals(2, table.metric.tombstonePages.getCount() - crossings);
             }
         }
         finally
@@ -796,10 +942,10 @@ public class QueryPagerTest
 
             DatabaseDescriptor.setTombstonePagingThreshold(2);
             DatabaseDescriptor.setTombstoneFailureThreshold(2);
-            long crossings = table.metric.tombstoneFailures.getCount();
+            long crossings = table.metric.tombstonePages.getCount();
             QueryPager pager = new AggregationQueryPager(command.getPager(null, ProtocolVersion.CURRENT), limits);
             List<String> actual = readPageRows(pager, 1);
-            assertTrue("Expected a tombstone checkpoint", table.metric.tombstoneFailures.getCount() > crossings);
+            assertTrue("Expected a tombstone checkpoint", table.metric.tombstonePages.getCount() > crossings);
             assertEquals(expected, actual);
             assertEquals(9, pager.maxRemaining());
             if (!pager.isExhausted())
@@ -930,7 +1076,7 @@ public class QueryPagerTest
                     executeInternal("INSERT INTO " + KEYSPACE_CQL + '.' + CF_CQL +
                                     " (k, c, v) VALUES (?, ?, 'v') USING TIMESTAMP 3", key, first);
                     QueryPager pager = new AggregationQueryPager(command.getPager(null, ProtocolVersion.CURRENT), limits);
-                    long crossings = table.metric.tombstoneFailures.getCount();
+                    long crossings = table.metric.tombstonePages.getCount();
                     List<String> actual = new ArrayList<>();
                     try (ReadExecutionController controller = pager.executionController();
                          PartitionIterator page = pager.fetchPageInternal(1, controller))
@@ -954,7 +1100,7 @@ public class QueryPagerTest
                     if (!pager.isExhausted())
                         assertTrue(readPageRows(pager, 1).isEmpty());
                     assertTrue(pager.isExhausted());
-                    assertTrue("Expected a tombstone checkpoint", table.metric.tombstoneFailures.getCount() > crossings);
+                    assertTrue("Expected a tombstone checkpoint", table.metric.tombstonePages.getCount() > crossings);
                 }
         }
         finally

@@ -288,7 +288,7 @@ public class MixedVersionPagingAcrossTombstonesTest extends UpgradeTestBase
     {
         long count = 0;
         for (int node = 1; node <= upgraded; node++)
-            count += ((IInvokableInstance) cluster.get(node)).callOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstoneFailures.getCount());
+            count += ((IInvokableInstance) cluster.get(node)).callOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstonePages.getCount());
         return count;
     }
 }

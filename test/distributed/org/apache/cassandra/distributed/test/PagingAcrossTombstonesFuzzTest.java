@@ -393,7 +393,7 @@ public class PagingAcrossTombstonesFuzzTest extends TestBaseImpl
     {
         return cluster.stream().mapToLong(node -> node.callOnInstance(() -> Keyspace.open(KEYSPACE)
                                                                                    .getColumnFamilyStore(TABLE)
-                                                                                   .metric.tombstoneFailures.getCount()))
+                                                                                   .metric.tombstonePages.getCount()))
                       .sum();
     }
 }

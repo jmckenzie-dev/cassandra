@@ -223,7 +223,7 @@ public class PagingAcrossTombstonesTransientTest extends TestBaseImpl
             }
             assertTrue("Expected a response from the transient replica", responses.get() > 0);
             long checkpoints = cluster.stream().mapToLong(node -> node.callOnInstance(() ->
-                Keyspace.open(keyspace).getColumnFamilyStore("checkpoint").metric.tombstoneFailures.getCount())).sum();
+                Keyspace.open(keyspace).getColumnFamilyStore("checkpoint").metric.tombstonePages.getCount())).sum();
             assertTrue("Expected full-replica tombstone checkpoints", checkpoints > 0);
         }
     }

@@ -19,6 +19,8 @@ package org.apache.cassandra.db;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.google.common.base.Preconditions;
 
@@ -64,10 +66,15 @@ public final class TombstonePageContinuation
 
         public TombstonePageContinuation deserialize(DataInputPlus in, int version) throws IOException
         {
-            ByteBuffer[] values = new ByteBuffer[in.readUnsignedVInt32()];
-            for (int i = 0; i < values.length; i++)
-                values[i] = ByteBufferUtil.nullableByteBufferSerializer.deserialize(in);
-            return new TombstonePageContinuation(Clustering.make(values));
+            int count = in.readUnsignedVInt32();
+            if (count <= 0)
+                throw new IOException("Invalid tombstone continuation component count: " + Integer.toUnsignedString(count));
+
+            // Allocate for decoded components, not the untrusted count in the message header.
+            List<ByteBuffer> values = new ArrayList<>();
+            for (int i = 0; i < count; i++)
+                values.add(ByteBufferUtil.nullableByteBufferSerializer.deserialize(in));
+            return new TombstonePageContinuation(Clustering.make(values.toArray(new ByteBuffer[0])));
         }
 
         public long serializedSize(TombstonePageContinuation continuation, int version)

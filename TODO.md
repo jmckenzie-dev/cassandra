@@ -16,11 +16,12 @@ under the License.
 -->
 
 # TODO
-- [ ] Reproduce the remaining tombstone paging review findings, fix confirmed defects, and commit the verified changes.
-- [ ] Check out opencode review on the branch
+- [ ] Assess remaining review follow-ups: specialized ownership/error paths, local-copy allocation, legacy validator budgets, and API/design suggestions. See `.debug/tombstone-review-reproductions.md` for the evidence and limits.
 
 # DONE
 
+- [x] Test the tombstone paging review claims and fix reproduced range-pager, marker-scan, metric, and decoder defects. Repair and refill regressions pass without the proposed cursor/loop changes. Record targeted tests, real upgrades, coverage, and repository check limits in `.debug/tombstone-review-reproductions.md`.
+- [x] Check out the opencode review on the branch and record a disposition for every finding.
 - [x] Apply the mechanical review cleanup: paging sentinel constants, checkpoint and threshold documentation, debug formatting, and fuzz replay hint.
 
 - [x] Use the numeric tombstone paging threshold independently and default it to 100000. Document that changing the configured failure threshold does not change this default. The regression, strengthened property, and three-node fuzz and mixed-configuration tests pass: 78 unit and 35 distributed executions. See `.debug/paging-correctness-and-performance.md`.

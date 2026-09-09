@@ -195,7 +195,7 @@ public class MixedConfigPagingAcrossTombstonesTest extends TestBaseImpl
         {
             if (flushed)
                 cluster.forEach(node -> node.flush(KEYSPACE));
-            long before = cluster.get(1).callOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstoneFailures.getCount());
+            long before = cluster.get(1).callOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstonePages.getCount());
             for (boolean reversed : new boolean[]{ false, true })
             {
                 List<Object[]> expected = new ArrayList<>();
@@ -218,7 +218,7 @@ public class MixedConfigPagingAcrossTombstonesTest extends TestBaseImpl
             }
             if (expectCheckpoint)
                 assertTrue("Expected a checkpoint for " + table + ", flushed=" + flushed,
-                           cluster.get(1).callOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstoneFailures.getCount()) > before);
+                           cluster.get(1).callOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstonePages.getCount()) > before);
         }
     }
 }

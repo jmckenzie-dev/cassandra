@@ -84,4 +84,21 @@ public class TombstonePageContinuationTest
             }
         });
     }
+
+    @Test
+    public void invalidComponentCountsAreReadErrors() throws IOException
+    {
+        for (int count : new int[]{ 0, -1, Integer.MIN_VALUE, Integer.MAX_VALUE })
+        {
+            try (DataOutputBuffer out = new DataOutputBuffer())
+            {
+                out.writeUnsignedVInt32(count);
+                try (DataInputBuffer in = new DataInputBuffer(out.buffer(), false))
+                {
+                    assertThatThrownBy(() -> TombstonePageContinuation.serializer.deserialize(in, MessagingService.current_version))
+                    .isInstanceOf(IOException.class);
+                }
+            }
+        }
+    }
 }

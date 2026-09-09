@@ -86,6 +86,13 @@ public class AbstractPagingValidatorTest extends CQLTester
     }
 
     @Test
+    public void testPreparationSetsPagingThreshold()
+    {
+        validator.prepareTest(10, 3);
+        assertEquals(3, DatabaseDescriptor.getTombstonePagingThreshold());
+    }
+
+    @Test
     public void testLinearGeneration()
     {
         int toGen = 100;

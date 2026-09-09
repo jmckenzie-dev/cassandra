@@ -190,6 +190,8 @@ public class TableMetrics
      * Number of tombstone read failures
      */
     public final Counter tombstoneFailures;
+    /** Number of replica pages stopped at a tombstone checkpoint. */
+    public final Counter tombstonePages;
     /**
      * Number of tombstone read warnings
      */
@@ -845,6 +847,7 @@ public class TableMetrics
         rowCacheMiss = createTableCounter("RowCacheMiss");
 
         tombstoneFailures = createTableCounter("TombstoneFailures");
+        tombstonePages = createTableCounter("TombstonePages");
         tombstoneWarnings = createTableCounter("TombstoneWarnings");
 
         casPrepare = createLatencyMetrics("CasPrepare", cfs.keyspace.metric.casPrepare);

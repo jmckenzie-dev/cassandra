@@ -2100,7 +2100,9 @@ tombstone_failure_threshold: 100000
 # ResultSet size or hits the end of the queried range.
 # If unspecified, this defaults to 100000, the default numeric value of tombstone_failure_threshold.
 # Changing tombstone_failure_threshold does not change this default. When paging is enabled, this threshold
-# controls the cutoff instead of tombstone_failure_threshold. Set to -1 to disable paging across tombstones.
+# controls the row checkpoint cutoff instead of tombstone_failure_threshold. Range tombstone markers cannot
+# supply a checkpoint; scans abort if a marker exceeds the paging threshold by more than 1024 tombstones.
+# Set to -1 to disable tombstone paging.
 # tombstone_paging_threshold: 100000
 
 # Controls the granularity of purgeable tombstones reported to PurgeableTombstoneScannedHistogram table metric

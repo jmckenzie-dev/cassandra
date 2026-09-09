@@ -187,14 +187,14 @@ public class ShortReadProtectionTombstonePagingTest extends TestBaseImpl
                                 DatabaseDescriptor.setTombstoneFailureThreshold(2);
                             }));
                             long before = cluster.stream().mapToLong(node -> node.callOnInstance(() ->
-                                Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstoneFailures.getCount())).sum();
+                                Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstonePages.getCount())).sum();
                             assertThatThrownBy(() -> readPages(session, cql, 1, 2))
                             .as("coordinator=%s, pk=%s, flushed=%s", coordinator, pk, flushed)
                             .isInstanceOf(com.datastax.driver.core.exceptions.ReadFailureException.class)
                             .satisfies(error -> assertTrue(((com.datastax.driver.core.exceptions.ReadFailureException) error)
                                                           .getFailuresMap().containsValue(RequestFailureReason.READ_TOO_MANY_TOMBSTONES.code)));
                             long after = cluster.stream().mapToLong(node -> node.callOnInstance(() ->
-                                Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstoneFailures.getCount())).sum();
+                                Keyspace.open(KEYSPACE).getColumnFamilyStore(table).metric.tombstonePages.getCount())).sum();
                             assertTrue("Expected a static-row tombstone cutoff", after > before);
                         }
                     }
@@ -216,6 +216,30 @@ public class ShortReadProtectionTombstonePagingTest extends TestBaseImpl
         String table = "srp_zero_live";
         setupZeroLiveRefill(table);
         assertUnpaged(table, false, row(1, 1), row(5, 5));
+    }
+
+    @Test(timeout = 60000)
+    public void markerOnlyRefillTerminates()
+    {
+        String table = "srp_marker_only";
+        createTable(table);
+        insert(table, 1, 0, 10);
+        insert(table, 1, 1, 10);
+        delete(table, 2, 0, 30);
+        delete(table, 2, 1, 30);
+        for (int ck = 2; ck < 26; ck += 2)
+            cluster.get(1).executeInternal("DELETE FROM " + qualified(table) +
+                                          " USING TIMESTAMP 20 WHERE pk = 0 AND ck >= ? AND ck < ?", ck, ck + 1);
+        for (boolean flushed : new boolean[]{ false, true })
+        {
+            if (flushed)
+                flush();
+            long before = shortReadProtectionRequests(table);
+            assertRows(cluster.coordinator(3).execute(query(table, false), ALL));
+            long requests = shortReadProtectionRequests(table) - before;
+            assertTrue("Expected a refill", requests > 0);
+            assertTrue("Refill did not terminate within its request budget: " + requests, requests <= 6);
+        }
     }
 
     @Test

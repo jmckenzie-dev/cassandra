@@ -15,6 +15,9 @@ limitations under the License.
 
 # Review: Full
 
+Follow-up: [reproduction results and dispositions](../.debug/tombstone-review-reproductions.md).
+The findings below preserve the original review; consult the follow-up for tested conclusions.
+
 Aggregate output of the review-full skill (ten-discipline fan-out) for the
 CASSANDRA-18424 tombstone-paging branch. Generated 2026-09-08.
 

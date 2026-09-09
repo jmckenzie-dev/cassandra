@@ -79,8 +79,10 @@ applies to unpaged reads (`4decacfc0d`).
    grouping state to an IN child after an empty checkpoint.
 5. Checkpoint-driven retries must make clustering progress; without an anchor,
    fail safely (`STATIC_CLUSTERING` exception) rather than invent a cursor.
-6. Unsupported paths (digest response, CL ONE, unlimited, top-k, non-owned
-   command, mixed-version peer) fail safe — never accept an incomplete response.
+6. Owned single-partition pagers can resume matching checkpoints, including at
+   CL ONE. Full-data checkpoint reconciliation requires read quorum greater
+   than one. Unsupported unlimited, top-k, non-owned, and non-resumable reads
+   fail safely. Local range pagers disable tombstone checkpoints.
 7. Old coordinators stay safe across mixed versions: keep `TOMBSTONE_FAIL` on
    every remote checkpoint; do not unify checkpoint eligibility predicates —
    `DataResolver`, `ShortReadPartitionsProtection`, and
@@ -111,11 +113,14 @@ applies to unpaged reads (`4decacfc0d`).
 - Claimed: 120 executions post-audit, then 78 unit + 35 distributed passing;
   13 distributed regressions + 372 existing cases + 2,160 fuzz queries at
   `7ec7490bc`; cumulative pager coverage 96.37% lines / 93.12% branches at
-  `0b3a07c55`. Six unit cases intentionally skipped.
+  `0b3a07c55`. These are historical claims, not current-run totals.
 - Test rules: finite traversal, no sleeps, no bytecode injection, no pager
   mocks, no fabricated internal state to reach branches; `0 < fetchSize <
   effective LIMIT` for paged CQL cases because `SelectStatement.execute`
   bypasses the pager at or below that boundary.
+  The distributed harness shares the existing jamm instrumentation reference
+  with isolated node class loaders for memory sizing; this does not alter
+  production bytecode to force a test path.
 - Performance: bounded read-cost benchmark (enabled/disabled, matched
   checkpoints, full-data reconciliation) with in-JVM timing caveats stated.
 

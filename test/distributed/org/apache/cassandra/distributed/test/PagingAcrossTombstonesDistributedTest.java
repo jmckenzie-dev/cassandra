@@ -191,6 +191,42 @@ public class PagingAcrossTombstonesDistributedTest extends TestBaseImpl
     }
 
     @Test
+    public void emptyMismatchedCheckpointsRefillToCompletion()
+    {
+        for (String repair : new String[]{ "NONE", "BLOCKING" })
+        {
+            String table = KEYSPACE + ".empty_mismatch_" + repair.toLowerCase(java.util.Locale.ROOT);
+            cluster.schemaChange("CREATE TABLE " + table + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))" +
+                                 " WITH read_repair = '" + repair + "' AND speculative_retry = 'NONE'");
+            for (int node = 1; node <= 3; node++)
+            {
+                configure(node, 2);
+                for (int ck = 0; ck < 12; ck++)
+                    cluster.get(node).executeInternal("DELETE FROM " + table +
+                                                      " USING TIMESTAMP ? WHERE pk = 0 AND ck = ?", (long) node + 1, ck);
+                for (int ck = 12; ck < 15; ck++)
+                    cluster.get(node).executeInternal("INSERT INTO " + table +
+                                                      " (pk, ck, v) VALUES (0, ?, ?) USING TIMESTAMP 1", ck, ck);
+            }
+            for (boolean flushed : new boolean[]{ false, true })
+            {
+                if (flushed)
+                {
+                    cluster.get(1).executeInternal("DELETE FROM " + table +
+                                                  " USING TIMESTAMP 10 WHERE pk = 0 AND ck = 0");
+                    cluster.forEach(node -> node.flush(KEYSPACE));
+                }
+                long before = reconciliations();
+                Object[][] actual = org.apache.cassandra.distributed.util.TombstonePagingTestUtil
+                                    .readPages(session, "SELECT ck, v FROM " + table + " WHERE pk = 0 LIMIT 4", 2, 3)
+                                    .stream().map(result -> row(result.getInt("ck"), result.getInt("v"))).toArray(Object[][]::new);
+                assertRows(actual, row(12, 12), row(13, 13), row(14, 14));
+                assertTrue("Expected digest mismatch repair", reconciliations() > before);
+            }
+        }
+    }
+
+    @Test
     public void equalContinuationDifferentDataRepairs()
     {
         verifyConflictingValue("checkpoint_repair", "BLOCKING");

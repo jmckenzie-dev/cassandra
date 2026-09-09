@@ -26,11 +26,13 @@ import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.EmptyIterators;
+import org.apache.cassandra.db.PartitionRangeReadQuery;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.ReadQuery;
 import org.apache.cassandra.db.filter.DataLimits;
@@ -64,7 +66,7 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
     protected final DataLimits limits;
     protected final ProtocolVersion protocolVersion;
     private final boolean enforceStrictLiveness;
-    private final int tombstonePagingThreshold = DatabaseDescriptor.getTombstonePagingThreshold();
+    private final int tombstonePagingThreshold;
 
     private int rowsRemaining;
 
@@ -79,6 +81,9 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
     protected AbstractQueryPager(T query, ProtocolVersion protocolVersion)
     {
         this.query = query;
+        this.tombstonePagingThreshold = query instanceof PartitionRangeReadQuery
+                                        ? Config.TOMBSTONE_PAGING_DISABLED
+                                        : DatabaseDescriptor.getTombstonePagingThreshold();
         this.protocolVersion = protocolVersion;
         this.limits = query.limits();
         this.enforceStrictLiveness = query.metadata().enforceStrictLiveness();

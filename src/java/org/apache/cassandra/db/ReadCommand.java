@@ -129,6 +129,7 @@ import static org.apache.cassandra.utils.MonotonicClock.Global.approxTime;
 public abstract class ReadCommand extends AbstractReadQuery
 {
     private static final int TEST_ITERATION_DELAY_MILLIS = CassandraRelevantProperties.TEST_READ_ITERATION_DELAY_MS.getInt();
+    private static final int TOMBSTONE_PAGING_MARKER_ALLOWANCE = 1024;
 
     protected static final Logger logger = LoggerFactory.getLogger(ReadCommand.class);
     private static final NoSpamLogger criticalTombstoneThresholdNoSpamLogger = NoSpamLogger.getLogger(logger, 5L, TimeUnit.SECONDS);
@@ -730,6 +731,7 @@ public abstract class ReadCommand extends AbstractReadQuery
             private final boolean respectTombstoneThresholds = !SchemaConstants.isLocalSystemKeyspace(ReadCommand.this.metadata().keyspace);
             private final boolean enforceStrictLiveness = metadata().enforceStrictLiveness();
 
+            private boolean tombstoneFailure;
             private int liveRows = 0;
             private int lastReportedLiveRows = 0;
             private int tombstones = 0;
@@ -805,54 +807,38 @@ public abstract class ReadCommand extends AbstractReadQuery
             private void countTombstone(ClusteringPrefix<?> clustering) throws TombstoneOverwhelmingException
             {
                 ++tombstones;
-                if (tombstones > tombstoneThreshold && respectTombstoneThresholds)
+                if (tombstones > tombstoneThreshold && respectTombstoneThresholds && !isStopped())
                 {
+                    boolean marker = clustering.kind().isBound() || clustering.kind().isBoundary();
+                    boolean abort = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED
+                                    || (marker && tombstones > (long) tombstoneThreshold + TOMBSTONE_PAGING_MARKER_ALLOWANCE);
+                    // Markers cannot supply a resume row. Allow a bounded scan for the next row checkpoint.
+                    if (marker && !abort)
+                        return;
+
                     String query = ReadCommand.this.toCQLString();
-                    String actionTaken = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED ? "query aborted" : "page ended early";
+                    String actionTaken = abort ? "query aborted" : "page ended early";
                     String setting = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED ? "tombstone_failure_threshold" : "tombstone_paging_threshold";
                     Tracing.trace("Scanned over {} tombstones for query {}; " + actionTaken + " (see " + setting + ")", tombstoneThreshold, query);
 
-                    metric.tombstoneFailures.inc();
+                    if (abort)
+                    {
+                        tombstoneFailure = true;
+                        metric.tombstoneFailures.inc();
+                        if (trackWarnings)
+                        {
+                            MessageParams.remove(ParamType.TOMBSTONE_WARNING);
+                            MessageParams.add(ParamType.TOMBSTONE_FAIL, tombstones);
+                        }
+                        throw new TombstoneOverwhelmingException(tombstones, query, ReadCommand.this.metadata(), currentKey, clustering);
+                    }
 
-                    String msg = "";
-                    try
-                    {
-                        if (tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED)
-                        {
-                            msg = "Paging across tombstones is not enabled. Aborting query to prevent coordinator memory pressure.";
-                            if (trackWarnings)
-                            {
-                                MessageParams.remove(ParamType.TOMBSTONE_WARNING);
-                                MessageParams.add(ParamType.TOMBSTONE_FAIL, tombstones);
-                            }
-                            throw new TombstoneOverwhelmingException(tombstones, query, ReadCommand.this.metadata(), currentKey, clustering);
-                        }
-                        else
-                        {
-                            // Never checkpoint on a range tombstone bound or boundary.
-                            // RTBoundCloser needs a row to close the open range tombstone.
-                            if (clustering.kind().isBound() || clustering.kind().isBoundary())
-                            {
-                                msg = "Hit our tombstone limit on a RangeTombstone marker. Continuing iteration until we hit data to terminate paging";
-                            }
-                            else
-                            {
-                                msg = String.format("Scanned over %d tombstones for query %s in this page; short-circuiting paging to prevent coordinator pressure.",
-                                                    tombstoneThreshold,
-                                                    query);
-                                stopInPartition();
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        if (tombstonePagingThreshold != Config.TOMBSTONE_PAGING_DISABLED)
-                        {
-                            // Throttle logging to server logs and ClientWarn for any unique CQL query
-                            if (criticalTombstoneThresholdNoSpamLogger.warn(msg))
-                                ClientWarn.instance.warn(msg);
-                        }
-                    }
+                    metric.tombstonePages.inc();
+                    stopInPartition();
+                    String msg = String.format("Scanned over %d tombstones for query %s in this page; short-circuiting paging to prevent coordinator pressure.",
+                                               tombstoneThreshold, query);
+                    if (criticalTombstoneThresholdNoSpamLogger.warn(msg))
+                        ClientWarn.instance.warn(msg);
                 }
             }
 
@@ -891,7 +877,7 @@ public abstract class ReadCommand extends AbstractReadQuery
                         MessageParams.add(ParamType.TOMBSTONE_WARNING, tombstones);
                     else
                         ClientWarn.instance.warn(msg);
-                    if (tombstones < tombstoneThreshold)
+                    if (!tombstoneFailure)
                     {
                         metric.tombstoneWarnings.inc();
                     }

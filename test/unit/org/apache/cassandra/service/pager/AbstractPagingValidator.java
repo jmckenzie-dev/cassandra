@@ -233,6 +233,8 @@ public abstract class AbstractPagingValidator
         this.pageSize = newPageSize;
         this.failureThreshold = failureThreshold;
         DatabaseDescriptor.setTombstoneFailureThreshold(failureThreshold);
+        if (failureThreshold != UNINIT)
+            DatabaseDescriptor.setTombstonePagingThreshold(failureThreshold);
         seenCellState.clear();
         seenStaticCell = CellState.EMPTY_STATIC;
     }

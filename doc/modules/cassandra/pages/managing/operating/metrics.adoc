@@ -187,8 +187,11 @@ in queries on this table. Use tombstone_read_purgeable_metric_granularity proper
 |TombstoneWarnings |Counter |Number of tombstone read warnings (reads that scanned more than
 tombstone_warn_threshold tombstones).
 
-|TombstoneFailures |Counter |Number of tombstone read failures (reads that scanned more than
-tombstone_failure_threshold tombstones).
+|TombstoneFailures |Counter |Number of replica reads aborted by a tombstone threshold.
+Successful tombstone checkpoint pages do not increment this counter.
+
+|TombstonePages |Counter |Number of replica pages stopped at a tombstone checkpoint.
+This includes checkpoints that a coordinator rejects on an unsupported read path.
 
 |LiveScannedHistogram |Histogram |Histogram of live cells scanned in
 queries on this table.

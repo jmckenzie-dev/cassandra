@@ -36,6 +36,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.MessageParams;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.ReadResponse;
@@ -126,7 +127,7 @@ public class DigestResolverTest extends AbstractReadResponseTest
                            command,
                            plan,
                            requestTime,
-                           ReadCallback.TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND);
+                           ReadCallback.TombstonePageCheckpointPolicy.REJECT);
         PartitionUpdate response = update(row(1000, 4, 4)).build();
 
         callback.onResponse(response(command, EP1, iter(response))
@@ -142,6 +143,31 @@ public class DigestResolverTest extends AbstractReadResponseTest
         finally
         {
             CoordinatorWarnings.done();
+        }
+    }
+
+    @Test
+    public void localResponseWithoutCheckpointUsesNormalCallback()
+    {
+        SinglePartitionReadCommand command = SinglePartitionReadCommand.fullPartitionRead(cfm, nowInSec, dk);
+        ReplicaPlan.SharedForTokenRead plan = plan(ConsistencyLevel.ONE, EndpointsForToken.of(dk.getToken(), full(EP1)));
+        Dispatcher.RequestTime requestTime = Dispatcher.RequestTime.forImmediateExecution();
+        DigestResolver<EndpointsForToken, ReplicaPlan.ForTokenRead> resolver =
+        new DigestResolver<>(ReadCoordinator.DEFAULT, command, plan, requestTime);
+        ReadCallback<EndpointsForToken, ReplicaPlan.ForTokenRead> callback =
+        new ReadCallback<>(resolver, command, plan, requestTime, ReadCallback.TombstonePageCheckpointPolicy.REJECT);
+        PartitionUpdate data = update(row(1000, 4, 4)).build();
+        MessageParams.reset();
+        try
+        {
+            callback.response(ReadResponse.createDataResponse(iter(data), command));
+            callback.awaitResults();
+            assertPartitionsEqual(filter(iter(data)), resolver.getData());
+            Assert.assertFalse(resolver.getMessages().get(0).header.params().containsKey(ParamType.TOMBSTONE_FAIL));
+        }
+        finally
+        {
+            MessageParams.reset();
         }
     }
 
@@ -283,6 +309,7 @@ public class DigestResolverTest extends AbstractReadResponseTest
 
         Assert.assertEquals(2, resolver.getMessages().size());
         Assert.assertTrue(resolver.getMessages().get(0).header.params().containsKey(ParamType.TOMBSTONE_PAGE_CHECKPOINT));
+        Assert.assertTrue(resolver.getMessages().get(0).header.params().containsKey(ParamType.TOMBSTONE_FAIL));
     }
 
     /**
@@ -454,7 +481,7 @@ public class DigestResolverTest extends AbstractReadResponseTest
             new DigestResolver<>(ReadCoordinator.DEFAULT, command, plan, requestTime);
             Assert.assertEquals(consistency == ConsistencyLevel.QUORUM, resolver.supportsTombstonePageCheckpoints());
             ReadCallback<EndpointsForToken, ReplicaPlan.ForTokenRead> callback =
-            new ReadCallback<>(resolver, command, plan, requestTime, ReadCallback.TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND);
+            new ReadCallback<>(resolver, command, plan, requestTime, ReadCallback.TombstonePageCheckpointPolicy.ACCEPT);
             try (ReadExecutionController controller = command.executionController();
                  UnfilteredPartitionIterator partitions = command.executeLocally(controller, 2))
             {
@@ -524,7 +551,7 @@ public class DigestResolverTest extends AbstractReadResponseTest
                                command,
                                plan,
                                requestTime,
-                               ReadCallback.TombstonePageCheckpointPolicy.USE_LOCAL_COMMAND);
+                               ReadCallback.TombstonePageCheckpointPolicy.ACCEPT);
 
             try (ReadExecutionController controller = command.executionController();
                  UnfilteredPartitionIterator iterator = command.executeLocally(controller, 2))

@@ -75,6 +75,7 @@ public class MixedModePagingAcrossTombstonesTest extends UpgradeTestBase {
      * @throws Throwable
      */
     @Test
+    @org.junit.Ignore("Unimplemented asymmetric mixed-version case; see MixedVersionPagingAcrossTombstonesTest for active upgrade coverage")
     public void mixedModeMismatchReturn() throws Throwable {
         //pass
     }
