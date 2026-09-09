@@ -568,7 +568,7 @@ public class DatabaseDescriptor
     @VisibleForTesting
     public static void setConfig(Config config)
     {
-        MetricProfile profile = MetricProfile.load(config.metrics_config_file);
+        MetricProfile profile = MetricProfile.load(config == null ? null : config.metrics_config_file);
         conf = config;
         metricProfile = profile;
     }

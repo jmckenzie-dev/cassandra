@@ -28,9 +28,19 @@ cd "$home"
 
 mkdir -p logs
 test_log="logs/$(date +%Y%m%d-%H%M%S)-ai-ci-test.log"
+if [[ $# == 2 && "$2" == --reuse ]]; then
+  set -- "$1"
+fi
 if [[ $# != 1 || "$1" != org.apache.cassandra.* ]]; then
-  echo 'Usage: ai-ci-test org.apache.cassandra.package.TestClass' >&2
+  echo 'Usage: ai-ci-test org.apache.cassandra.package.TestClass [--reuse]' >&2
   exit 2
 fi
-test_class="${1##*.}"
-"$home/.build/run-tests.sh" -a test -t "^${test_class}$" 2>&1 | tee "$test_log" | "$bin"/ant-log-summary.py -
+test_path="${1//.//}.java"
+target=test
+if [[ -f "test/distributed/$test_path" ]]; then
+  target=jvm-dtest
+elif [[ ! -f "test/unit/$test_path" ]]; then
+  echo "Test class not found: $1" >&2
+  exit 2
+fi
+"$home/.build/run-tests.sh" -a "$target" -t "^${test_path%.java}\.java$" 2>&1 | tee "$test_log" | "$bin"/ant-log-summary.py -

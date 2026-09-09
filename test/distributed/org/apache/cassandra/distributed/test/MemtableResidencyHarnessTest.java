@@ -93,7 +93,7 @@ public class MemtableResidencyHarnessTest
         List<String> args = new ArrayList<>(Arrays.asList(
                 "--scenario", scenario, "--tables", "3", "--active-tables", "2", "--rows-per-table", "2",
                 "--cycles", "2", "--rate", "100", "--idle-ms", "30", "--hold-ms", "30",
-                "--sample-ms", "10", "--no-profile", "--out", output.toString()
+                "--sample-ms", "10", "--subnet", "143", "--no-profile", "--out", output.toString()
         ));
         if (eager)
             args.add("--eager-memtable");
@@ -113,6 +113,7 @@ public class MemtableResidencyHarnessTest
         }
         Map<?, ?> summary = JsonUtils.fromJsonMap(Files.readString(run.resolve("summary.json")));
         assertNull(summary.get("failure"));
+        assertEquals(143, ((Number) summary.get("subnet")).intValue());
         assertEquals(scenario.equals("never-written") ? 0L : 8L, ((Number) summary.get("completedWrites")).longValue());
         assertEquals(0L, ((Number) summary.get("failedWriteRequests")).longValue());
         assertEquals(eager ? "eager" : "lazy", summary.get("memtableInitialization"));

@@ -161,7 +161,7 @@ public class TrieMemtableLazyRecoveryTest extends TestBaseImpl
 
     private Cluster newCluster() throws Throwable
     {
-        return init(builder().withNodes(1).withConfig(config -> {
+        return init(builder().withNodes(1).withSubnet(144).withConfig(config -> {
             config.with(NETWORK, GOSSIP);
             config.set("memtable", Map.of("configurations", Map.of("default", Map.of("class_name", "TrieMemtable",
                                                                                      "parameters", Map.of("lazy_initialization", "true")))));

@@ -88,9 +88,11 @@ for test_class in "${test_classes[@]}"; do
     else
         test_status=$?
     fi
-    if [[ -f "build/test/output/TEST-$test_class.xml" ]]; then
-        cp "build/test/output/TEST-$test_class.xml" "$results_dir/"
-    fi
+    for target in test jvm-dtest; do
+        if [[ -f "build/test/output/$target/TEST-$test_class.xml" ]]; then
+            cp "build/test/output/$target/TEST-$test_class.xml" "$results_dir/"
+        fi
+    done
     if [[ -d build/test/logs ]]; then
         cp -a build/test/logs "$results_dir/$test_class"
     fi

@@ -23,6 +23,8 @@ specific language governing permissions and limitations under the License.
 
 # DONE
 
+- [x] Rebase the seven branch commits onto origin/trunk at 88fd0f6a0e. Adapt the build/test entrypoints, fix isolated test startup and configuration reset, and validate all 36 branch test classes plus supporting checks and nine upstream regression classes (.debug/rebase-origin-trunk-20260909.md).
+
 - [x] Compare upstream 4c79cf7391 with the full optimized simple-metrics path at 5000 tables. Add stock-compatible census mode and validate the raised limit. Both runs pass with an 8 GiB ceiling; final settled heap falls from 3350.88 to 311.20 MiB (90.71%). Preserve heap dumps and creation-batch timings (research/stock_vs_optimized_5000_tables.md).
 
 - [x] Add include_legacy_aliases to metric profiles, default true when omitted and false in simple_metrics.yml. Preserve modern exports and recorders; validate registration, recording, aggregates, and lifecycle. Matched 1000-table whole heap falls by 14.97 MiB (13.57%), with 21,254 fewer metric MBeans (research/metric_alias_exports.md).

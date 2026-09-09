@@ -60,10 +60,10 @@ public class MetricProfileTest
     }
 
     @Test
-    public void shippedProfilesLoadFromClasspath()
+    public void shippedProfilesLoad()
     {
-        MetricProfile all = MetricProfile.load("all_metrics.yml");
-        MetricProfile simple = MetricProfile.load("simple_metrics.yml");
+        MetricProfile all = MetricProfile.load(Paths.get("conf", "all_metrics.yml").toAbsolutePath().toString());
+        MetricProfile simple = MetricProfile.load(Paths.get("conf", "simple_metrics.yml").toAbsolutePath().toString());
         for (MetricProfile.Scope scope : MetricProfile.Scope.values())
         {
             for (String name : MetricProfile.knownNames(scope))
@@ -82,6 +82,17 @@ public class MetricProfileTest
         assertFalse(simple.isEnabled(TABLE, "CoordinatorScanLatency"));
         assertFalse(simple.isEnabled(TABLE, "SSTablesPerRangeReadHistogram"));
         assertTrue(simple.isEnabled(KEYSPACE, "SSTablesPerRangeReadHistogram"));
+    }
+
+    @Test
+    public void loadsProfileFromClasspath()
+    {
+        MetricProfile profile = MetricProfile.load("org/apache/cassandra/metrics/test-metrics-profile.yml");
+        for (String name : REQUIRED)
+            assertTrue(name, profile.isEnabled(TABLE, name));
+        assertTrue(profile.isEnabled(TABLE, "ReadLatency"));
+        assertFalse(profile.isEnabled(TABLE, "WriteLatency"));
+        assertFalse(profile.isEnabled(KEYSPACE, "ReadLatency"));
     }
 
     @Test

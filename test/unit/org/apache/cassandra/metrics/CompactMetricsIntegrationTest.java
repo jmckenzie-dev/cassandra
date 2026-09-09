@@ -77,6 +77,19 @@ public class CompactMetricsIntegrationTest
     }
 
     @Test
+    public void resettingConfigurationAlsoResetsMetricProfile()
+    {
+        Config config = new Config();
+        config.metrics_config_file = "org/apache/cassandra/metrics/test-metrics-profile.yml";
+        DatabaseDescriptor.setConfig(config);
+        assertFalse(DatabaseDescriptor.getMetricProfile().isEnabled(MetricProfile.Scope.TABLE, "WriteLatency"));
+
+        DatabaseDescriptor.setConfig(null);
+        assertSame(MetricProfile.ALL, DatabaseDescriptor.getMetricProfile());
+        assertFalse(DatabaseDescriptor.getOptimizedMetricsEnabled());
+    }
+
+    @Test
     public void yamlDefaultAndExplicitSelectionReachFactory() throws Exception
     {
         DatabaseDescriptor.setConfig(loadYaml("{}\n"));

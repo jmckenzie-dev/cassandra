@@ -295,6 +295,8 @@ public class TrieMemtableLazyTest extends CQLTester
         assertEquals(Long.MAX_VALUE, memtable.getMinLocalDeletionTime());
         assertTrue(memtable.columns().isEmpty());
         assertEquals(EncodingStats.NO_STATS, memtable.encodingStats());
+        assertTrue(memtable.limitsConcurrentWritesTo(Integer.MAX_VALUE));
+        assertFalse(memtable.limitsConcurrentWritesTo(0));
         Memtable.getMemoryUsage(memtable);
         memtable.toString();
         assertFalse(memtable.isInitialized());

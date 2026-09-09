@@ -109,6 +109,12 @@ Build with a specific jdk:
 Running Tests
 -------------
 
+The branch's `sh/ai-build` entrypoint runs a clean JAR build and code checks.
+After building, `sh/ai-ci-test org.apache.cassandra.package.TestClass` runs one
+compiled unit or distributed test class through `run-tests.sh`. It accepts the
+older `--reuse` argument for callers such as `run_tests.sh` and keeps full output
+in timestamped files under `logs/`.
+
 Running unit tests with docker:
 
     .build/docker/run-tests.sh -a test
