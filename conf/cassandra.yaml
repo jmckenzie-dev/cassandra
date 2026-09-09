@@ -969,6 +969,15 @@ memtable_allocation_type: heap_buffers
 #
 # memtable_flush_writers: 2
 
+# Flush idle user tables using lazy TrieMemtable and UnifiedCompactionStrategy.
+# Zero disables the policy. For example, 30s makes a dirty memtable eligible
+# after 30 seconds without a local write. Reads do not refresh this timeout.
+# Bounded scanning and flush admission may delay an eligible table's flush.
+memtable_idle_timeout: 0s
+# Includes idle flushes waiting for reader reclamation. Other flush reasons
+# retain their existing limits. A failed idle flush stops this policy until restart.
+memtable_idle_flush_max_concurrent: 2
+
 # Total space to use for change-data-capture logs on disk.
 #
 # If space gets above this value, Cassandra will throw WriteTimeoutException

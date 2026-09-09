@@ -124,6 +124,11 @@ public class MemtableResidencyConfigTest
     public void rejectsInvalidArgumentsAndOverflow()
     {
         String[][] cases = {
+            { "--idle-flush-ms", "-1" }, { "--idle-flush-ms", "100" },
+            { "--memtable-heap-mib", "-1" },
+            { "--idle-flush-max-concurrent", "0" }, { "--ucs-scaling", "T4'; DROP TABLE foo" },
+            { "--ucs-scaling", "T4", "--idle-flush-ms", "100", "--eager-memtable" },
+            { "--ucs-scaling", "T4", "--idle-flush-ms", "100", "--memtable", "SkipListMemtable" },
             { "--subnet" }, { "--subnet", "-1" }, { "--subnet", "256" }, { "--subnet", "x" },
             { "--tables" }, { "--unknown", "1" }, { "--tables", "0" }, { "--tables", "x" },
             { "--tables", "2", "--active-tables", "3" }, { "--sample-ms", "0" }, { "--rate", "0" },
@@ -139,6 +144,27 @@ public class MemtableResidencyConfigTest
         };
         for (String[] args : cases)
             assertThatThrownBy(() -> MemtableResidencyProfileHarness.Config.parse(args)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    public void idleFlushOptionsKeepTheBaselineAvailable()
+    {
+        MemtableResidencyProfileHarness.Config baseline = MemtableResidencyProfileHarness.Config.parse(new String[0]);
+        assertEquals(0, baseline.idleFlushMillis);
+        assertEquals(2, baseline.idleFlushMaxConcurrent);
+        MemtableResidencyProfileHarness.Config idle = MemtableResidencyProfileHarness.Config.parse(new String[] {
+            "--scenario", "idle-reactivate", "--ucs-scaling", "T4,L10", "--idle-flush-ms", "30000",
+            "--overwrite", "--settle-each-cycle", "--cursor-compaction", "--idle-flush-max-concurrent", "4",
+            "--memtable-heap-mib", "256"
+        });
+        assertEquals(30000, idle.idleFlushMillis);
+        assertEquals(4, idle.idleFlushMaxConcurrent);
+        assertEquals(256, idle.memtableHeapMiB);
+        assertTrue(idle.overwrite);
+        assertTrue(idle.settleEachCycle);
+        assertTrue(idle.cursorCompaction);
+        assertTrue(idle.compactionOptions().contains("T4,L10"));
+        assertArrayEquals(baseline.tableOrder(), idle.tableOrder());
     }
 
     @Test

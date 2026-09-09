@@ -264,6 +264,8 @@ public class Config
     public OptionaldPositiveInt available_processors = new OptionaldPositiveInt(CASSANDRA_AVAILABLE_PROCESSORS.getInt(OptionaldPositiveInt.UNDEFINED_VALUE));
 
     public int memtable_flush_writers = 0;
+    public DurationSpec.IntMillisecondsBound memtable_idle_timeout = new DurationSpec.IntMillisecondsBound("0s");
+    public int memtable_idle_flush_max_concurrent = 2;
     @Replaces(oldName = "memtable_heap_space_in_mb", converter = Converters.MEBIBYTES_DATA_STORAGE_INT, deprecated = true)
     public DataStorageSpec.IntMebibytesBound memtable_heap_space;
     @Replaces(oldName = "memtable_offheap_space_in_mb", converter = Converters.MEBIBYTES_DATA_STORAGE_INT, deprecated = true)

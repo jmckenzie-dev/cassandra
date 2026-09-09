@@ -939,6 +939,9 @@ public class DatabaseDescriptor
 
         initializeBackgroundWriteDiskAccessMode();
 
+        if (conf.memtable_idle_timeout == null || conf.memtable_idle_flush_max_concurrent < 1)
+            throw new ConfigurationException("memtable_idle_timeout must be non-null and memtable_idle_flush_max_concurrent must be positive", false);
+
         if (conf.memtable_flush_writers == 0)
         {
             conf.memtable_flush_writers = conf.data_file_directories.length == 1 ? 2 : 1;
@@ -4805,6 +4808,16 @@ public class DatabaseDescriptor
     public static Float getMemtableCleanupThreshold()
     {
         return conf.memtable_cleanup_threshold;
+    }
+
+    public static long getMemtableIdleTimeoutNanos()
+    {
+        return conf == null ? 0 : TimeUnit.MILLISECONDS.toNanos(conf.memtable_idle_timeout.toMilliseconds());
+    }
+
+    public static int getMemtableIdleFlushMaxConcurrent()
+    {
+        return conf.memtable_idle_flush_max_concurrent;
     }
 
     public static Map<String, InheritingClass> getMemtableConfigurations()

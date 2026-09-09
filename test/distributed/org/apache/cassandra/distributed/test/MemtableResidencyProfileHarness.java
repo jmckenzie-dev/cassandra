@@ -42,6 +42,8 @@ import com.sun.management.HotSpotDiagnosticMXBean;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.lifecycle.View;
@@ -111,8 +113,17 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
             memtable.put("parameters", Map.of("lazy_initialization", Boolean.toString(!config.eagerMemtable)));
         node.set("memtable", Map.of("configurations", Map.of("default", memtable)));
         node.set("sstable", Map.of("selected_format", config.format));
-        node.set("cursor_compaction_enabled", false);
+        node.set("cursor_compaction_enabled", config.cursorCompaction);
         node.set("optimized_metrics_enabled", !config.legacyMetrics);
+        node.set("compact_jmx_registration_enabled", config.compactJmx);
+        node.set("adaptive_jmx_histogram_history_enabled", config.compactJmx);
+        if (config.metricsProfile != null)
+            node.set("metrics_config_file", config.metricsProfile);
+        if (config.idleFlushMillis > 0)
+            node.set("memtable_idle_timeout", config.idleFlushMillis + "ms");
+        node.set("memtable_idle_flush_max_concurrent", config.idleFlushMaxConcurrent);
+        if (config.memtableHeapMiB > 0)
+            node.set("memtable_heap_space", config.memtableHeapMiB + "MiB");
     }
 
     @Override
@@ -128,6 +139,8 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
             values.put("memtableAllocation", DatabaseDescriptor.getMemtableAllocationType().name());
             values.put("memtableParameters", DatabaseDescriptor.getMemtableConfigurations().get("default").parameters);
             values.put("cursorCompaction", DatabaseDescriptor.cursorCompactionEnabled());
+            values.put("idleFlushTimeoutNanos", DatabaseDescriptor.getMemtableIdleTimeoutNanos());
+            values.put("idleFlushMaxConcurrent", DatabaseDescriptor.getMemtableIdleFlushMaxConcurrent());
             values.put("lazyTombstoneHistograms", CassandraRelevantProperties.LAZY_TOMBSTONE_HISTOGRAMS.getBoolean());
             values.put("geometricMeterArrays", CassandraRelevantProperties.GEOMETRIC_METER_ARRAYS.getBoolean());
             values.put("optimizedMetricsEnabled", DatabaseDescriptor.getOptimizedMetricsEnabled());
@@ -151,7 +164,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
             for (int table = 0; table < config.tables; table++)
                 cluster.schemaChange("CREATE TABLE " + tableName(table) +
                                      " (pk int, c int, v text, PRIMARY KEY (pk,c))" +
-                                     " WITH compaction = {'class':'SizeTieredCompactionStrategy'}" +
+                                     " WITH compaction = " + config.compactionOptions() +
                                      " AND caching = {'keys':'NONE','rows_per_partition':'NONE'}");
             effective.putAll(cluster.get(1).callOnInstance(() -> {
                 ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore("t000000");
@@ -183,7 +196,9 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                     checkpoint(name + "-reclaimed", false);
                 }, null));
             }
-            phases.add(new Phase(name + "-policy", false, phase -> checkpoint(name + "-policy", false), null));
+            if (config.idleFlushMillis > 0)
+                phases.add(new Phase(name + "-idle-drain", phase -> sampled(name + "-idle-drain", this::awaitIdleFlushes)));
+            phases.add(new Phase(name + "-policy", false, phase -> checkpoint(name + "-policy", config.settleEachCycle), null));
             phases.add(new Phase(name + "-read", phase -> {
                 verify(current);
                 if (config.explicitRetirement)
@@ -226,7 +241,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                 int currentCycle = cycle < 0 ? operation / config.operationsPerCycle() : cycle;
                 int localOperation = operation % config.operationsPerCycle();
                 int table = config.tableFor(tableOrder, currentCycle, localOperation);
-                int row = currentCycle * config.rows + localOperation / config.activeTables;
+                int row = (config.overwrite ? 0 : currentCycle * config.rows) + localOperation / config.activeTables;
                 String payload = config.payload(table, row);
                 long began = System.nanoTime() - start;
                 boolean success = false;
@@ -266,7 +281,8 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                 for (int cycle = 0; cycle <= lastCycle; cycle++)
                     if (config.activeInCycle(position, cycle))
                         for (int row = 0; row < config.rows; row++)
-                            expected.add(cycle * config.rows + row);
+                            if (!config.overwrite || !expected.contains(row))
+                                expected.add((config.overwrite ? 0 : cycle * config.rows) + row);
                 long started = System.nanoTime();
                 Object[][] rows = cluster.coordinator(1).execute("SELECT c,v FROM " + tableName(table) + " WHERE pk=?",
                                                                ConsistencyLevel.ONE, table);
@@ -360,6 +376,20 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
         throw new IllegalStateException("Flush/compaction/reclamation did not settle: " + Arrays.toString(counters()));
     }
 
+    private void awaitIdleFlushes() throws Exception
+    {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(config.settleSeconds)
+                        + TimeUnit.MILLISECONDS.toNanos(config.idleFlushMillis);
+        while (System.nanoTime() < deadline)
+        {
+            long[] values = counters();
+            if (values[1] == 0 && values[2] == 0 && values[6] == 0 && values[16] == 0 && values[17] == 0)
+                return;
+            TimeUnit.MILLISECONDS.sleep(100);
+        }
+        throw new IllegalStateException("Automatic idle flushing did not drain: " + Arrays.toString(counters()));
+    }
+
     private void checkpoint(String name, boolean settled) throws Exception
     {
         if (settled)
@@ -377,6 +407,20 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
         String[] names = COUNTERS.split(",");
         for (int i = 0; i < names.length; i++)
             values.put(names[i], counts[i]);
+        if (config.ucsScaling != null)
+            values.put("compactionHistory", cluster.get(1).callOnInstance(() -> {
+                long jobs = 0, bytesIn = 0, bytesOut = 0;
+                for (UntypedResultSet.Row row : QueryProcessor.executeInternal("SELECT keyspace_name, bytes_in, bytes_out FROM system.compaction_history"))
+                {
+                    if (KEYSPACE.equals(row.getString("keyspace_name")))
+                    {
+                        jobs++;
+                        bytesIn += row.getLong("bytes_in");
+                        bytesOut += row.getLong("bytes_out");
+                    }
+                }
+                return Map.of("jobs", jobs, "bytesIn", bytesIn, "bytesOut", bytesOut);
+            }));
         checkpoints.put(name, values);
         Files.writeString(runDirectory.resolve("checkpoint-" + name + ".json"), JsonUtils.writeAsJsonString(values),
                           StandardOpenOption.CREATE_NEW);
@@ -430,6 +474,13 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
     {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("scenario", config.scenario);
+        values.put("compactionOptions", config.compactionOptions());
+        values.put("overwrite", config.overwrite);
+        values.put("idleFlushMillis", config.idleFlushMillis);
+        values.put("idleFlushMaxConcurrent", config.idleFlushMaxConcurrent);
+        values.put("memtableHeapMiB", config.memtableHeapMiB);
+        values.put("metricsProfile", config.metricsProfile);
+        values.put("settleEachCycle", config.settleEachCycle);
         values.put("subnet", config.subnet);
         values.put("tables", config.tables);
         values.put("activeTables", config.activeTables);
@@ -506,6 +557,16 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
         boolean lazyTombstoneHistograms;
         boolean geometricMeterArrays;
         boolean legacyMetrics;
+        boolean overwrite;
+        boolean settleEachCycle;
+        boolean cursorCompaction;
+        String ucsScaling;
+        String ucsMinSize = "100MiB";
+        String metricsProfile;
+        int idleFlushMillis;
+        int idleFlushMaxConcurrent = 2;
+        int memtableHeapMiB;
+        boolean compactJmx;
         String[] args;
 
         static Config parse(String[] args)
@@ -529,6 +590,14 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                     c.legacyMetrics = true;
                 else if (option.equals("--geometric-meter-arrays"))
                     c.geometricMeterArrays = true;
+                else if (option.equals("--overwrite"))
+                    c.overwrite = true;
+                else if (option.equals("--settle-each-cycle"))
+                    c.settleEachCycle = true;
+                else if (option.equals("--cursor-compaction"))
+                    c.cursorCompaction = true;
+                else if (option.equals("--compact-jmx"))
+                    c.compactJmx = true;
                 else
                 {
                     if (++i == args.length)
@@ -552,6 +621,12 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                         case "--memtable": c.memtable = value; break;
                         case "--format": c.format = value; break;
                         case "--out": c.out = Paths.get(value); break;
+                        case "--ucs-scaling": c.ucsScaling = value; break;
+                        case "--ucs-min-size": c.ucsMinSize = value; break;
+                        case "--metrics-profile": c.metricsProfile = value; break;
+                        case "--idle-flush-ms": c.idleFlushMillis = Integer.parseInt(value); break;
+                        case "--idle-flush-max-concurrent": c.idleFlushMaxConcurrent = Integer.parseInt(value); break;
+                        case "--memtable-heap-mib": c.memtableHeapMiB = Integer.parseInt(value); break;
                         default: throw new IllegalArgumentException("Unknown option: " + option);
                     }
                 }
@@ -575,7 +650,21 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                 throw new IllegalArgumentException("--eager-memtable requires TrieMemtable");
             if (c.explicitRetirement && !List.of("idle-reactivate", "rotating-bursts").contains(c.scenario))
                 throw new IllegalArgumentException("--explicit-retirement requires idle-reactivate or rotating-bursts");
+            if (c.memtableHeapMiB < 0 || c.idleFlushMaxConcurrent < 1 || c.idleFlushMillis < 0 ||
+                (c.idleFlushMillis > 0 && (c.ucsScaling == null || !c.memtable.equals("TrieMemtable") || c.eagerMemtable || c.explicitRetirement)))
+                throw new IllegalArgumentException("Idle flushing requires lazy TrieMemtable and UCS, without explicit retirement");
+            c.compactionOptions();
             return c;
+        }
+
+        String compactionOptions()
+        {
+            if (ucsScaling == null)
+                return "{'class':'SizeTieredCompactionStrategy'}";
+            if (!ucsScaling.matches("[TLN0-9, +\\-]+") || !ucsMinSize.matches("[0-9]+[A-Za-z]+"))
+                throw new IllegalArgumentException("Invalid UCS scaling or minimum size");
+            return "{'class':'UnifiedCompactionStrategy','scaling_parameters':'" + ucsScaling +
+                   "','min_sstable_size':'" + ucsMinSize + "','base_shard_count':'4'}";
         }
 
         int operationsPerCycle()

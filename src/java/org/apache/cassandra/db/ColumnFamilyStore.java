@@ -95,8 +95,10 @@ import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.Tracker;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.memtable.Flushing;
+import org.apache.cassandra.db.memtable.IdleMemtableFlusher;
 import org.apache.cassandra.db.memtable.Memtable;
 import org.apache.cassandra.db.memtable.ShardBoundaries;
+import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.db.partitions.CachedPartition;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.repair.CassandraTableRepairManager;
@@ -224,6 +226,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
         COMMITLOG_DIRTY,
         MEMTABLE_LIMIT,
         MEMTABLE_PERIOD_EXPIRED,
+        MEMTABLE_IDLE,
         INDEX_BUILD_STARTED,
         INDEX_BUILD_COMPLETED,
         INDEX_REMOVED,
@@ -364,12 +367,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
 
     public static void shutdownPostFlushExecutor() throws InterruptedException
     {
+        IdleMemtableFlusher.shutdown();
         postFlushExecutor.shutdown();
         postFlushExecutor.awaitTermination(60, TimeUnit.SECONDS);
     }
 
     public static void shutdownExecutorsAndWait(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException
     {
+        IdleMemtableFlusher.shutdown();
         List<ExecutorService> executors = new ArrayList<>();
         Collections.addAll(executors, reclaimExecutor, postFlushExecutor, flushExecutor);
         perDiskflushExecutors.appendAllExecutors(executors);
@@ -440,6 +445,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
             CompactionParams compactionParams = CompactionParams.fromMap(options);
             compactionParams.validate();
             compactionStrategyManager.overrideLocalParams(compactionParams);
+            Memtable current = getCurrentMemtable();
+            if (DatabaseDescriptor.isDaemonInitialized() && current instanceof TrieMemtable && ((TrieMemtable) current).needsIdleTrackingSwitch())
+                switchMemtableIfCurrent(current, FlushReason.SCHEMA_CHANGE);
         }
         catch (Throwable t)
         {
@@ -719,6 +727,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
     {
         // disable and cancel in-progress compactions before invalidating
         valid = false;
+        Memtable current = getCurrentMemtable();
+        if (current instanceof TrieMemtable)
+            ((TrieMemtable) current).stopIdleTracking();
 
         try
         {
@@ -1114,6 +1125,17 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
                 if (!cfs.data.getView().getCurrentMemtable().isClean())
                     return flushMemtable(current, reason);
             return waitForFlushes();
+        }
+    }
+
+    /** Recheck an idle candidate under the same lock that protects memtable replacement. */
+    public Future<CommitLogPosition> flushIdleMemtable(TrieMemtable candidate, long nowNanos, long timeoutNanos)
+    {
+        synchronized (data)
+        {
+            if (data.getView().getCurrentMemtable() != candidate || !candidate.idleFlushEligible() || !candidate.isIdle(nowNanos, timeoutNanos))
+                return null;
+            return flushMemtable(candidate, FlushReason.MEMTABLE_IDLE);
         }
     }
 

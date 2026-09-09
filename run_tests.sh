@@ -22,6 +22,9 @@ exec > >(tee "$project_root/logs/$(date +%Y%m%d-%H%M%S)-run_tests.log") 2>&1
 if [[ $# == 0 ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" --retirement
 fi
+if [[ $# == 1 && "$1" == --idle-flush ]]; then
+    exec "$project_root/.build/sh/ai-test-memtable-lazy" --idle-flush
+fi
 if [[ $# == 1 && "$1" == --metric-ids ]]; then
     export PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore
     exec "$project_root/.build/sh/ai-profile-many-tables" \
@@ -90,5 +93,5 @@ fi
 if [[ $# == 1 && ( "$1" == --histograms || "$1" == --meters || "$1" == --reservoirs ) ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" "$1"
 fi
-echo 'Usage: run_tests.sh [--harness|--long|--lazy|--histograms|--meters|--reservoirs|--metrics-ref|--metric-profiles|--jmx-history|--otel-storage|--histogram-widths|--jmx-names|--jmx-query|--jmx-registration|--metric-ids|--metric-bookkeeping]' >&2
+echo 'Usage: run_tests.sh [--idle-flush|--harness|--long|--lazy|--histograms|--meters|--reservoirs|--metrics-ref|--metric-profiles|--jmx-history|--otel-storage|--histogram-widths|--jmx-names|--jmx-query|--jmx-registration|--metric-ids|--metric-bookkeeping]' >&2
 exit 2

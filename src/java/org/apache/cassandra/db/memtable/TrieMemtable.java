@@ -45,6 +45,7 @@ import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.Slices;
 import org.apache.cassandra.db.commitlog.CommitLogPosition;
+import org.apache.cassandra.db.compaction.UnifiedCompactionStrategy;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.partitions.AbstractUnfilteredPartitionIterator;
@@ -70,6 +71,7 @@ import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.sstable.SSTableReadsListener;
 import org.apache.cassandra.metrics.TrieMemtableMetricsView;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.utils.Clock;
@@ -110,6 +112,8 @@ public class TrieMemtable extends AbstractShardedMemtable
 
     // Publish shards and their merged read view together, before applying the first mutation.
     private volatile TrieState state = TrieState.EMPTY;
+    private final boolean idleTrackingAllowed;
+    private volatile boolean idleTrackingStopped;
 
     @Unmetered
     private final TrieMemtableMetricsView metrics;
@@ -124,6 +128,9 @@ public class TrieMemtable extends AbstractShardedMemtable
     {
         super(commitLogLowerBound, metadataRef, owner, shardCountOption);
         this.metrics = new TrieMemtableMetricsView(metadataRef.keyspace, metadataRef.name);
+        idleTrackingAllowed = DatabaseDescriptor.getMemtableIdleTimeoutNanos() > 0 && lazyInitialization
+                              && owner instanceof ColumnFamilyStore && !metadata().isIndex()
+                              && !SchemaConstants.isSystemKeyspace(metadataRef.keyspace);
         if (!lazyInitialization)
             initialize();
     }
@@ -131,8 +138,79 @@ public class TrieMemtable extends AbstractShardedMemtable
     private synchronized TrieState initialize()
     {
         if (state == TrieState.EMPTY)
-            state = new TrieState(generatePartitionShards(boundaries.shardCount(), allocator, metadata, metrics));
+        {
+            boolean idleTracking = idleTrackingAllowed && usesUcs();
+            state = new TrieState(generatePartitionShards(boundaries.shardCount(), allocator, metadata, metrics, idleTracking), idleTracking);
+            if (idleTracking && !idleTrackingStopped)
+            {
+                IdleMemtableFlusher.register(this);
+                if (idleTrackingStopped)
+                    IdleMemtableFlusher.unregister(this);
+            }
+        }
         return state;
+    }
+
+    public boolean idleFlushEligible()
+    {
+        return state.idleTracking && !idleTrackingStopped && ((ColumnFamilyStore) owner).isValid()
+               && owner.getCurrentMemtable() == this && usesUcs();
+    }
+
+    private boolean usesUcs()
+    {
+        return ((ColumnFamilyStore) owner).getCompactionStrategyManager().getCompactionParams().klass() == UnifiedCompactionStrategy.class;
+    }
+
+    public boolean needsIdleTrackingSwitch()
+    {
+        return idleTrackingAllowed && state != TrieState.EMPTY && state.idleTracking != usesUcs();
+    }
+
+    public boolean isIdle(long nowNanos, long timeoutNanos)
+    {
+        TrieState current = state;
+        if (!current.idleTracking)
+            return false;
+        for (MemtableShard shard : current.shards)
+            if (nowNanos - shard.lastWriteNanos < timeoutNanos)
+                return false;
+        return !isClean();
+    }
+
+    public void stopIdleTracking()
+    {
+        idleTrackingStopped = true;
+        if (idleTrackingAllowed)
+            IdleMemtableFlusher.unregister(this);
+    }
+
+    boolean idleFlushReclaimed()
+    {
+        return state.discarded;
+    }
+
+    @VisibleForTesting
+    long lastWriteNanos()
+    {
+        long latest = Long.MIN_VALUE;
+        for (MemtableShard shard : state.shards)
+            latest = Math.max(latest, shard.lastWriteNanos);
+        return latest;
+    }
+
+    @Override
+    public void switchOut(OpOrder.Barrier writeBarrier, AtomicReference<CommitLogPosition> commitLogUpperBound)
+    {
+        super.switchOut(writeBarrier, commitLogUpperBound);
+        stopIdleTracking();
+    }
+
+    @Override
+    public boolean shouldSwitch(ColumnFamilyStore.FlushReason reason, TableMetadata latest)
+    {
+        return super.shouldSwitch(reason, latest)
+               || (reason == ColumnFamilyStore.FlushReason.SCHEMA_CHANGE && needsIdleTrackingSwitch());
     }
 
     @VisibleForTesting
@@ -143,13 +221,16 @@ public class TrieMemtable extends AbstractShardedMemtable
 
     private static final class TrieState
     {
-        static final TrieState EMPTY = new TrieState(new MemtableShard[0]);
+        static final TrieState EMPTY = new TrieState(new MemtableShard[0], false);
 
         final MemtableShard[] shards;
         final Trie<BTreePartitionData> mergedTrie;
+        final boolean idleTracking;
+        volatile boolean discarded;
 
-        TrieState(MemtableShard[] shards)
+        TrieState(MemtableShard[] shards, boolean idleTracking)
         {
+            this.idleTracking = idleTracking;
             this.shards = shards;
             this.mergedTrie = makeMergedTrie(shards);
         }
@@ -158,11 +239,11 @@ public class TrieMemtable extends AbstractShardedMemtable
     private static MemtableShard[] generatePartitionShards(int splits,
                                                            MemtableAllocator allocator,
                                                            TableMetadataRef metadata,
-                                                           TrieMemtableMetricsView metrics)
+                                                           TrieMemtableMetricsView metrics, boolean idleTracking)
     {
         MemtableShard[] partitionMapContainer = new MemtableShard[splits];
         for (int i = 0; i < splits; i++)
-            partitionMapContainer[i] = new MemtableShard(metadata, allocator, metrics);
+            partitionMapContainer[i] = new MemtableShard(metadata, allocator, metrics, idleTracking);
 
         return partitionMapContainer;
     }
@@ -202,6 +283,12 @@ public class TrieMemtable extends AbstractShardedMemtable
         for (MemtableShard shard : shards)
         {
             shard.data.discardBuffers();
+        }
+        if (state != TrieState.EMPTY)
+        {
+            state.discarded = true;
+            if (state.idleTracking)
+                IdleMemtableFlusher.reclaimed();
         }
     }
 
@@ -591,9 +678,15 @@ public class TrieMemtable extends AbstractShardedMemtable
         @Unmetered
         private final TrieMemtableMetricsView metrics;
 
+        private final boolean idleTracking;
+        private volatile long lastWriteNanos;
+
         @VisibleForTesting
-        MemtableShard(TableMetadataRef metadata, MemtableAllocator allocator, TrieMemtableMetricsView metrics)
+        MemtableShard(TableMetadataRef metadata, MemtableAllocator allocator, TrieMemtableMetricsView metrics, boolean idleTracking)
         {
+            this.idleTracking = idleTracking;
+            if (idleTracking)
+                lastWriteNanos = Clock.Global.nanoTime();
             this.data = new InMemoryTrie<>(BUFFER_TYPE);
             this.columnsCollector = new AbstractMemtable.ColumnsCollector(metadata.get().regularAndStaticColumns());
             this.statsCollector = new AbstractMemtable.StatsCollector();
@@ -640,6 +733,8 @@ public class TrieMemtable extends AbstractShardedMemtable
 
                     columnsCollector.update(update.columns());
                     statsCollector.update(update.stats());
+                    if (idleTracking)
+                        lastWriteNanos = Clock.Global.nanoTime();
                 }
             }
             finally
