@@ -152,6 +152,8 @@ public enum CassandraRelevantProperties
      * If only keyspaces are specified, mutations for all tables in such keyspace will be replayed
      * */
     COMMIT_LOG_REPLAY_LIST("cassandra.replayList"),
+    /** Store per-table metric release bookkeeping in an array-backed list. */
+    COMPACT_TABLE_METRIC_BOOKKEEPING("cassandra.compact_table_metric_bookkeeping", "false"),
     /**
      * This property indicates the location for the access file. If com.sun.management.jmxremote.authenticate is false,
      * then this property and the password and access files, are ignored. Otherwise, the access file must exist and
@@ -375,6 +377,9 @@ public enum CassandraRelevantProperties
      * This is a dev/CI only property. Do not use otherwise.
      */
     JUNIT_STORAGE_COMPATIBILITY_MODE("cassandra.junit_storage_compatibility_mode", StorageCompatibilityMode.CASSANDRA_4.toString()),
+
+    /** Experimental: defer counter IDs until a metric records its first update. Set before metric construction. */
+    LAZY_METRIC_IDS("cassandra.lazy_metric_ids", "false"),
 
     /** Defer tombstone histogram spool allocation until the first observation. */
     LAZY_TOMBSTONE_HISTOGRAMS("cassandra.lazy_tombstone_histograms", "false"),

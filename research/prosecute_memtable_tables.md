@@ -13,9 +13,34 @@ specific language governing permissions and limitations under the License.
 
 # Memtable residency: continuation record
 
-Updated 2026-09-06. Read this first after context compaction. This file preserves
+Updated 2026-09-07. Read this first after context compaction. This file preserves
 decisions and continuation details; the linked baseline report retains the full
 measurement evidence. Update this file at implementation milestones.
+
+For the high-level goal, current priorities, and the distinction between
+implemented changes and experiments, read [the September 7 checkpoint](9_7_checkpoint.md).
+
+## Monitoring name-cache follow-up: September 7, 2026
+
+The current top TODO targets JMX query/export and registration residency, ahead
+of worker IDs. See [jmx_monitoring_name_retention.md](jmx_monitoring_name_retention.md).
+A matched 1000-table pair isolates 35,093,152 B (33.47 MiB) of property caches,
+51.4% of the 65.11 MiB JMX-owned heap. Without those caches, JMX retains
+31.64 MiB. Both modes expose the same metrics and read the same attributes.
+
+Real Java 21 local/remote probes show that broad remote discovery followed by
+client parsing leaves registered names untouched, but server-side property
+queries populate their caches. A query for `type=ThreadPools,*` can warm table
+names too; NodeProbe uses that query for thread-pool discovery. Copying query
+results alone cannot prevent cache creation during query evaluation.
+
+No production code changed and no commit was made. Added the reusable
+`.build/sh/ai-probe-jmx-names` launcher (invoke with `bash`), diagnostic fixture,
+and `--jmx-names` root test/property entry points. Both 1000-table profiles,
+20 isolated operation cases at 10 and 1000 names, and 16000 generated copy
+checks passed. The report preserves artifacts and limits. The next design
+must cover raw local platform-server access, remote connectors, authorization,
+and names returned through other operations, while preserving compatibility.
 
 ## Current state and authorization
 
@@ -959,3 +984,188 @@ Source/ordering review: .debug/explicit-memtable-retirement-lifecycle.md.
 Allocation source evidence: .debug/explicit-retirement-allocation.md.
 Agents: retirement_unit, retirement_lifecycle, retirement_harness. All work remains
 uncommitted. Keep workloads <=1,000 tables and preserve the existing user files.
+
+## Runtime metric profiles: September 6, 2026
+
+Runtime loading and both residency increments are complete. The full context,
+implementation decisions, pre/intermediate/final measurements, commands, and test
+artifacts are in `research/metric_profile_runtime.md`. Configuration usage is in
+`conf/README.txt`; metric descriptions remain generated in `conf/metrics_ref.md`.
+The generator also emits the canonical-name/alias catalog bundled in the jar.
+
+`metrics_config_file` in `cassandra.yaml` selects a startup profile. The supplied
+configuration selects `simple_metrics.yml`; `all_metrics.yml` enables all built-in
+entries, and omitted/null preserves unrestricted registration. Histogram storage
+selection through `optimized_metrics_enabled` remains independent.
+
+Step 1 suppresses Table/IndexTable, legacy alias, and Keyspace registrations while
+preserving recording. Step 2 shares unused no-op recorders and removes no-op
+destinations from forwarding arrays. Global Table and other metric families remain
+enabled. Required inputs, pull-based aggregate counters/gauges, anticompaction
+ratio meters, and children needed by enabled latency parents remain real. Hidden
+state has explicit release ownership. Disabled legacy virtual views keep their
+schemas and return no rows. No per-observation profile lookup was added.
+
+At 100 tables, rested heap after scraping/activity fell from 113.61 MiB before
+this work to 61.41 MiB after registration filtering and 56.62 MiB after no-op
+recorders. The final matched 1,000-table comparison on the completed implementation
+measured 298.03 versus 113.93 MiB at creation and 549.47 versus 167.93 MiB after
+scraping/activity, all versus simple. User registry/JMX entries fell from 249,101
+to 48,031. All enabled counts/aggregates and empty-memtable checks passed.
+
+Validation passed 34 profile/no-op/lifecycle/integration cases, four runtime
+property tests, all 24 isolated flush/retirement tests, generator checks/tests,
+and the full build with main/test Checkstyle. Source review caught and fixed the
+Debian profile packaging omission. A transient tool outage between measurements
+cleared without a repository change. No new commit was made during this task.
+
+Keep the measurement limits: synthetic metric observations on empty user tables,
+one final pair, Java 21, eight workers, full name-inspecting scrapes, and an 8 GiB
+heap ceiling. This does not establish million-table capacity or query throughput.
+The top TODO is now compact JMX recent-value history, preserving alias cursors and
+empty scrape behavior. Worker counter-array holes follow it. Automatic idle
+retirement remains deferred. Keep every subsequent workload at or below 1,000
+tables unless the user changes that constraint.
+
+## Optional adaptive JMX history: September 7, 2026
+
+Implemented and benchmarked the next residency item. Full details and artifacts
+are in `research/adaptive_jmx_history.md`; the plan is
+`.plans/adaptive-jmx-history.md`. New startup configuration:
+`adaptive_jmx_histogram_history_enabled: false`. Set true to enable it. The
+recording backend and registration profile remain independent and unchanged.
+
+Only cumulative JMX `RecentValues` history changes. Each alias keeps its own
+cursor. Empty snapshots retain no array. Other snapshots use signed byte, short,
+int, or long arrays, chosen by minimum/maximum counts. Narrow arrays can be
+reused; resets can shrink or release them. Exact negative deltas, long overflow,
+length changes, and returned-array independence are preserved. No metric
+recording/read/write operation gains a history update or lock. A bit-based width
+scan experiment did not consistently improve timing and was removed.
+
+With simple_metrics.yml and 1000 tables, final heap after metric activity and
+scraping fell from 176,068,760 to 161,423,368 bytes: 13.97 MiB, or 8.32%. Creation
+heap stayed effectively unchanged. At 100 tables, direct history ownership fell
+from 13,680 to 512 bytes per populated table (12 long arrays versus three byte
+arrays and nine null histories). Empty tables retain zero history-array bytes.
+The new flag increases histogram wrappers by eight bytes each, or 32 bytes per
+user table with this profile, in both modes. Registry, schema, recording objects,
+and name-property graphs match between modes. Attribute-only scraping confirms
+the same history reduction. Some whole-JVM startup/empty-scrape readings varied;
+the report preserves them alongside heap-dump ownership evidence.
+
+Three fresh timing JVMs each ran five warmup and nine measured paired rounds of
+200,000 operations per case. Empty local JMX RecentValues calls cost about 20%
+more for histograms and 30% more for timers in pooled paired ratios. Populated
+timer calls cost about 7-12% more. Histogram timing varied across cases/JVMs.
+Stable-width allocation stayed equal; widening/reset added 146 bytes per
+operation. These fixture-based scrape measurements exclude actual reservoir
+snapshot/decay work and remote transport. They do not measure server throughput.
+Keep the option off by default while evaluating that tradeoff.
+
+Validation: `./run_tests.sh --jmx-history` passes 17 Java and three Python tests;
+`./run_property_tests.sh --jmx-history` passes a 16,000-step Java property test and
+the analyzer property test. `.build/sh/ai-build` passes main/test Checkstyle.
+`.build/sh/ai-benchmark-jmx-history` is the reusable timing launcher. The heap
+census accepts `--adaptive-jmx-history` and records its effective value.
+
+This does not materially lower the roughly 77 KiB/table pre-scrape floor. Dense
+worker counter-array holes and metric-ID lifecycle storage are next on TODO.
+Keep workloads at or below 1000 tables. No new commit was made; earlier profile
+work and the user's untracked OpenTelemetry checkout remain in the working tree.
+
+## Fresh optimized-path census: September 7, 2026
+
+Reprofiled the completed simple/adaptive path at 1000 tables, without changing
+runtime code. Details and the next-step rationale are in
+`research/optimized_heap_next_steps.md`. Final heap was 161,302,224 bytes
+(153.83 MiB), reproducing the previous result. Fresh MAT dominators put JMX at
+68,274,120 retained bytes, versus 32,636,888 before scraping. The registry map
+separately retains 8,730,200 bytes. Worker contexts retain 6,633,360 bytes, and
+the metric-ID phantom-reference structure retains 4,204,136 within class-owned
+state. These totals have different ownership boundaries; use the report's
+disjoint and nested tables rather than adding them indiscriminately.
+
+Each census worker uses 6002 of 76,336 counter slots. Ordinary 64-slot paging
+would save only about 12% under the captured occupancy; eight-slot pages would
+save about 57.5% but create 2768 arrays per worker. Zero values are not proof of
+dead counters. Keep the top TODO focused on metric-ID/worker residency: first
+avoid constructing duplicate global histogram/timer candidates (31 temporary
+IDs requested per table), then evaluate IDs allocated on first update before
+choosing worker storage. Resident savings from the construction change remain
+unmeasured; many IDs already recycle. Compact TableMetrics release bookkeeping
+is a separate estimated 2 KiB/table opportunity with no recording-path change.
+JMX representation remains the largest design task. No new commit was made.
+
+## OpenTelemetry compact storage benchmark: September 7, 2026
+
+The storage-only benchmark is complete. See
+[`otel_compact_storage_benchmark.md`](otel_compact_storage_benchmark.md) for the
+full results, raw artifact paths, and limitations. No runtime code or config
+changed; no commit was made for this experiment.
+
+At 165 buckets, actual OTel adaptive arrays retained 216 bytes at byte width
+and 384 bytes at short width, versus Cassandra's 712-byte atomic adaptive
+array. Both retained 712 bytes at int width and 1368 bytes at long width.
+Clearing did not shrink either adaptive array. These sizes describe allocated
+counter storage, not whole histograms or empty lazy reservoirs.
+
+Three separate JVM runs retained 1053 samples. OTel's single-owner steady
+updates took about 31–54% less time than Cassandra's atomic updates, but
+74–115% more than plain long-array updates, using paired median ratios.
+All steady samples allocated zero bytes. OTel allocated when widening.
+The benchmark does not establish concurrent histogram throughput.
+
+Deterministic and 32000 generated checks passed within the benchmark domain.
+A separate failing compatibility probe demonstrates that a narrow OTel
+counter containing 1 returns 0 after adding Long.MAX_VALUE; Cassandra returns
+Long.MIN_VALUE. Preserve this failure if considering adoption for weighted
+counts. Existing decay weights can also force wider storage with few events.
+
+The fixed-scale OTel indexer/circular-counter test showed that an extreme
+outlier can reduce precision across the distribution. It selected scale
+offline and did not execute SDK runtime downscaling. The full SDK bucket
+class requires an unavailable AutoValue processor; no dependency was added.
+
+Reproduce with `.build/sh/ai-benchmark-otel-storage`. Isolated verification
+and property entry points are `run_tests.sh --otel-storage` and
+`run_property_tests.sh --otel-storage`. `--weighted-overflow-check` intentionally
+preserves the failed compatibility comparison. The larger JMX/registry and
+worker-ID residency tasks remain the next items on TODO.md.
+
+## Counter widths over time: September 7, 2026
+
+Completed the follow-up measurement in
+[histogram_width_over_time.md](histogram_width_over_time.md). Four deterministic
+runs exercised actual compact reservoirs with an injected clock: two hours
+with 1000 instances and 24 hours with 100, each with concentrated and spread
+inputs. These are component workloads, not real tables or production traces.
+No runtime code changed and no commit was made.
+
+At one event/second into one bucket, stored weighted counts grew from 1 to
+93,482,824,795 over 30 minutes while the normalized percentile bucket settled
+near 87. The real update-triggered rescale at second 1801 reduced stored
+weighted counts to 87. Cumulative counts stayed exact and continued growing.
+A first event at 15 minutes needed an int weighted count of 32768 despite a
+normalized bucket of 1. These normalized buckets are not cumulative metric
+Count values.
+
+After 24 hours, cumulative one-event/minute counts still fit in a short;
+spreading them across 12 buckets kept the largest within a byte. Cumulative
+one-event/second counts required int when concentrated, short when spread.
+The evidence supports separate treatment of cumulative and weighted storage.
+For weighted storage, consider limiting stored magnitudes before expecting
+durable byte/short savings. Such changes still need accuracy and concurrency
+validation; the prior OTel counter is not a concurrent drop-in replacement.
+
+Actual current reservoir graphs shrink during decay rescale, but cumulative
+storage remains. A single old event retained 392 bytes after its decaying
+storage disappeared; first-minute traffic followed by inactivity retained
+856 bytes. These exclude wrappers, parent metrics, registration, and JMX.
+
+Isolated tests are `run_tests.sh --histogram-widths` and
+`run_property_tests.sh --histogram-widths`. Deterministic boundary checks and
+32000 generated legacy-equivalence steps passed. The four measurement runs
+passed exact cumulative bin-ledger checks for every reservoir at each sample.
+Every checkpoint scrapes, including extra boundary checkpoints; the results
+depend on that schedule. The detailed report records all logs and limits.

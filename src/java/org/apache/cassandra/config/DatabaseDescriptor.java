@@ -120,6 +120,7 @@ import org.apache.cassandra.locator.NodeProximity;
 import org.apache.cassandra.locator.ReconnectableSnitchHelper;
 import org.apache.cassandra.locator.SeedProvider;
 import org.apache.cassandra.locator.SnitchAdapter;
+import org.apache.cassandra.metrics.MetricProfile;
 import org.apache.cassandra.repair.autorepair.AutoRepairConfig;
 import org.apache.cassandra.security.AbstractCryptoProvider;
 import org.apache.cassandra.security.EncryptionContext;
@@ -201,6 +202,7 @@ public class DatabaseDescriptor
     private static final int MAX_NUM_TOKENS = 1536;
 
     private static Config conf;
+    private static MetricProfile metricProfile = MetricProfile.ALL;
     private static DefaultProgressLog.Config accordProgressLogConfig;
 
     /**
@@ -457,7 +459,7 @@ public class DatabaseDescriptor
         clientInitialized = true;
         setDefaultFailureDetector();
         Config.setClientMode(true);
-        conf = configSupplier.get();
+        setConfig(configSupplier.get());
         applyCompatibilityMode();
         diskOptimizationStrategy = new SpinningDiskOptimizationStrategy();
         applySSTableFormats();
@@ -566,7 +568,9 @@ public class DatabaseDescriptor
     @VisibleForTesting
     public static void setConfig(Config config)
     {
+        MetricProfile profile = MetricProfile.load(config.metrics_config_file);
         conf = config;
+        metricProfile = profile;
     }
 
     private static void applyAll() throws ConfigurationException
@@ -6134,6 +6138,21 @@ public class DatabaseDescriptor
     public static boolean getOptimizedMetricsEnabled()
     {
         return conf != null && conf.optimized_metrics_enabled;
+    }
+
+    public static boolean getAdaptiveJmxHistogramHistoryEnabled()
+    {
+        return conf != null && conf.adaptive_jmx_histogram_history_enabled;
+    }
+
+    public static boolean getCompactJmxRegistrationEnabled()
+    {
+        return conf != null && conf.compact_jmx_registration_enabled;
+    }
+
+    public static MetricProfile getMetricProfile()
+    {
+        return metricProfile == null ? MetricProfile.ALL : metricProfile;
     }
 
     public static void setClientRequestSizeMetricsEnabled(boolean enabled)

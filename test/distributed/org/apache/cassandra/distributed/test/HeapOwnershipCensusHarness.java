@@ -26,12 +26,14 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -47,6 +49,9 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
+import org.apache.cassandra.metrics.CassandraMetricsRegistry;
+import org.apache.cassandra.metrics.KeyspaceMetrics;
+import org.apache.cassandra.metrics.MetricProfile;
 import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.metrics.ThreadLocalMetrics;
 import org.apache.cassandra.utils.JsonUtils;
@@ -57,6 +62,15 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
 {
     private static final String KEYSPACE = "heap_census";
     private static final int WORKERS = 8;
+    private static final Set<String> LATENCY_PREFIXES = Set.of("Read", "Write", "Range", "CasPrepare", "CasPropose", "CasCommit",
+                                                               "KeyMigration", "AccordRepair", "AccordPostStreamRepair", "ViewSSTableIntervalTree");
+    private static final Set<String> DEPRECATED_GAUGES = Set.of("MemtableOnHeapDataSize", "MemtableOffHeapDataSize",
+                                                               "AllMemtablesOnHeapDataSize", "AllMemtablesOffHeapDataSize");
+    private static final Set<String> TRIE_METRICS = Set.of("Uncontended memtable puts", "Contended memtable puts",
+                                                         "Contention timeLatency", "Contention timeTotalLatency",
+                                                         "Shard sizes during last flushMin", "Shard sizes during last flushMax",
+                                                         "Shard sizes during last flushAvg", "Shard sizes during last flushStdDev",
+                                                         "Shard sizes during last flushNumSamples");
 
     // This field belongs to the node's isolated class loader, not the harness driver.
     private static Worker[] workers;
@@ -87,19 +101,33 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
     protected void configureNode(IInstanceConfig node)
     {
         node.set("memtable", Map.of("configurations", Map.of("default", Map.of("class_name", "TrieMemtable",
-                                                                                            "parameters", Map.of("lazy_initialization", "true")))));
+                                                                                            "parameters", config.stock ? Map.of() : Map.of("lazy_initialization", "true")))));
         node.set("sstable", Map.of("selected_format", "bti"));
+        if (config.stock)
+            return;
         node.set("cursor_compaction_enabled", false);
         node.set("optimized_metrics_enabled", true);
+        node.set("metrics_config_file", config.metricsConfig);
+        node.set("adaptive_jmx_histogram_history_enabled", config.adaptiveJmxHistory);
+        node.set("compact_jmx_registration_enabled", config.compactJmxRegistration);
     }
 
     @Override
     protected void postCluster()
     {
         int tables = config.tables;
+        boolean stock = config.stock;
         effective = cluster.get(1).callOnInstance(() -> {
             Map<String, Object> values = new LinkedHashMap<>();
-            values.put("optimizedMetricsEnabled", DatabaseDescriptor.getOptimizedMetricsEnabled());
+            values.put("stock", stock);
+            values.put("productionCodeSource", ColumnFamilyStore.class.getProtectionDomain().getCodeSource().getLocation().toString());
+            if (!stock)
+            {
+                values.put("optimizedMetricsEnabled", DatabaseDescriptor.getOptimizedMetricsEnabled());
+                values.put("metricsConfigFile", DatabaseDescriptor.getRawConfig().metrics_config_file);
+                values.put("adaptiveJmxHistogramHistoryEnabled", DatabaseDescriptor.getRawConfig().adaptive_jmx_histogram_history_enabled);
+                values.put("compactJmxRegistrationEnabled", DatabaseDescriptor.getCompactJmxRegistrationEnabled());
+            }
             values.put("memtableParameters", DatabaseDescriptor.getMemtableConfigurations().get("default").parameters);
             values.put("heapMaxBytes", Runtime.getRuntime().maxMemory());
             values.put("processors", Runtime.getRuntime().availableProcessors());
@@ -126,10 +154,14 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
             cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = " +
                                  "{'class':'SimpleStrategy','replication_factor':1}");
             for (int i = 0; i < config.tables; i++)
+            {
                 cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + tableName(i) +
                                      " (pk int, c int, v text, PRIMARY KEY (pk,c))" +
                                      " WITH compaction = {'class':'SizeTieredCompactionStrategy'}" +
                                      " AND caching = {'keys':'NONE','rows_per_partition':'NONE'}");
+                if ((i + 1) % 500 == 0)
+                    System.out.println("Created " + (i + 1) + " tables");
+            }
         }));
         phases.add(checkedPhase("02-created", phase -> checkpoint("created", phase, 0, true)));
         phases.add(checkedPhase("03-scrape", phase -> scrape("scraped")));
@@ -220,10 +252,11 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
     private void scrape(String name) throws Exception
     {
         boolean inspectNameProperties = config.inspectNameProperties;
+        boolean propertyQueries = config.propertyQueries;
         Map<String, Object> result = cluster.get(1).callOnInstance(() -> {
             try
             {
-                return scrapeMetrics(inspectNameProperties);
+                return scrapeMetrics(inspectNameProperties, propertyQueries);
             }
             catch (Exception e)
             {
@@ -237,7 +270,7 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
             throw new IllegalStateException("Readable metric attributes failed; see scrape-" + name + ".json");
     }
 
-    private static Map<String, Object> scrapeMetrics(boolean inspectNameProperties) throws Exception
+    private static Map<String, Object> scrapeMetrics(boolean inspectNameProperties, boolean propertyQueries) throws Exception
     {
         MBeanServer server = MBeanWrapper.instance.getMBeanServer();
         List<ObjectName> names = new ArrayList<>(server.queryNames(new ObjectName("org.apache.cassandra.metrics:*"), null));
@@ -282,7 +315,49 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
         result.put("recentAttributes", recentAttributes);
         result.put("failedAttributes", failures.size());
         result.put("failures", failures);
+        if (propertyQueries)
+            result.put("propertyQueries", exercisePropertyQueries(server, names));
         return result;
+    }
+
+    private static List<Map<String, Object>> exercisePropertyQueries(MBeanServer server, List<ObjectName> known) throws Exception
+    {
+        List<Map<String, Object>> measurements = new ArrayList<>();
+        com.sun.management.ThreadMXBean allocation = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
+        if (!allocation.isThreadAllocatedMemorySupported())
+            throw new IllegalStateException("Property-query measurements require thread allocation counters");
+        allocation.setThreadAllocatedMemoryEnabled(true);
+        for (String text : new String[] { "org.apache.cassandra.metrics:keyspace=" + KEYSPACE + ",scope=" + tableName(0) + ",*",
+                                          "org.apache.cassandra.metrics:type=ThreadPools,*",
+                                          "org.apache.cassandra.metrics:keyspace=missing,*" })
+        {
+            ObjectName pattern = new ObjectName(text);
+            Set<ObjectName> expected = new HashSet<>();
+            for (ObjectName name : known)
+                if (pattern.apply(name))
+                    expected.add(name);
+            long beforeAllocation = allocation.getThreadAllocatedBytes(Thread.currentThread().getId());
+            long before = System.nanoTime();
+            Set<ObjectName> actual = server.queryNames(pattern, null);
+            long elapsed = System.nanoTime() - before;
+            long allocated = allocation.getThreadAllocatedBytes(Thread.currentThread().getId()) - beforeAllocation;
+            if (!actual.equals(expected))
+                throw new IllegalStateException("Property-query membership changed for " + pattern);
+            Set<ObjectName> instances = new HashSet<>();
+            for (javax.management.ObjectInstance instance : server.queryMBeans(pattern, null))
+                instances.add(instance.getObjectName());
+            if (!instances.equals(expected))
+                throw new IllegalStateException("queryMBeans membership changed for " + pattern);
+            for (ObjectName name : actual)
+            {
+                ObjectName operation = (ObjectName) server.invoke(name, "objectName", null, null);
+                if (!operation.equals(name))
+                    throw new IllegalStateException("Metric objectName operation changed for " + name);
+                operation.getKeyPropertyList();
+            }
+            measurements.add(Map.of("pattern", text, "matches", actual.size(), "elapsedNanos", elapsed, "allocatedBytes", allocated));
+        }
+        return measurements;
     }
 
     static boolean hasUserKeyspace(String canonicalName)
@@ -297,7 +372,8 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
     private void checkpoint(String name, ResourceProfiler.PhaseResult phase, int activeWorkers, boolean created) throws Exception
     {
         int tables = config.tables;
-        Map<String, Object> state = cluster.get(1).callOnInstance(() -> inspectState(tables, activeWorkers, created));
+        boolean stock = config.stock;
+        Map<String, Object> state = cluster.get(1).callOnInstance(() -> inspectState(tables, activeWorkers, created, stock));
         System.gc();
         TimeUnit.MILLISECONDS.sleep(500);
         profiler.histogram("histogram-" + name + ".txt");
@@ -318,9 +394,10 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
         System.out.println("Checkpoint " + name + ": " + state);
     }
 
-    private static Map<String, Object> inspectState(int tables, int activeWorkers, boolean created)
+    private static Map<String, Object> inspectState(int tables, int activeWorkers, boolean created, boolean stock)
     {
         long metricBeans = MBeanWrapper.instance.getMBeanServer().getMBeanCount();
+        int readRepairRequests = stock || DatabaseDescriptor.getMetricProfile().isEnabled(MetricProfile.Scope.TABLE, "ReadRepairRequests") ? activeWorkers : 0;
         Set<ThreadLocalMetrics> stores = Collections.newSetFromMap(new IdentityHashMap<>());
         List<Map<String, Object>> workerStates = new ArrayList<>();
         for (int i = 0; i < workers.length; i++)
@@ -346,12 +423,16 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
                 TableMetrics metric = cfs.metric;
                 if (!cfs.getCurrentMemtable().isClean() || !cfs.getLiveSSTables().isEmpty())
                     throw new IllegalStateException("Unexpected user data: " + cfs.name);
-                if (!(cfs.getCurrentMemtable() instanceof TrieMemtable) || ((TrieMemtable) cfs.getCurrentMemtable()).isInitialized())
+                if (!(cfs.getCurrentMemtable() instanceof TrieMemtable) || (!stock && ((TrieMemtable) cfs.getCurrentMemtable()).isInitialized()))
                     throw new IllegalStateException("Expected uninitialized TrieMemtable: " + cfs.name);
-                if (metric.totalRowsRead.getCount() != activeWorkers || metric.readRepairRequests.getCount() != activeWorkers ||
+                if (metric.totalRowsRead.getCount() != activeWorkers || metric.readRepairRequests.getCount() != readRepairRequests ||
                     metric.sstablesPerReadHistogram.cf.getCount() != activeWorkers || metric.readLatency.latency.getCount() != activeWorkers)
                     throw new IllegalStateException("Synthetic observations not preserved for " + cfs.name);
             }
+            long aggregateCount = (long) tables * activeWorkers;
+            if (Keyspace.open(KEYSPACE).metric.sstablesPerReadHistogram.getCount() != aggregateCount ||
+                Keyspace.open(KEYSPACE).metric.readLatency.latency.getCount() != aggregateCount)
+                throw new IllegalStateException("Synthetic observations not preserved in keyspace aggregates");
         }
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("tables", created ? tables : 0);
@@ -360,10 +441,112 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
         state.put("workerStates", workerStates);
         state.put("distinctWorkerMetricStores", stores.size());
         state.put("verifiedEmptyUserMemtables", created ? tables : 0);
-        state.put("verifiedUninitializedTrieMemtables", created ? tables : 0);
+        state.put("verifiedUninitializedTrieMemtables", created && !stock ? tables : 0);
         state.put("userSSTables", 0);
-        state.put("observationsPerSelectedMetricPerTable", activeWorkers);
+        state.put("attemptedObservationsPerSelectedMetricPerTable", activeWorkers);
+        state.put("recordedObservationsPerMetricPerTable", Map.of("TotalRowsRead", activeWorkers,
+                                                                  "ReadRepairRequests", readRepairRequests,
+                                                                  "SSTablesPerReadHistogram", activeWorkers,
+                                                                  "ReadLatency", activeWorkers));
+        state.put("observationsPerSelectedKeyspaceAggregate", (long) (created ? tables : 0) * activeWorkers);
+        if (created)
+            state.putAll(verifyRegistrations(tables, stock));
         return state;
+    }
+
+    private static Map<String, Object> verifyRegistrations(int tables, boolean stock)
+    {
+        Map<String, String> expected = stock ? null : RegistrationInventory.expectedRegistrations(DatabaseDescriptor.getMetricProfile(), tables);
+        Set<String> actualMBeans = new HashSet<>();
+        try
+        {
+            for (ObjectName name : MBeanWrapper.instance.getMBeanServer().queryNames(new ObjectName("org.apache.cassandra.metrics:*"), null))
+            {
+                String canonical = name.getCanonicalName();
+                if (hasUserKeyspace(canonical))
+                    actualMBeans.add(canonical);
+            }
+        }
+        catch (Exception e)
+        {
+            throw new IllegalStateException("Could not inspect metric registrations", e);
+        }
+        if (!stock)
+            requireNames("JMX", expected.keySet(), actualMBeans);
+        Set<String> actualRegistry = new HashSet<>();
+        for (String name : CassandraMetricsRegistry.Metrics.getMetrics().keySet())
+        {
+            if (name.endsWith('.' + KEYSPACE) || name.contains('.' + KEYSPACE + '.'))
+                actualRegistry.add(name);
+        }
+        if (stock)
+        {
+            // The upstream all-metrics inventory includes 249 exports per TrieMemtable table and 101 keyspace exports.
+            if (actualMBeans.size() != 249 * tables + 101 || actualRegistry.size() != actualMBeans.size())
+                throw new IllegalStateException("Unexpected stock registrations: JMX=" + actualMBeans.size() + ", registry=" + actualRegistry.size());
+        }
+        else
+            requireNames("registry", new HashSet<>(expected.values()), actualRegistry);
+        return Map.of("verifiedUserMetricMBeans", actualMBeans.size(), "verifiedUserRegistryMetrics", actualRegistry.size());
+    }
+
+    private static void requireNames(String kind, Set<String> expected, Set<String> actual)
+    {
+        if (expected.equals(actual))
+            return;
+        Set<String> missing = new TreeSet<>(expected);
+        missing.removeAll(actual);
+        Set<String> unexpected = new TreeSet<>(actual);
+        unexpected.removeAll(expected);
+        throw new IllegalStateException(kind + " registrations differ: missing=" + missing + ", unexpected=" + unexpected);
+    }
+
+    // Keep branch-only method signatures out of the class deserialized by stock nodes.
+    static final class RegistrationInventory
+    {
+        static Map<String, String> expectedRegistrations(MetricProfile profile, int tables)
+        {
+            Map<String, String> names = new LinkedHashMap<>();
+            for (String name : MetricProfile.knownNames(MetricProfile.Scope.KEYSPACE))
+            {
+                if (profile.isEnabled(MetricProfile.Scope.KEYSPACE, name))
+                    addRegistration(names, "Keyspace", name, null);
+            }
+            for (int i = 0; i < tables; i++)
+            {
+                String table = tableName(i);
+                for (String name : MetricProfile.knownNames(MetricProfile.Scope.TABLE))
+                {
+                    if (!profile.isEnabled(MetricProfile.Scope.TABLE, name))
+                        continue;
+                    addRegistration(names, "Table", name, table);
+                    boolean latency = LATENCY_PREFIXES.stream().anyMatch(prefix -> name.equals(prefix + "Latency") || name.equals(prefix + "TotalLatency"));
+                    if (latency || !profile.includesLegacyAliases())
+                        continue;
+                    Set<String> aliases = MetricProfile.aliases(MetricProfile.Scope.TABLE, name);
+                    if (aliases.isEmpty() || DEPRECATED_GAUGES.contains(name))
+                        addRegistration(names, "ColumnFamily", name, table);
+                    for (String alias : aliases)
+                    {
+                        addRegistration(names, "ColumnFamily", alias, table);
+                        if (DEPRECATED_GAUGES.contains(name))
+                            addRegistration(names, "Table", alias, table);
+                    }
+                }
+                for (String name : TRIE_METRICS)
+                    addRegistration(names, "TrieMemtable", name, table);
+            }
+            return names;
+        }
+    }
+
+    private static void addRegistration(Map<String, String> names, String type, String name, String table)
+    {
+        String group = "org.apache.cassandra.metrics";
+        String mBean = group + ":keyspace=" + KEYSPACE + ",name=" + name + (table == null ? "" : ",scope=" + table) + ",type=" + type;
+        String scope = table == null ? KEYSPACE : KEYSPACE + '.' + table;
+        String registryType = type.equals("Keyspace") ? KeyspaceMetrics.TYPE_NAME : type;
+        names.put(mBean, new CassandraMetricsRegistry.MetricName(group, registryType, name, scope, mBean).getMetricName());
     }
 
     private static String tableName(int table)
@@ -376,12 +559,18 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
     {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("tables", config.tables);
+        result.put("stock", config.stock);
         result.put("keyspace", KEYSPACE);
         result.put("subnet", config.subnet);
         result.put("inspectNameProperties", config.inspectNameProperties);
+        result.put("metricsConfigFile", config.metricsConfig);
+        result.put("adaptiveJmxHistogramHistoryEnabled", config.adaptiveJmxHistory);
+        result.put("compactJmxRegistrationEnabled", config.compactJmxRegistration);
+        result.put("propertyQueries", config.propertyQueries);
         result.put("effectiveConfiguration", effective);
         result.put("workload", "Synthetic actual table metric updates; no user queries or SSTables; workers activate sequentially");
         result.put("selectedMetrics", List.of("TotalRowsRead", "ReadRepairRequests", "SSTablesPerReadHistogram", "ReadLatency"));
+        result.put("disabledIndependentProbe", config.stock ? "none" : "ReadRepairRequests");
         result.put("memoryScope", "Whole JVM; eight workers exist before baseline and remain alive at every checkpoint");
         result.put("checkpoints", checkpoints);
         return result;
@@ -452,6 +641,11 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
         int subnet = 0;
         boolean heapDumps = true;
         boolean inspectNameProperties = true;
+        boolean adaptiveJmxHistory;
+        boolean compactJmxRegistration;
+        boolean propertyQueries;
+        boolean stock;
+        String metricsConfig;
         Path out = Paths.get("logs");
         String[] args;
 
@@ -466,6 +660,14 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
                     config.heapDumps = false;
                 else if (option.equals("--attributes-only"))
                     config.inspectNameProperties = false;
+                else if (option.equals("--adaptive-jmx-history"))
+                    config.adaptiveJmxHistory = true;
+                else if (option.equals("--compact-jmx-registration"))
+                    config.compactJmxRegistration = true;
+                else if (option.equals("--property-queries"))
+                    config.propertyQueries = true;
+                else if (option.equals("--stock"))
+                    config.stock = true;
                 else
                 {
                     if (++i == args.length)
@@ -475,12 +677,19 @@ public final class HeapOwnershipCensusHarness extends ProfiledClusterHarness
                         case "--tables": config.tables = Integer.parseInt(args[i]); break;
                         case "--subnet": config.subnet = Integer.parseInt(args[i]); break;
                         case "--out": config.out = Paths.get(args[i]); break;
+                        case "--metrics-config":
+                            if (args[i].isBlank())
+                                throw new IllegalArgumentException("Metrics configuration must not be blank");
+                            config.metricsConfig = args[i];
+                            break;
                         default: throw new IllegalArgumentException("Unknown option: " + option);
                     }
                 }
             }
-            if (config.tables < 1 || config.tables > 1000 || config.subnet < 0 || config.subnet > 255)
-                throw new IllegalArgumentException("Require 1..1000 tables and subnet 0..255");
+            if (config.tables < 1 || config.tables > 5000 || config.subnet < 0 || config.subnet > 255)
+                throw new IllegalArgumentException("Require 1..5000 tables and subnet 0..255");
+            if (config.stock && (config.metricsConfig != null || config.adaptiveJmxHistory || config.compactJmxRegistration))
+                throw new IllegalArgumentException("Stock mode cannot use branch-only metric options");
             return config;
         }
     }

@@ -35,7 +35,8 @@ public class ThreadLocalCounter extends com.codahale.metrics.Counter implements 
     ThreadLocalCounter(int metricId)
     {
         this.metricId = metricId;
-        ThreadLocalMetrics.destroyWhenUnreachable(this, metricId);
+        if (metricId >= 0)
+            ThreadLocalMetrics.destroyWhenUnreachable(this, metricId);
         ReflectionUtils.setFieldToNull(this, com.codahale.metrics.Counter.class, "count"); // reduce metrics memory footprint
     }
 
@@ -77,5 +78,20 @@ public class ThreadLocalCounter extends com.codahale.metrics.Counter implements 
     public void reset()
     {
         ThreadLocalMetrics.getCountAndReset(metricId);
+    }
+
+    public static ThreadLocalCounter create()
+    {
+        return create(org.apache.cassandra.config.CassandraRelevantProperties.LAZY_METRIC_IDS.getBoolean());
+    }
+
+    public static ThreadLocalCounter create(boolean lazy)
+    {
+        return lazy ? new LazyThreadLocalCounter() : new ThreadLocalCounter();
+    }
+
+    int metricIdForTesting()
+    {
+        return metricId;
     }
 }

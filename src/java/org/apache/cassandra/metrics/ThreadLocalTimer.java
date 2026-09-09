@@ -59,10 +59,15 @@ public class ThreadLocalTimer extends OverrideTimer
     {
         // the precise clock is intentionally not propagated to ThreadLocalMeter
         // we do not need a precise and more expensive time within the meter
-        this(Meter.create(), new ThreadLocalHistogram(reservoir), clock);
+        this(Meter.create(), ThreadLocalHistogram.create(reservoir), clock);
     }
 
     public ThreadLocalTimer(Meter meter, ThreadLocalHistogram histogram, MetricClock clock)
+    {
+        this(meter, (OverrideHistogram) histogram, clock);
+    }
+
+    protected ThreadLocalTimer(Meter meter, OverrideHistogram histogram, MetricClock clock)
     {
         // original Codahale meter and histogram are set to null to reduce memory footprint
         super(meter, histogram, clock);

@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Profile definition only: Cassandra does not load or enforce this file yet.
+# Select this startup profile with metrics_config_file in cassandra.yaml.
 # See conf/README.txt for scope, aliases, and aggregate dependencies.
 #
 # required: always recorded and exposed; preserve Cassandra's internal inputs.
@@ -23,12 +23,13 @@
 # Internal or enabled-aggregate dependencies can still require backing state.
 #
 # Names are case-sensitive and apply to every table or keyspace in that family.
-# Use canonical names; existing aliases follow the same selection.
+# Use canonical names; include_legacy_aliases controls compatibility exports.
 # Table includes IndexTable. SSTable-format gauges are included in both scopes.
 # Other metric families and unregistered operational statistics are outside scope.
 
 # Small per-table selection; broader keyspace health and resource reporting.
 mode: allowlist
+include_legacy_aliases: false
 
 table:
   # CompressionRatio is retained conservatively for a conditional sizing helper.
@@ -49,12 +50,14 @@ table:
     - PercentRepaired
     - RangeLatency
     - ReadLatency
+    - ReadTotalLatency
     - SSTablesPerReadHistogram
     - SpeculativeRetries
     - TombstoneFailures
     - TombstoneScannedHistogram
     - TombstoneWarnings
     - WriteLatency
+    - WriteTotalLatency
 
   disabled:
     - AccordPostStreamRepairLatency
@@ -123,7 +126,6 @@ table:
     - PurgeableTombstoneScannedHistogram
     - RangeTotalLatency
     - ReadRepairRequests
-    - ReadTotalLatency
     - ReadsRejectedOnWrongSystem
     - RecentBloomFilterFalsePositives
     - RecentBloomFilterFalseRatio
@@ -163,7 +165,6 @@ table:
     - ViewSSTableIntervalTreeTotalLatency
     - WriteSizeWarnings
     - WriteTombstoneWarnings
-    - WriteTotalLatency
 
 keyspace:
   # No registered Keyspace metric has a confirmed database control dependency.
@@ -187,6 +188,7 @@ keyspace:
     - PendingFlushes
     - RangeLatency
     - ReadLatency
+    - ReadTotalLatency
     - RepairJobsCompleted
     - RepairJobsStarted
     - RepairTime
@@ -201,6 +203,7 @@ keyspace:
     - WriteLatency
     - WriteSizeWarnings
     - WriteTombstoneWarnings
+    - WriteTotalLatency
 
   disabled:
     - AccordGetMaxConflictsLatency
@@ -246,7 +249,6 @@ keyspace:
     - RangeMigrationUnexpectedFailures
     - RangeTotalLatency
     - ReadOutOfRangeToken
-    - ReadTotalLatency
     - ReadsRejectedOnWrongSystem
     - RecentBloomFilterFalsePositives
     - RecentBloomFilterFalseRatio
@@ -272,4 +274,3 @@ keyspace:
     - ViewSSTableIntervalTreeTotalLatency
     - WriteFailedIdealCL
     - WriteOutOfRangeToken
-    - WriteTotalLatency

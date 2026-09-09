@@ -5,6 +5,10 @@
 ## Apache Cassandra
 Apache Cassandra is a NoSQL distributed database. This is the official Git repository.
 
+## Research Communication
+
+- When presenting a research report, include a self-contained summary in the conversation. Explain the question, findings, measurements, tradeoffs, validation, and next steps. A file link supplements the summary; it does not replace it.
+
 ## Environment
 
 - Java 11 (default), 17, 21.

@@ -30,7 +30,10 @@ public interface Meter extends Metered
     /** Creates a meter that also extends {@link com.codahale.metrics.Meter}. */
     static Meter create()
     {
-        return GEOMETRIC_METER_ARRAYS.getBoolean() ? new GeometricThreadLocalMeter() : new ThreadLocalMeter();
+        boolean lazy = org.apache.cassandra.config.CassandraRelevantProperties.LAZY_METRIC_IDS.getBoolean();
+        return GEOMETRIC_METER_ARRAYS.getBoolean()
+               ? GeometricThreadLocalMeter.create(org.apache.cassandra.utils.MonotonicClock.Global.approxTime, lazy)
+               : ThreadLocalMeter.create(org.apache.cassandra.utils.MonotonicClock.Global.approxTime, lazy);
     }
 
     void mark(long n);

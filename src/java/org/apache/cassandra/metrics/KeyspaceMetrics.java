@@ -17,6 +17,8 @@
  */
 package org.apache.cassandra.metrics;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.ToLongFunction;
 
 import com.codahale.metrics.Counter;
@@ -419,6 +421,7 @@ public class KeyspaceMetrics
 
     private ImmutableMap<SSTableFormat<?, ?>, ImmutableMap<String, Gauge<? extends Number>>> createFormatSpecificGauges(Keyspace keyspace)
     {
+        Map<String, Gauge<? extends Number>> byName = new HashMap<>();
         ImmutableMap.Builder<SSTableFormat<? ,?>, ImmutableMap<String, Gauge<? extends Number>>> builder = ImmutableMap.builder();
         for (SSTableFormat<?, ?> format : DatabaseDescriptor.getSSTableFormats().values())
         {
@@ -426,7 +429,9 @@ public class KeyspaceMetrics
             for (GaugeProvider<?> gaugeProvider : format.getFormatSpecificMetricsProviders().getGaugeProviders())
             {
                 String finalName = gaugeProvider.name;
-                Gauge<? extends Number> gauge = Metrics.register(factory.createMetricName(finalName), gaugeProvider.getKeyspaceGauge(keyspace));
+                Gauge<? extends Number> gauge = byName.computeIfAbsent(finalName,
+                                                                      name -> Metrics.register(factory.createMetricName(name),
+                                                                                               gaugeProvider.getKeyspaceGauge(keyspace)));
                 gauges.put(gaugeProvider.name, gauge);
             }
             builder.put(format, gauges.build());
@@ -466,6 +471,8 @@ public class KeyspaceMetrics
      */
     private Counter createKeyspaceCounter(String name, final ToLongFunction<TableMetrics> extractor)
     {
+        if (!isEnabled(name))
+            return NoOpMetrics.COUNTER;
         return Metrics.register(factory.createMetricName(name), new Counter()
         {
             @Override
@@ -483,27 +490,32 @@ public class KeyspaceMetrics
 
     protected Counter createKeyspaceCounter(String name)
     {
-        return Metrics.counter(factory.createMetricName(name));
+        return isEnabled(name) ? Metrics.counter(factory.createMetricName(name)) : NoOpMetrics.COUNTER;
     }
 
     protected Histogram createKeyspaceHistogram(String name, boolean considerZeroes)
     {
-        return Metrics.histogram(factory.createMetricName(name), considerZeroes);
+        return isEnabled(name) ? Metrics.histogram(factory.createMetricName(name), considerZeroes) : NoOpMetrics.HISTOGRAM;
     }
 
     protected Timer createKeyspaceTimer(String name)
     {
-        return Metrics.timer(factory.createMetricName(name));
+        return isEnabled(name) ? Metrics.timer(factory.createMetricName(name)) : NoOpMetrics.TIMER;
     }
 
     protected Meter createKeyspaceMeter(String name)
     {
-        return Metrics.meter(factory.createMetricName(name));
+        return isEnabled(name) ? Metrics.meter(factory.createMetricName(name)) : NoOpMetrics.METER;
     }
 
     private LatencyMetrics createLatencyMetrics(String name)
     {
-        return new LatencyMetrics(factory, name);
+        return isEnabled(name + "Latency") || isEnabled(name + "TotalLatency") ? new LatencyMetrics(factory, name) : LatencyMetrics.noop();
+    }
+
+    private static boolean isEnabled(String name)
+    {
+        return DatabaseDescriptor.getMetricProfile().isEnabled(MetricProfile.Scope.KEYSPACE, name);
     }
 
     static class KeyspaceMetricNameFactory implements MetricNameFactory

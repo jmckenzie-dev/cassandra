@@ -251,6 +251,12 @@ public class Config
 
     public boolean optimized_metrics_enabled = true;
 
+    public boolean adaptive_jmx_histogram_history_enabled = false;
+
+    public boolean compact_jmx_registration_enabled = false;
+
+    public String metrics_config_file;
+
     public int concurrent_reads = 32;
     public int concurrent_writes = 32;
     public int concurrent_counter_writes = 32;

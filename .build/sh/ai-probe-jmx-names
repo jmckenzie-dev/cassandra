@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one or more contributor
+# license agreements. See the NOTICE file distributed with this work for
+# additional information regarding copyright ownership. The ASF licenses this
+# file to you under the Apache License, Version 2.0 (the "License"); you may not
+# use this file except in compliance with the License. You may obtain a copy at
+# http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software distributed
+# under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+# CONDITIONS OF ANY KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations under the License.
+set -euo pipefail
+project_root="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$project_root"
+mkdir -p logs tmp
+launch_log="logs/$(date +%Y%m%d-%H%M%S-%N)-jmx-names.log"
+exec > >(tee "$launch_log") 2>&1
+echo "# log=$launch_log"
+if [[ $# == 1 && "$1" == --bytecode ]]; then
+    javap -c -p javax.management.ObjectName com.sun.jmx.mbeanserver.Repository
+    exit
+fi
+if [[ $# == 1 && "$1" == --boundary-bytecode ]]; then
+    javap -c -p com.sun.jmx.interceptor.DefaultMBeanServerInterceptor com.sun.jmx.mbeanserver.JmxMBeanServer
+    exit
+fi
+jamm="$project_root/build/lib/jars/jamm-0.4.0.jar"
+if [[ ! -f "$jamm" ]]; then
+    echo 'Run .build/sh/ai-build before this probe.' >&2
+    exit 1
+fi
+classes="$(mktemp -d "$project_root/tmp/jmx-names-classes-XXXXXXXX")"
+probe=JmxNameRetention
+if [[ ${1:-} == --boundaries ]]; then
+    probe=JmxServerBoundary
+    shift
+fi
+javac -proc:none -cp "$jamm" -d "$classes" ".build/benchmarks/jmx-names/$probe.java" \
+    src/java/org/apache/cassandra/utils/TransientMBeanServerBuilder.java \
+    src/java/org/apache/cassandra/utils/ObjectNamePropertyPattern.java
+java -ea -Xms128m -Xmx1g -XX:ActiveProcessorCount=8 -XX:+UseG1GC \
+    "-Djava.io.tmpdir=$project_root/tmp" -Djava.rmi.server.hostname=127.0.0.1 \
+    "-javaagent:$jamm" \
+    --add-opens java.management/javax.management=ALL-UNNAMED \
+    --add-opens java.base/java.lang=ALL-UNNAMED \
+    --add-opens java.base/java.util=ALL-UNNAMED \
+    -cp "$classes:$jamm" "$probe" "$@"

@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Profile definition only: Cassandra does not load or enforce this file yet.
+# Select this startup profile with metrics_config_file in cassandra.yaml.
 # See conf/README.txt for scope, aliases, and aggregate dependencies.
 #
 # required: always recorded and exposed; preserve Cassandra's internal inputs.
@@ -29,6 +29,7 @@
 
 # All known metrics in the covered families are enabled.
 mode: allowlist
+include_legacy_aliases: true
 
 table:
   # CompressionRatio is retained conservatively for a conditional sizing helper.

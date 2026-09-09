@@ -27,7 +27,7 @@ mkdir -p tmp logs
 launch_log="$home/logs/$(date +%Y%m%d-%H%M%S)-many-tables-launch.log"
 exec > >(tee "$launch_log") 2>&1
 
-jar="$home/build/apache-cassandra-7.0-SNAPSHOT.jar"
+jar="${PROFILE_JAR:-$home/build/apache-cassandra-7.0-SNAPSHOT.jar}"
 if [[ ! -f "$jar" ]]; then
   echo "ERROR: $jar is missing; run .build/sh/ai-build first" 1>&2
   exit 1
@@ -55,7 +55,9 @@ if [[ ! -w "${HOME}/.gradle" || ! -w "${HOME}/.m2" ]]; then
   ant_args+=(-Dlocal.repository="$home/tmp/m2-repository" -Dmaven.repo.local="$home/tmp/m2-repository")
 fi
 
-ant "${ant_args[@]}"
+if [[ ${PROFILE_SKIP_BUILD:-false} != true ]]; then
+  ant "${ant_args[@]}"
+fi
 
 java_major="$(java -version 2>&1 | sed -n 's/.*version "\([0-9]*\)\..*/\1/p')"
 case "$java_major" in
@@ -87,6 +89,18 @@ java_opts=(
   -XX:SoftRefLRUPolicyMSPerMB=0
   -Djdk.attach.allowAttachSelf=true
 )
+
+if [[ ${PROFILE_TRANSIENT_JMX:-false} == true ]]; then
+  java_opts+=(-Djavax.management.builder.initial=org.apache.cassandra.utils.TransientMBeanServerBuilder)
+fi
+
+if [[ ${PROFILE_LAZY_METRIC_IDS:-false} == true ]]; then
+  java_opts+=(-Dcassandra.lazy_metric_ids=true)
+fi
+
+if [[ ${PROFILE_COMPACT_BOOKKEEPING:-false} == true ]]; then
+  java_opts+=(-Dcassandra.compact_table_metric_bookkeeping=true)
+fi
 
 # JPMS flags mirror build.xml's _jvmXX_arg_items lists.
 case "$java_major" in
@@ -194,7 +208,7 @@ case "$java_major" in
     ;;
 esac
 
-classpath="$jar:$home/build/test/classes:$home/build/classes:$home/conf:$home/test/conf:$home/build/lib/jars/*:$home/build/test/lib/jars/*"
+classpath="$jar:$home/build/test/classes:${PROFILE_CONFIG_DIR:-$home/conf}:$home/test/conf:$home/build/lib/jars/*:$home/build/test/lib/jars/*"
 
 MAIN_CLASS="${PROFILE_MAIN_CLASS:-org.apache.cassandra.distributed.test.ManyTablesProfileHarness}"
 

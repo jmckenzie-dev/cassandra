@@ -2094,6 +2094,22 @@ tombstone_failure_threshold: 100000
 # Dense counters use 32 bits and widen to 64 bits on overflow or update contention.
 optimized_metrics_enabled: true
 
+# Compress saved cumulative JMX histogram/timer snapshots at scrape time.
+# Preserves exact recent-value deltas and independent cursors for each alias.
+# Applies at startup, independently of recording storage and metric selection.
+adaptive_jmx_histogram_history_enabled: false
+
+# Avoid a persistent JDK adapter for each metric MBean. This creates
+# temporary adapters during reads. Non-metric MBeans retain their current registrations.
+compact_jmx_registration_enabled: false
+
+# Select table/index-table and keyspace metric exports at startup. Bare names
+# resolve on the configuration classpath; absolute paths and file: URIs are
+# also supported. Omit or set null to preserve all current metric exports.
+# Use all_metrics.yml for the full catalog, or customize a copy of either profile.
+# Required metrics and state needed by enabled aggregates remain recorded.
+metrics_config_file: simple_metrics.yml
+
 # Controls the granularity of purgeable tombstones reported to PurgeableTombstoneScannedHistogram table metric
 # Possible values:
 # 'disabled' - do not collect the metric at all

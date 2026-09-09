@@ -150,12 +150,12 @@ public class BufferPool
     /**
      * Size of unpooled buffer being allocated outside of buffer pool in bytes.
      */
-    private final ThreadLocalCounter overflowMemoryUsage = new ThreadLocalCounter();
+    private final ThreadLocalCounter overflowMemoryUsage = ThreadLocalCounter.create();
 
     /**
      * Size of buffer being used in bytes, including pooled buffer and unpooled buffer.
      */
-    private final ThreadLocalCounter memoryInUse = new ThreadLocalCounter();
+    private final ThreadLocalCounter memoryInUse = ThreadLocalCounter.create();
 
     /**
      * Size of allocated buffer pool slabs in bytes

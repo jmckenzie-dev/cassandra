@@ -30,6 +30,7 @@ METRICS = "org.apache.cassandra.metrics."
 CFS = "org.apache.cassandra.db.ColumnFamilyStore"
 SCHEMA = "org.apache.cassandra.schema."
 PRIMITIVES = {4: "[Z", 5: "[C", 6: "[F", 7: "[D", 8: "[B", 9: "[S", 10: "[I", 11: "[J"}
+HISTORY_TYPES = {8: ("byte", 1), 9: ("short", 2), 10: ("int", 4), 11: ("long", 8)}
 CFS_FIELDS = {"data", "readOrdering", "sstableIdGenerator", "indexManager", "viewManager",
               "minCompactionThreshold", "maxCompactionThreshold", "crcCheckChance",
               "compactionStrategyManager", "directories", "writeHandler", "streamManager",
@@ -45,6 +46,16 @@ COLLECTIONS = ("java.util.Hash", "java.util.LinkedHash", "java.util.WeakHash", "
                "com.google.common.collect.")
 LEAVES = ("java.lang.String", "java.lang.Integer", "java.lang.Long", "java.lang.Double",
           "java.lang.Boolean", "java.lang.Object", "java.net.", "java.nio.HeapByteBuffer")
+
+
+def history_array_storage(record):
+    if record is None:
+        return "null", 0
+    kind, typ, length, _ = record
+    if kind not in (35, 195) or typ not in HISTORY_TYPES:
+        raise ValueError("JMX history must be null or a byte, short, int, or long array")
+    name, width = HISTORY_TYPES[typ]
+    return name, length * width
 
 
 def histogram(path):
@@ -203,7 +214,8 @@ def inspect(args):
             if role == "metric_names":
                 return cls.startswith((METRICS + "CassandraMetricsRegistry$MetricName", "javax.management.ObjectName"))
             if role == "jmx":
-                return cls.startswith((METRICS + "CassandraMetricsRegistry$Jmx", "javax.management.", "com.sun.jmx."))
+                return cls.startswith((METRICS + "CassandraMetricsRegistry$Jmx",
+                                       METRICS + "CassandraMetricsRegistry$DynamicJmx", "javax.management.", "com.sun.jmx."))
             if role in ("threadlocal_state", "meter_state"):
                 return cls.startswith((METRICS + "ThreadLocalMetrics", METRICS + "ThreadLocalMeter$",
                                        METRICS + "GeometricThreadLocalMeter$", "java.lang.ref.",
@@ -284,13 +296,14 @@ def inspect(args):
         named_owner_conflicts = []
         table_wrappers = collections.defaultdict(set)
         table_last_arrays = collections.defaultdict(set)
+        table_history_wrappers = collections.defaultdict(collections.Counter)
         object_name_owners = collections.defaultdict(set)
         registry_roots = []
         for oid, (kind, cid, _, _) in heap.objects.items():
             if kind != 33:
                 continue
             cls = heap.names[cid]
-            if cls.startswith(METRICS + "CassandraMetricsRegistry$Jmx"):
+            if cls.startswith((METRICS + "CassandraMetricsRegistry$Jmx", METRICS + "CassandraMetricsRegistry$DynamicJmx")):
                 object_name = field(oid, "objectName")
                 canonical = string(field(object_name, "_canonicalName") or field(object_name, "canonicalName"))
                 properties = dict(re.findall(r'(?:^|,)([^=,]+)=("(?:\\.|[^"\\])*"|[^,]*)',
@@ -302,20 +315,21 @@ def inspect(args):
                 owners = {named_table} if named_table in tables else metric_tables or {"global_or_other"}
                 if named_table in tables and metric_tables and metric_tables != {named_table}:
                     named_owner_conflicts.append({"objectName": canonical, "metricOwners": sorted(metric_tables)})
+                last = field(oid, "last")
+                history_type = history_array_storage(heap.objects[last] if last else None)[0] if "last" in fields(oid) else None
                 for owner in owners:
                     walk([oid], "jmx", owner)
-                    last = field(oid, "last")
                     if last:
                         walk([last], "scrape_state", owner)
                     if owner in tables:
                         table_wrappers[owner].add(oid)
                         object_name_owners[field(oid, "objectName")].add(owner)
+                        if history_type is not None:
+                            table_history_wrappers[owner][history_type] += 1
                         if last:
-                            if heap.objects[last][:2] != (35, 11):
-                                raise ValueError("JMX last values must be a long array")
                             table_last_arrays[owner].add(last)
                 wrappers.append({"class": cls, "owners": sorted(owners), "userKeyspace": user_keyspace,
-                                 "namedTable": named_table, "hasLastValues": bool(field(oid, "last"))})
+                                 "namedTable": named_table, "hasLastValues": bool(last), "historyType": history_type})
             elif cls == METRICS + "CassandraMetricsRegistry$MetricName":
                 walk([oid], "metric_names", "global_or_shared")
             elif cls == METRICS + "CassandraMetricsRegistry":
@@ -415,8 +429,13 @@ def inspect(args):
                                     "jmx": {"wrapperObjects": len(table_wrappers[table]),
                                             "wrapperShallowBytes": sum(shallow(oid) for oid in table_wrappers[table]),
                                             "lastArrays": len(table_last_arrays[table]),
-                                            "lastArrayPayloadBytes": sum(heap.objects[oid][2] * 8 for oid in table_last_arrays[table]),
+                                            "lastArrayPayloadBytes": sum(history_array_storage(heap.objects[oid])[1] for oid in table_last_arrays[table]),
                                             "lastArrayShallowBytes": sum(shallow(oid) for oid in table_last_arrays[table]),
+                                            "lastByteArrays": sum(history_array_storage(heap.objects[oid])[0] == "byte" for oid in table_last_arrays[table]),
+                                            "lastShortArrays": sum(history_array_storage(heap.objects[oid])[0] == "short" for oid in table_last_arrays[table]),
+                                            "lastIntArrays": sum(history_array_storage(heap.objects[oid])[0] == "int" for oid in table_last_arrays[table]),
+                                            "lastLongArrays": sum(history_array_storage(heap.objects[oid])[0] == "long" for oid in table_last_arrays[table]),
+                                            "nullHistoryWrappers": table_history_wrappers[table]["null"],
                                             "objectNamePropertyMaps": len(table_property_maps[table]),
                                             "propertyMapGraphObjects": len(table_property_objects[table]),
                                             "propertyMapGraphShallowBytes": sum(shallow(oid) for oid in table_property_objects[table])}}
@@ -427,9 +446,10 @@ def inspect(args):
                 "jmxUserKeyspaceWrappersWithoutTableScope": sum(row["userKeyspace"] and row["namedTable"] not in tables for row in wrappers),
                 "jmxNamedOwnerConflicts": named_owner_conflicts,
                 "jmxWrappersWithLastValues": sum(row["hasLastValues"] for row in wrappers),
+                "jmxHistoryWrappersByType": dict(collections.Counter(row["historyType"] for row in wrappers if row["historyType"] is not None)),
                 "objectNamePropertyLists": {"objectNamesWithCache": property_name_count,
                                             "uniqueMaps": len(property_maps), **totals(property_objects)},
-                "scrapeInterpretation": "This harness reads ObjectName key properties and MBean metadata as well as attributes. Property-map growth must not be attributed to getAttribute alone.",
+                "scrapeInterpretation": "Check summary.json inspectNameProperties for the scrape mode. ObjectName key-property inspection can create property maps; do not attribute that growth to getAttribute alone.",
                 "traversals": walks}
 
 

@@ -21,13 +21,15 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 
 import com.codahale.metrics.Counter;
@@ -65,6 +67,7 @@ import org.apache.cassandra.utils.MovingAverage;
 import org.apache.cassandra.utils.Pair;
 
 import static java.util.concurrent.TimeUnit.MICROSECONDS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.COMPACT_TABLE_METRIC_BOOKKEEPING;
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.resolveShortMetricName;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
@@ -293,6 +296,10 @@ public class TableMetrics
 
     private final TableMetricNameFactory factory;
     private final TableMetricNameFactory aliasFactory;
+
+    private final OwnedMetrics ownedMetrics;
+    private final List<LatencyMetrics> ownedLatencies = new ArrayList<>();
+    private boolean released;
 
     /** Speculative read retries sent to additional replicas. */
     public final Counter speculativeRetries;
@@ -529,6 +536,13 @@ public class TableMetrics
      */
     public TableMetrics(final ColumnFamilyStore cfs)
     {
+        this(cfs, COMPACT_TABLE_METRIC_BOOKKEEPING.getBoolean());
+    }
+
+    @VisibleForTesting
+    protected TableMetrics(final ColumnFamilyStore cfs, boolean compactBookkeeping)
+    {
+        ownedMetrics = new OwnedMetrics(compactBookkeeping);
         factory = new TableMetricNameFactory(cfs, cfs.isIndex() ? INDEX_TYPE_NAME : TYPE_NAME);
         aliasFactory = new TableMetricNameFactory(cfs, cfs.isIndex() ? INDEX_ALIAS_TYPE_NAME : ALIAS_TYPE_NAME);
 
@@ -1041,16 +1055,23 @@ public class TableMetrics
     /**
      * Release all associated metrics.
      */
-    public void release()
+    public synchronized void release()
     {
+        if (released)
+            return;
+        released = true;
+        ownedMetrics.forEach((name, metric) -> ALL_TABLE_METRICS.get(name).remove(metric));
+        ownedMetrics.clear();
+        ownedLatencies.forEach(LatencyMetrics::release);
+        ownedLatencies.clear();
         Metrics.removeIfMatch(fullName -> resolveShortMetricName(fullName, TableMetricNameFactory.GROUP_NAME,
                                                                  factory.type(),
                                                                  factory.scope()),
-                              factory::createMetricName, this::releaseMetric);
+                              factory::createMetricName, name -> {});
         Metrics.removeIfMatch(fullName -> resolveShortMetricName(fullName, TableMetricNameFactory.GROUP_NAME,
                                                                  aliasFactory.type(),
                                                                  aliasFactory.scope()),
-                              aliasFactory::createMetricName, this::releaseMetric);
+                              aliasFactory::createMetricName, name -> {});
     }
 
     private ImmutableMap<SSTableFormat<?, ?>, ImmutableMap<String, Gauge<? extends Number>>> createFormatSpecificGauges(ColumnFamilyStore cfs)
@@ -1089,6 +1110,9 @@ public class TableMetrics
 
     protected <G,T> Gauge<T> createTableGauge(String name, String alias, Gauge<T> gauge, Gauge<G> globalGauge)
     {
+        Metric existing = ownedMetrics.get(name);
+        if (existing != null)
+            return (Gauge<T>) existing;
         Gauge<T> cfGauge = Metrics.register(factory.createMetricName(name), gauge, aliasFactory.createMetricName(alias));
         if (register(name, alias, cfGauge) && globalGauge != null)
         {
@@ -1160,6 +1184,9 @@ public class TableMetrics
 
     private Meter createTableMeter(final String name, final String alias)
     {
+        // The global anticompaction ratio reads these two per-table meters.
+        if (!isEnabled(name) && !name.equals("BytesAnticompacted") && !name.equals("BytesMutatedAnticompaction"))
+            return NoOpMetrics.METER;
         Meter tableMeter = Metrics.meter(factory.createMetricName(name), aliasFactory.createMetricName(alias));
         register(name, alias, tableMeter);
         return tableMeter;
@@ -1167,8 +1194,15 @@ public class TableMetrics
     
     private Histogram createHistogram(String name, boolean considerZeroes)
     {
-        Histogram histogram = Metrics.histogram(factory.createMetricName(name), aliasFactory.createMetricName(name), considerZeroes);
-        register(name, name, histogram);
+        return createHistogram(name, name, considerZeroes);
+    }
+
+    private Histogram createHistogram(String name, String alias, boolean considerZeroes)
+    {
+        if (!isEnabled(name))
+            return NoOpMetrics.HISTOGRAM;
+        Histogram histogram = Metrics.histogram(factory.createMetricName(name), aliasFactory.createMetricName(alias), considerZeroes);
+        register(name, alias, histogram);
         return histogram;
     }
 
@@ -1209,8 +1243,7 @@ public class TableMetrics
 
     protected TableHistogram createTableHistogram(String name, String alias, Histogram keyspaceHistogram, boolean considerZeroes)
     {
-        Histogram cfHistogram = Metrics.histogram(factory.createMetricName(name), aliasFactory.createMetricName(alias), considerZeroes);
-        register(name, alias, cfHistogram);
+        Histogram cfHistogram = createHistogram(name, alias, considerZeroes);
         return new TableHistogram(cfHistogram,
                                   keyspaceHistogram,
                                   Metrics.histogram(GLOBAL_FACTORY.createMetricName(name),
@@ -1220,8 +1253,7 @@ public class TableMetrics
 
     protected TableTimer createTableTimer(String name, Timer keyspaceTimer)
     {
-        Timer cfTimer = Metrics.timer(factory.createMetricName(name), aliasFactory.createMetricName(name));
-        register(name, name, keyspaceTimer);
+        Timer cfTimer = createTableTimer(name);
         Timer global = Metrics.timer(GLOBAL_FACTORY.createMetricName(name), GLOBAL_ALIAS_FACTORY.createMetricName(name));
 
         return new TableTimer(cfTimer, keyspaceTimer, global);
@@ -1229,6 +1261,8 @@ public class TableMetrics
 
     protected SnapshottingTimer createTableTimer(String name)
     {
+        if (!isEnabled(name))
+            return NoOpMetrics.TIMER;
         SnapshottingTimer tableTimer = Metrics.timer(factory.createMetricName(name), aliasFactory.createMetricName(name));
         register(name, name, tableTimer);
         return tableTimer;
@@ -1246,8 +1280,7 @@ public class TableMetrics
 
     protected TableMeter createTableMeter(String name, String alias, Meter keyspaceMeter, boolean globalMeterGaugeCompatible)
     {
-        Meter meter = Metrics.meter(factory.createMetricName(name), aliasFactory.createMetricName(alias));
-        register(name, alias, meter);
+        Meter meter = createTableMeter(name, alias);
         return new TableMeter(meter,
                               keyspaceMeter,
                               Metrics.meter(globalMeterGaugeCompatible, GLOBAL_FACTORY.createMetricName(name),
@@ -1256,8 +1289,26 @@ public class TableMetrics
 
     private LatencyMetrics createLatencyMetrics(String namePrefix, LatencyMetrics ... parents)
     {
-        // All metrics which are registered with the same factory type will be removed when release() is called.
-        return new LatencyMetrics(factory, namePrefix, parents);
+        parents = Arrays.stream(parents).filter(LatencyMetrics::isRecording).toArray(LatencyMetrics[]::new);
+        if (parents.length == 0 && !isEnabled(namePrefix + "Latency") && !isEnabled(namePrefix + "TotalLatency"))
+            return LatencyMetrics.noop();
+        LatencyMetrics latency = new LatencyMetrics(factory, namePrefix, parents);
+        ownedLatencies.add(latency);
+        return latency;
+    }
+
+    private static boolean isEnabled(String name)
+    {
+        return DatabaseDescriptor.getMetricProfile().isEnabled(MetricProfile.Scope.TABLE, name);
+    }
+
+    private static <T extends Metric> T[] recordingOnly(T[] metrics)
+    {
+        int count = 0;
+        for (T metric : metrics)
+            if (!NoOpMetrics.isNoOp(metric))
+                metrics[count++] = metric;
+        return count == metrics.length ? metrics : Arrays.copyOf(metrics, count);
     }
 
     /**
@@ -1280,18 +1331,74 @@ public class TableMetrics
      */
     private boolean register(String name, String alias, String deprecated, Metric metric)
     {
+        ownedMetrics.put(name, metric);
         boolean ret = ALL_TABLE_METRICS.putIfAbsent(name, ConcurrentHashMap.newKeySet()) == null;
         ALL_TABLE_METRICS.get(name).add(metric);
         return ret;
     }
 
-    private void releaseMetric(CassandraMetricsRegistry.MetricName name)
+    /** Construction lookup and release bookkeeping; recording never accesses this collection. */
+    @VisibleForTesting
+    static final class OwnedMetrics
     {
-        Metric metric = Metrics.getMetrics().get(name.getMetricName());
-        if (metric == null)
-            return;
+        private final Map<String, Metric> map;
+        private final List<Object> pairs;
 
-        Optional.ofNullable(ALL_TABLE_METRICS.get(name.getName())).ifPresent(set -> set.remove(metric));
+        OwnedMetrics(boolean compact)
+        {
+            map = compact ? null : new HashMap<>();
+            pairs = compact ? new ArrayList<>(128) : null;
+        }
+
+        Metric get(String name)
+        {
+            if (map != null)
+                return map.get(name);
+            int index = indexOf(name);
+            return index < 0 ? null : (Metric) pairs.get(index + 1);
+        }
+
+        void put(String name, Metric metric)
+        {
+            if (map != null)
+            {
+                map.put(name, metric);
+                return;
+            }
+            int index = indexOf(name);
+            if (index >= 0)
+                pairs.set(index + 1, metric);
+            else
+            {
+                pairs.add(name);
+                pairs.add(metric);
+            }
+        }
+
+        private int indexOf(String name)
+        {
+            for (int i = 0; i < pairs.size(); i += 2)
+                if (name.equals(pairs.get(i)))
+                    return i;
+            return -1;
+        }
+
+        void forEach(BiConsumer<String, Metric> action)
+        {
+            if (map != null)
+                map.forEach(action);
+            else
+                for (int i = 0; i < pairs.size(); i += 2)
+                    action.accept((String) pairs.get(i), (Metric) pairs.get(i + 1));
+        }
+
+        void clear()
+        {
+            if (map != null)
+                map.clear();
+            else
+                pairs.clear();
+        }
     }
 
     public static class TableMeter
@@ -1304,7 +1411,7 @@ public class TableMetrics
         {
             this.table = table;
             this.global = global;
-            this.all = new Meter[]{table, keyspace, global};
+            this.all = recordingOnly(new Meter[]{table, keyspace, global});
         }
 
         public void mark()
@@ -1331,7 +1438,7 @@ public class TableMetrics
         {
             this.cf = cf;
             this.global = global;
-            this.all = new Histogram[]{cf, keyspace, global};
+            this.all = recordingOnly(new Histogram[]{cf, keyspace, global});
         }
 
         public void update(long i)
@@ -1353,7 +1460,7 @@ public class TableMetrics
         {
             this.cf = cf;
             this.global = global;
-            this.all = new Timer[]{cf, keyspace, global};
+            this.all = recordingOnly(new Timer[]{cf, keyspace, global});
         }
 
         public void update(long i, TimeUnit unit)

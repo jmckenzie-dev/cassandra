@@ -35,6 +35,10 @@
 
 # Uncomment any of the following properties to enable specific startup parameters
 
+# Keep JMX metric property-query caches transient. Install before platform-server initialization.
+# This optional builder preserves the JDK registration store; see conf/README.txt for scope and costs.
+#-Djavax.management.builder.initial=org.apache.cassandra.utils.TransientMBeanServerBuilder
+
 # In a multi-instance deployment, multiple Cassandra instances will independently assume that all
 # CPU processors are available to it. This setting allows you to specify a smaller set of processors
 # and perhaps have affinity.

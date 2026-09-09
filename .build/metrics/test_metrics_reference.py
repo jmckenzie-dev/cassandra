@@ -30,6 +30,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 WRAPPER = ROOT / ".build/sh/ai-generate-metrics-reference"
 METRICS = "src/java/org/apache/cassandra/metrics/"
+CATALOG = "src/resources/org/apache/cassandra/metrics/metrics-catalog.properties"
 
 
 class ReferenceFixture(unittest.TestCase):
@@ -102,6 +103,10 @@ class ReferenceFixture(unittest.TestCase):
     def output(self):
         return (self.root / "conf/metrics_ref.md").read_text(encoding="utf-8")
 
+    def catalog_entries(self):
+        text = (self.root / CATALOG).read_text(encoding="utf-8")
+        return dict(line.split("=", 1) for line in text.splitlines() if line and not line.startswith("#"))
+
 
 class ReferenceTests(ReferenceFixture):
     def test_repository_reference_is_current(self):
@@ -119,6 +124,9 @@ class ReferenceTests(ReferenceFixture):
         self.assertNotIn("CommentOnly", output)
         self.assertNotIn("StringOnly", output)
         self.assertNotIn("GLOBAL", output)
+        self.assertEqual({"table.FilterMemory": "", "table.ReadLatency": "", "table.ReadTotalLatency": "",
+                          "table.Rows": "", "table.Used": "OldUsed", "keyspace.FilterMemory": "", "keyspace.Used": ""},
+                         self.catalog_entries())
         for target, line in re.findall(r"\]\(\.\./([^)#]+)#L(\d+)\)", output):
             declaration = (self.root / target).read_text().splitlines()[int(line) - 1]
             self.assertIn("final", declaration)
@@ -126,11 +134,43 @@ class ReferenceTests(ReferenceFixture):
         self.assertEqual(output, self.output())
 
     def test_stale_check_does_not_rewrite(self):
+        for relative in ["conf/metrics_ref.md", CATALOG]:
+            with self.subTest(output=relative):
+                self.run_generator()
+                path = self.root / relative
+                stale = path.read_text(encoding="utf-8") + "stale\n"
+                self.write(relative, stale)
+                self.run_generator("--check", error=relative + " is stale")
+                self.assertEqual(stale, path.read_text(encoding="utf-8"))
+
+    def test_missing_catalog_check_does_not_write(self):
         self.run_generator()
-        output = self.output() + "stale\n"
-        self.write("conf/metrics_ref.md", output)
-        self.run_generator("--check", error="is stale")
-        self.assertEqual(output, self.output())
+        (self.root / CATALOG).unlink()
+        self.run_generator("--check", error=CATALOG + " is stale")
+        self.assertFalse((self.root / CATALOG).exists())
+
+    def test_source_and_profile_must_change_together(self):
+        self.write(METRICS + "TableMetrics.java", self.table.replace(
+            "static final Timer GLOBAL", '/** New events. */ final Counter added = createTableCounter("Added");\n'
+            "static final Timer GLOBAL"))
+        self.run_generator(error="missing=[Added]")
+        self.assertFalse((self.root / CATALOG).exists())
+        self.all["table"]["optional"].append("Added")
+        self.simple["table"]["disabled"].append("Added")
+        self.write_profiles()
+        self.run_generator()
+        self.assertIn("table.Added", self.catalog_entries())
+        self.write(METRICS + "TableMetrics.java", self.table)
+        self.run_generator(error="unknown=[Added]")
+
+    def test_catalog_is_independent_of_profile_selections(self):
+        self.run_generator()
+        catalog = (self.root / CATALOG).read_text(encoding="utf-8")
+        self.simple["table"]["optional"].remove("Used")
+        self.simple["table"]["disabled"].append("Used")
+        self.write_profiles()
+        self.run_generator()
+        self.assertEqual(catalog, (self.root / CATALOG).read_text(encoding="utf-8"))
 
     def test_missing_description_and_unsupported_source_fail(self):
         for replacement, error in [
@@ -145,6 +185,7 @@ class ReferenceTests(ReferenceFixture):
                 self.write(METRICS + "TableMetrics.java", replacement)
                 self.run_generator(error=error)
                 self.assertFalse((self.root / "conf/metrics_ref.md").exists())
+                self.assertFalse((self.root / CATALOG).exists())
 
     def test_profile_validation(self):
         original = json.dumps(self.simple)
@@ -156,6 +197,8 @@ class ReferenceTests(ReferenceFixture):
             (lambda p: p["table"].update(required=None), "must be a list"),
             (lambda p: p["table"]["optional"].append(42), "nonempty strings"),
             (lambda p: p.update(mode="all"), "expected mode: allowlist"),
+            (lambda p: p.update(include_legacy_aliases="false"), "include_legacy_aliases must be a boolean"),
+            (lambda p: p.update(include_legacy_aliases=None), "include_legacy_aliases must be a boolean"),
             (lambda p: p["table"].update(unexpected=[]), "invalid sections"),
         ]
         for edit, error in cases:
@@ -178,6 +221,14 @@ class ReferenceTests(ReferenceFixture):
     def test_duplicate_yaml_key(self):
         self.write("conf/simple_metrics.yml", json.dumps(self.simple).replace('"mode": "allowlist"', '"mode": "allowlist", "mode": "allowlist"'))
         self.run_generator(error="duplicate key mode")
+
+    def test_alias_options_do_not_change_canonical_catalog(self):
+        for include in (True, False):
+            with self.subTest(include=include):
+                self.simple["include_legacy_aliases"] = include
+                self.write_profiles()
+                self.run_generator()
+                self.run_generator("--check")
 
     def test_changed_latency_registration_requires_support(self):
         path = self.root / (METRICS + "LatencyMetrics.java")
@@ -209,8 +260,13 @@ class ReferenceProperties(ReferenceFixture):
                 self.run_generator()
                 rows = re.findall(r"^\| \[(Sample\d+)\].*$", self.output(), flags=re.MULTILINE)
                 self.assertEqual(sorted(names), rows)
+                entries = self.catalog_entries()
+                self.assertEqual(sorted(names), [name.removeprefix("table.") for name in entries
+                                                if name.startswith("table.Sample")])
                 for i in range(32):
                     self.assertRegex(self.output(), rf"\[Sample{i:02}\].*Description {i}\. Deprecated alias: `Old{i}`")
+                    self.assertEqual(f"Old{i}", entries[f"table.Sample{i:02}"])
+                self.assertEqual(len(names) + 3, len(entries))
 
 
 if __name__ == "__main__":

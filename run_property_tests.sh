@@ -19,8 +19,45 @@ set -euo pipefail
 project_root="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$project_root/logs"
 exec > >(tee "$project_root/logs/$(date +%Y%m%d-%H%M%S)-run_property_tests.log") 2>&1
+if [[ $# == 1 && "$1" == --metric-ids ]]; then
+    export PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore
+    exec "$project_root/.build/sh/ai-profile-many-tables" \
+        org.apache.cassandra.metrics.LazyMetricIdPropertyTest
+fi
 if [[ $# == 1 && "$1" == --metrics-ref ]]; then
     exec "$project_root/.build/sh/ai-generate-metrics-reference" --property
+fi
+if [[ $# == 1 && "$1" == --metric-profiles ]]; then
+    export PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore
+    exec "$project_root/.build/sh/ai-profile-many-tables" \
+        org.apache.cassandra.metrics.MetricProfilePropertyTest \
+        'org.apache.cassandra.metrics.NoOpMetricsTest$Properties'
+fi
+if [[ $# == 1 && "$1" == --jmx-history ]]; then
+    "$project_root/venv/bin/python" "$project_root/.build/sh/test_analyze_heap_ownership.py" HistoryArrayStoragePropertyTest
+    export PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore
+    exec "$project_root/.build/sh/ai-profile-many-tables" \
+        org.apache.cassandra.metrics.AdaptiveHistogramHistoryPropertyTest
+fi
+if [[ $# == 1 && "$1" == --otel-storage ]]; then
+    exec "$project_root/.build/sh/ai-benchmark-otel-storage" --property-only
+fi
+if [[ $# == 1 && "$1" == --histogram-widths ]]; then
+    exec "$project_root/.build/sh/ai-benchmark-otel-storage" --width-over-time --property-only
+fi
+if [[ $# == 1 && "$1" == --jmx-names ]]; then
+    exec bash "$project_root/.build/sh/ai-probe-jmx-names" --property-only
+fi
+if [[ $# == 1 && "$1" == --jmx-query ]]; then
+    exec bash "$project_root/.build/sh/ai-probe-jmx-names" --boundaries --properties
+fi
+if [[ $# == 1 && "$1" == --jmx-registration ]]; then
+    export PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore
+    exec "$project_root/.build/sh/ai-profile-many-tables" 'org.apache.cassandra.metrics.CompactJmxRegistrationTest$Properties'
+fi
+if [[ $# == 1 && "$1" == --metric-bookkeeping ]]; then
+    export PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore
+    exec "$project_root/.build/sh/ai-profile-many-tables" 'org.apache.cassandra.metrics.TableMetricBookkeepingTest$Properties'
 fi
 if [[ $# == 1 && "$1" == --lazy ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" --property
@@ -35,7 +72,7 @@ if [[ $# == 1 && "$1" == --meters ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" --meter-property
 fi
 if [[ $# != 0 ]]; then
-    echo 'Usage: run_property_tests.sh [--lazy|--histograms|--meters|--reservoirs|--metrics-ref]' >&2
+    echo 'Usage: run_property_tests.sh [--lazy|--histograms|--meters|--reservoirs|--metrics-ref|--metric-profiles|--jmx-history|--otel-storage|--histogram-widths|--jmx-names|--jmx-query|--jmx-registration|--metric-ids|--metric-bookkeeping]' >&2
     exit 2
 fi
 export PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore
