@@ -37,6 +37,26 @@ import static org.junit.Assert.assertTrue;
 public class MemtableResidencyConfigTest
 {
     @Test
+    public void hierarchyOptionsRequireUcsAndPreserveDefault()
+    {
+        MemtableResidencyProfileHarness.Config defaults = MemtableResidencyProfileHarness.Config.parse(new String[] { "--ucs-scaling", "T4" });
+        assertTrue(!defaults.compactionOptions().contains("min_hierarchy_size"));
+        assertTrue(!defaults.finalHeapDump);
+        assertTrue(MemtableResidencyProfileHarness.Config.parse(new String[] { "--final-heap-dump" }).finalHeapDump);
+        for (String size : new String[] { "1B", "1KiB", "4KiB", "64KiB", "1MiB" })
+        {
+            MemtableResidencyProfileHarness.Config config = MemtableResidencyProfileHarness.Config.parse(new String[] {
+                "--ucs-scaling", "T4", "--ucs-min-hierarchy", size, "--ucs-trace"
+            });
+            assertTrue(config.ucsTrace);
+            assertTrue(config.compactionOptions().contains("'min_hierarchy_size':'" + size + "'"));
+        }
+        for (String[] args : new String[][] { { "--ucs-trace" }, { "--ucs-min-hierarchy", "1KiB" },
+                                             { "--ucs-scaling", "T4", "--ucs-min-hierarchy", "x'" } })
+            assertThatThrownBy(() -> MemtableResidencyProfileHarness.Config.parse(args)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     public void subnetPreservesWorkloadAndProvisionsAllAddresses() throws Exception
     {
         MemtableResidencyProfileHarness.Config defaults = MemtableResidencyProfileHarness.Config.parse(new String[0]);

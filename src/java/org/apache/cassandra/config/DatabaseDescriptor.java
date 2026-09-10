@@ -939,8 +939,7 @@ public class DatabaseDescriptor
 
         initializeBackgroundWriteDiskAccessMode();
 
-        if (conf.memtable_idle_timeout == null || conf.memtable_idle_flush_max_concurrent < 1)
-            throw new ConfigurationException("memtable_idle_timeout must be non-null and memtable_idle_flush_max_concurrent must be positive", false);
+        validateIdleMemtableOptions(conf);
 
         if (conf.memtable_flush_writers == 0)
         {
@@ -4810,6 +4809,16 @@ public class DatabaseDescriptor
         return conf.memtable_cleanup_threshold;
     }
 
+    static void validateIdleMemtableOptions(Config config)
+    {
+        if (config.memtable_idle_timeout == null || config.memtable_idle_flush_max_concurrent < 1)
+            throw new ConfigurationException("memtable_idle_timeout must be non-null and memtable_idle_flush_max_concurrent must be positive", false);
+        if (config.memtable_idle_flush_max_per_second < 1)
+            throw new ConfigurationException("memtable_idle_flush_max_per_second must be positive", false);
+        if (config.memtable_idle_flush_throughput == null || config.memtable_idle_flush_throughput.toBytesPerSecond() <= 0)
+            throw new ConfigurationException("memtable_idle_flush_throughput must be non-null and positive", false);
+    }
+
     public static long getMemtableIdleTimeoutNanos()
     {
         return conf == null ? 0 : TimeUnit.MILLISECONDS.toNanos(conf.memtable_idle_timeout.toMilliseconds());
@@ -4818,6 +4827,16 @@ public class DatabaseDescriptor
     public static int getMemtableIdleFlushMaxConcurrent()
     {
         return conf.memtable_idle_flush_max_concurrent;
+    }
+
+    public static int getMemtableIdleFlushMaxPerSecond()
+    {
+        return conf.memtable_idle_flush_max_per_second;
+    }
+
+    public static double getMemtableIdleFlushThroughputBytesPerSecond()
+    {
+        return conf.memtable_idle_flush_throughput.toBytesPerSecond();
     }
 
     public static Map<String, InheritingClass> getMemtableConfigurations()

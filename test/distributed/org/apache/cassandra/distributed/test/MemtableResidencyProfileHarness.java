@@ -37,6 +37,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import com.sun.management.HotSpotDiagnosticMXBean;
 
@@ -46,6 +47,9 @@ import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.compaction.AbstractCompactionStrategy;
+import org.apache.cassandra.db.compaction.UnifiedCompactionStrategy;
+import org.apache.cassandra.db.compaction.unified.Controller;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.memtable.AbstractAllocatorMemtable;
 import org.apache.cassandra.db.memtable.Memtable;
@@ -403,6 +407,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
         values.put("heapUsedBytes", heap.heapUsed);
         values.put("driverThreadAllocatedBytes", heap.threadAllocatedBytes);
         values.put("settledPostGc", settled);
+        values.put("processCpuNanos", ((com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean()).getProcessCpuTime());
         long[] counts = counters();
         String[] names = COUNTERS.split(",");
         for (int i = 0; i < names.length; i++)
@@ -421,10 +426,37 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                 }
                 return Map.of("jobs", jobs, "bytesIn", bytesIn, "bytesOut", bytesOut);
             }));
+        if (settled && config.ucsTrace && !name.equals("baseline"))
+            values.put("ucs", cluster.get(1).callOnInstance(() -> {
+                ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore("t000000");
+                List<Map<String, Object>> groups = new ArrayList<>();
+                for (List<AbstractCompactionStrategy> strategies : cfs.getCompactionStrategyManager().getStrategies())
+                {
+                    for (AbstractCompactionStrategy strategy : strategies)
+                    {
+                        UnifiedCompactionStrategy ucs = (UnifiedCompactionStrategy) strategy;
+                        List<SSTableReader> readers = cfs.getLiveSSTables().stream()
+                                                        .filter(s -> cfs.getCompactionStrategyManager().getCompactionStrategyFor(s) == ucs)
+                                                        .collect(Collectors.toList());
+                        synchronized (ucs)
+                        {
+                            List<Map<String, Object>> levels = new ArrayList<>();
+                            for (UnifiedCompactionStrategy.Level level : ucs.getLevels(readers, UnifiedCompactionStrategy::isSuitableForCompaction))
+                                levels.add(Map.of("index", level.getIndex(), "files", level.getSSTables().size(),
+                                                  "bytes", level.getSSTables().stream().mapToLong(SSTableReader::onDiskLength).sum(),
+                                                  "densities", level.getSSTables().stream().map(ucs::getDensity).collect(Collectors.toList())));
+                            groups.add(Map.of("flushSize", ucs.getController().getFlushSizeBytes(),
+                                              "baseSize", ucs.getController().getBaseSstableSize(ucs.getController().getFanout(0)),
+                                              "levels", levels));
+                        }
+                    }
+                }
+                return groups;
+            }));
         checkpoints.put(name, values);
         Files.writeString(runDirectory.resolve("checkpoint-" + name + ".json"), JsonUtils.writeAsJsonString(values),
                           StandardOpenOption.CREATE_NEW);
-        if (settled && config.heapDumps)
+        if ((settled && config.heapDumps) || (config.finalHeapDump && name.equals("settled")))
             ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class)
                              .dumpHeap(runDirectory.resolve(name + ".hprof").toString(), true);
     }
@@ -552,6 +584,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
         Path out = Paths.get("logs");
         boolean noProfile;
         boolean heapDumps;
+        boolean finalHeapDump;
         boolean eagerMemtable;
         boolean explicitRetirement;
         boolean lazyTombstoneHistograms;
@@ -560,8 +593,10 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
         boolean overwrite;
         boolean settleEachCycle;
         boolean cursorCompaction;
+        boolean ucsTrace;
         String ucsScaling;
         String ucsMinSize = "100MiB";
+        String ucsMinHierarchy;
         String metricsProfile;
         int idleFlushMillis;
         int idleFlushMaxConcurrent = 2;
@@ -580,6 +615,8 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                     c.noProfile = true;
                 else if (option.equals("--heap-dumps"))
                     c.heapDumps = true;
+                else if (option.equals("--final-heap-dump"))
+                    c.finalHeapDump = true;
                 else if (option.equals("--eager-memtable"))
                     c.eagerMemtable = true;
                 else if (option.equals("--explicit-retirement"))
@@ -596,6 +633,8 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                     c.settleEachCycle = true;
                 else if (option.equals("--cursor-compaction"))
                     c.cursorCompaction = true;
+                else if (option.equals("--ucs-trace"))
+                    c.ucsTrace = true;
                 else if (option.equals("--compact-jmx"))
                     c.compactJmx = true;
                 else
@@ -623,6 +662,7 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                         case "--out": c.out = Paths.get(value); break;
                         case "--ucs-scaling": c.ucsScaling = value; break;
                         case "--ucs-min-size": c.ucsMinSize = value; break;
+                        case "--ucs-min-hierarchy": c.ucsMinHierarchy = value; break;
                         case "--metrics-profile": c.metricsProfile = value; break;
                         case "--idle-flush-ms": c.idleFlushMillis = Integer.parseInt(value); break;
                         case "--idle-flush-max-concurrent": c.idleFlushMaxConcurrent = Integer.parseInt(value); break;
@@ -654,6 +694,8 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                 (c.idleFlushMillis > 0 && (c.ucsScaling == null || !c.memtable.equals("TrieMemtable") || c.eagerMemtable || c.explicitRetirement)))
                 throw new IllegalArgumentException("Idle flushing requires lazy TrieMemtable and UCS, without explicit retirement");
             c.compactionOptions();
+            if ((c.ucsTrace || c.ucsMinHierarchy != null) && c.ucsScaling == null)
+                throw new IllegalArgumentException("UCS tracing and hierarchy options require UCS");
             return c;
         }
 
@@ -663,8 +705,15 @@ public final class MemtableResidencyProfileHarness extends ProfiledClusterHarnes
                 return "{'class':'SizeTieredCompactionStrategy'}";
             if (!ucsScaling.matches("[TLN0-9, +\\-]+") || !ucsMinSize.matches("[0-9]+[A-Za-z]+"))
                 throw new IllegalArgumentException("Invalid UCS scaling or minimum size");
+            if (ucsMinHierarchy != null)
+            {
+                if (!ucsMinHierarchy.matches("[0-9]+[A-Za-z]+"))
+                    throw new IllegalArgumentException("Invalid UCS hierarchy size");
+                Controller.validateOptions(Map.of(Controller.MIN_HIERARCHY_SIZE_OPTION, ucsMinHierarchy));
+            }
             return "{'class':'UnifiedCompactionStrategy','scaling_parameters':'" + ucsScaling +
-                   "','min_sstable_size':'" + ucsMinSize + "','base_shard_count':'4'}";
+                   "','min_sstable_size':'" + ucsMinSize + "','base_shard_count':'4'" +
+                   (ucsMinHierarchy == null ? "" : ",'min_hierarchy_size':'" + ucsMinHierarchy + "'") + "}";
         }
 
         int operationsPerCycle()

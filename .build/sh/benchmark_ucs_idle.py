@@ -38,22 +38,27 @@ def validate_run(directory, mode, writes):
         raise ValueError("Retirement or compaction did not settle")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("suite", choices=("baseline", "post", "long", "scale", "smoke"))
-    args = parser.parse_args()
+def write_metrics_profile(profile):
     root = Path(__file__).resolve().parents[2]
-    os.chdir(root)
-    output = root / "logs" / (datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "-ucs-idle-" + args.suite)
-    output.mkdir(parents=True)
     # Expose the same byte counters in every mode, including the disabled control.
     table, keyspace = (root / "conf/simple_metrics.yml").read_text().split("\nkeyspace:", 1)
     names = ("BytesFlushed", "CompactionBytesWritten", "MemtableSwitchCount")
     for name in names:
         table = table.replace("    - " + name + "\n", "")
     table = table.replace("  optional:\n", "  optional:\n" + "".join("    - " + name + "\n" for name in names), 1)
-    profile = output / "metrics.yml"
     profile.write_text(table + "\nkeyspace:" + keyspace)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("suite", choices=("baseline", "post", "long", "scale", "smoke", "census"))
+    args = parser.parse_args()
+    root = Path(__file__).resolve().parents[2]
+    os.chdir(root)
+    output = root / "logs" / (datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "-ucs-idle-" + args.suite)
+    output.mkdir(parents=True)
+    profile = output / "metrics.yml"
+    write_metrics_profile(profile)
 
     tables, cycles, idle_ms, timeout_ms = 100, 12, 1000, 1000
     modes = [("off-append", "T4"), ("auto-append", "T4"), ("off-overwrite", "T4"), ("auto-overwrite", "T4")]
@@ -68,7 +73,10 @@ def main():
     elif args.suite == "smoke":
         tables, cycles, idle_ms, timeout_ms = 3, 2, 30000, 30000
         modes = [("auto-append", "T4")]
-    env = dict(os.environ, PROFILE_SKIP_BUILD="true", MANY_TABLES_XMX="8g" if args.suite == "scale" else "2g",
+    elif args.suite == "census":
+        tables, idle_ms = 1000, 0
+        modes = [("explicit-1file", "T8"), ("explicit-3files", "T8"), ("explicit-6files", "T8")]
+    env = dict(os.environ, PROFILE_SKIP_BUILD="true", MANY_TABLES_XMX="8g" if args.suite in ("scale", "census") else "2g",
                PROFILE_TRANSIENT_JMX="true", PROFILE_LAZY_METRIC_IDS="true", PROFILE_COMPACT_BOOKKEEPING="true")
     results = []
     with (output / "console.log").open("w") as console:
@@ -77,17 +85,23 @@ def main():
             print(message, file=console, flush=True)
 
         for mode, scaling in modes:
+            rows = 4
+            if args.suite == "census":
+                # Fixed logical data, with exact flush boundaries below the T8 threshold.
+                cycles = {"explicit-1file": 1, "explicit-3files": 3, "explicit-6files": 6}[mode]
+                rows = 24 // cycles
             name = mode + "-" + scaling.replace(",", "_")
             command = [".build/sh/ai-profile-memtable-residency", "--scenario", "idle-reactivate",
-                       "--tables", str(tables), "--active-tables", str(tables), "--rows-per-table", "4",
+                       "--tables", str(tables), "--active-tables", str(tables), "--rows-per-table", str(rows),
                        "--cycles", str(cycles), "--rate", "10000", "--idle-ms", str(idle_ms),
                        "--hold-ms", "2000", "--sample-ms", "250", "--payload-bytes", "256", "--subnet", "145",
                        "--ucs-scaling", scaling, "--ucs-min-size", "100MiB", "--metrics-profile", str(profile),
-                       "--compact-jmx", "--cursor-compaction", "--settle-each-cycle", "--no-profile",
+                       "--compact-jmx", "--cursor-compaction", "--no-profile",
                        "--out", str(output / name)]
+            command.append("--heap-dumps" if args.suite == "census" else "--settle-each-cycle")
             if mode.startswith("auto"):
                 command.extend(("--idle-flush-ms", str(timeout_ms)))
-            if args.suite == "scale":
+            if args.suite in ("scale", "census"):
                 command.extend(("--memtable-heap-mib", "256"))
             if mode.startswith("explicit"):
                 command.append("--explicit-retirement")
@@ -103,7 +117,12 @@ def main():
             validation_error = None
             if status == 0:
                 try:
-                    validate_run(output / name, mode, tables * cycles * 4)
+                    validate_run(output / name, mode, tables * cycles * rows)
+                    if args.suite == "census":
+                        summary = json.loads(next((output / name).rglob("summary.json")).read_text())
+                        final = summary["checkpoints"]["settled"]
+                        if final["sstables"] != tables * cycles or final["compactionHistory"]["jobs"] != 0:
+                            raise ValueError("Census file count changed or user compaction ran")
                 except (ValueError, KeyError) as error:
                     validation_error = str(error)
                     log("VALIDATION FAILED: " + validation_error)

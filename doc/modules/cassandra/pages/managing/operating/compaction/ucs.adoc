@@ -647,6 +647,20 @@ A value of 0 disables this feature.
 
 Default: 100MiB
 
+| min_hierarchy_size
+| Experimental minimum compaction hierarchy base and rounding quantum for observed flush sizes.
+Accepts sizes from 1B through 1MiB. The default preserves the existing hierarchy calculation.
+Smaller values let tiny flushes move through the hierarchy sooner, but can retain more SSTables and increase heap usage and read work.
+This option does not control shard splitting or relax the minimum `flush_size_override` value.
+Evaluate it with lazy Trie memtables and UCS before deployment; automatic idle flushing remains separately disabled by default.
+Set this option in the `compaction` map on `CREATE TABLE` or `ALTER TABLE`, including
+other compaction options that should remain in effect. A change can regroup existing
+SSTables at the next compaction selection. It is a hierarchy floor, not a maximum L0
+file size. Observed flush sizes, token coverage, and scaling parameters also determine
+the boundaries. No automatic tuning is enabled by this option.
+
+Default: 1MiB
+
 | base_shard_count 
 | The minimum number of shards stem:[b], used for levels with the smallest density. 
 This gives the minimum compaction concurrency for the lowest levels. 

@@ -13,9 +13,11 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-- [ ] Census post-retirement heap with matched one-, three-, and six-SSTable cases. Separate populated metrics, SSTable readers, schema, and allocator reservations. Profile the observed 32–42 second drain of 1,000 tables under normal logging and assess byte-based admission for wide write bursts (research/ucs_idle_flush.md).
+- [ ] Trim finished SSTable tombstone histograms to used entries, starting with empty snapshots. Newly flushed readers retain 1,288 bytes even with no tombstones; preserve exact serialization and deletion-time behavior and compare reopened readers (research/post_retirement_heap_census.md).
 
-- [ ] Benchmark an optional smaller UCS minimum hierarchy base for tiny idle flushes. Preserve the legacy default and validate size transitions; T8 reduces rewrites but retains more SSTables, while T4,L10 leaves the tiny-file behavior unchanged (research/ucs_idle_flush.md).
+- [ ] Evaluate safe sharing of SSTable histogram offset arrays (2,216 bytes/file), then compact immutable counter snapshots. Audit exposed mutable arrays before sharing; preserve exact statistics (research/post_retirement_heap_census.md).
+
+- [ ] Profile the observed 32–42 second idle drain of 1,000 tables under normal logging, including wide write bursts with the new admission budgets (research/ucs_idle_flush.md and research/bounded_idle_flush_admission.md).
 
 - [ ] Evaluate bounded reductions to surviving modern JMX names/property offsets, repository entries, and metric wrappers. With optional legacy aliases disabled, the main JMX server retains 19.34 MiB at 1000 tables. Exclude removed aliases from remaining savings estimates; preserve the compatibility control without a server/repository rewrite (research/metric_alias_exports.md and research/jmx_registration_and_metric_bookkeeping.md).
 
@@ -24,6 +26,14 @@ specific language governing permissions and limitations under the License.
 - [ ] Revisit worker-owned metrics, lazy aggregation, and safe snapshot/retirement protocols after current residency work (research/metric_threading.md and research/lazy_metric_aggregation.md).
 
 # DONE
+
+- [x] Upgrade the shared JaCoCo dependency from 0.8.8 to 0.8.11 for Java 21. Pass build/Checkstyle and all 74 idle-admission tests with instrumentation; generate reports showing 100% line/branch coverage for AdmissionBudget and idle configuration validation (research/bounded_idle_flush_admission.md).
+
+- [x] Add node-wide idle-flush rate and estimated-byte budgets, preserving disabled-by-default retirement and manual UCS DDL controls. Pass 74 focused tests, including 100,000 generated budget steps. Six-table drain changes from 2.223s at 100/s to 7.149s at 1/s; oversized-flush byte pacing drains four tables in 7.151s. Document the Java 21/JaCoCo instrumentation limit (research/bounded_idle_flush_admission.md).
+
+- [x] Implement and benchmark optional UCS min_hierarchy_size, preserving the 1MiB default and disabled idle-flush default. Pass 85 focused tests and 22 runs with 170,880 writes. Smaller sizes cut append compaction output by about 90% but more than double average reader counts; stop before promotion/1,000-table stages on the residency gate. Record automatic-flush, T8, and allocation controls (research/ucs_small_hierarchy.md).
+
+- [x] Census post-retirement heap at 1,000 tables with matched one-, three-, and six-SSTable cases. Verify all 72,000 writes and exact reader counts; attribute statistics, metrics, file resources, table state, and allocator accounting. Record 129.00 / 162.98 / 213.25 MiB settled heap and plan the smaller UCS hierarchy experiment (research/post_retirement_heap_census.md).
 
 - [x] Add optional automatic idle flushing for lazy TrieMemtable + UCS, disabled by default. Preserve write/flush/reclamation ordering and metric history; cover CQL/JMX strategy changes and indexes. Pass 58 targeted tests and a real 30-second smoke test. At 1,000 tables, matched settled heap falls from 1,124.14 to 142.23 MiB (87.35%); report compaction and latency tradeoffs (research/ucs_idle_flush.md).
 

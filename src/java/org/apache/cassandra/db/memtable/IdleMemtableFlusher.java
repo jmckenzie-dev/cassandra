@@ -49,6 +49,7 @@ public final class IdleMemtableFlusher
     private final Map<TrieMemtable, Future<?>> flushing = new LinkedHashMap<>();
     private final long timeoutNanos;
     private final int maxConcurrent;
+    private final AdmissionBudget budget;
     private final LongSupplier clock;
     private final Function<TrieMemtable, Future<?>> submit;
     private final AtomicBoolean scanQueued = new AtomicBoolean();
@@ -56,7 +57,8 @@ public final class IdleMemtableFlusher
     private volatile ScheduledFuture<?> task;
     private volatile boolean closed;
 
-    IdleMemtableFlusher(long timeoutNanos, int maxConcurrent, LongSupplier clock, Function<TrieMemtable, Future<?>> submit)
+    IdleMemtableFlusher(long timeoutNanos, int maxConcurrent, int maxPerSecond, double bytesPerSecond,
+                       LongSupplier clock, Function<TrieMemtable, Future<?>> submit)
     {
         if (timeoutNanos <= 0 || maxConcurrent <= 0)
             throw new IllegalArgumentException("Idle timeout and concurrency must be positive");
@@ -64,6 +66,7 @@ public final class IdleMemtableFlusher
         this.maxConcurrent = maxConcurrent;
         this.clock = clock;
         this.submit = submit;
+        this.budget = new AdmissionBudget(maxPerSecond, bytesPerSecond, clock.getAsLong());
     }
 
     private static final class Holder
@@ -74,6 +77,8 @@ public final class IdleMemtableFlusher
         {
             long timeout = DatabaseDescriptor.getMemtableIdleTimeoutNanos();
             IdleMemtableFlusher flusher = new IdleMemtableFlusher(timeout, DatabaseDescriptor.getMemtableIdleFlushMaxConcurrent(),
+                                                                DatabaseDescriptor.getMemtableIdleFlushMaxPerSecond(),
+                                                                DatabaseDescriptor.getMemtableIdleFlushThroughputBytesPerSecond(),
                                                                 Clock.Global::nanoTime,
                                                                 memtable -> ((ColumnFamilyStore) memtable.owner)
                                                                             .flushIdleMemtable(memtable, Clock.Global.nanoTime(), timeout));
@@ -171,16 +176,19 @@ public final class IdleMemtableFlusher
             if (iterator == null || !iterator.hasNext())
                 iterator = candidates.iterator();
             long now = clock.getAsLong();
-            for (int scanned = 0; scanned < SCAN_BATCH_SIZE && iterator.hasNext() && flushing.size() < maxConcurrent; scanned++)
+            for (int scanned = 0; scanned < SCAN_BATCH_SIZE && iterator.hasNext() && flushing.size() < maxConcurrent
+                                  && budget.available(now); scanned++)
             {
                 TrieMemtable memtable = iterator.next();
                 if (!memtable.idleFlushEligible())
                     candidates.remove(memtable);
                 else if (memtable.isIdle(now, timeoutNanos))
                 {
+                    long estimatedBytes = Math.max(0, memtable.getLiveDataSize());
                     Future<?> future = submit.apply(memtable);
                     if (future != null)
                     {
+                        budget.charge(estimatedBytes);
                         candidates.remove(memtable);
                         flushing.put(memtable, future);
                         if (task != null)
@@ -204,6 +212,46 @@ public final class IdleMemtableFlusher
         candidates.clear();
         flushing.clear();
         iterator = null;
+    }
+
+    /** One second of credit; an oversized flush borrows bytes from future admission. Guarded by scan's lock. */
+    static final class AdmissionBudget
+    {
+        private final int maxPerSecond;
+        private final double bytesPerSecond;
+        private double operations;
+        private double bytes;
+        private long lastUpdate;
+
+        AdmissionBudget(int maxPerSecond, double bytesPerSecond, long now)
+        {
+            if (maxPerSecond < 1 || !Double.isFinite(bytesPerSecond) || bytesPerSecond <= 0)
+                throw new IllegalArgumentException("Idle flush rates must be finite and positive");
+            this.maxPerSecond = maxPerSecond;
+            this.bytesPerSecond = bytesPerSecond;
+            operations = maxPerSecond;
+            bytes = bytesPerSecond;
+            lastUpdate = now;
+        }
+
+        boolean available(long now)
+        {
+            long elapsed = now - lastUpdate;
+            if (elapsed > 0)
+            {
+                double seconds = elapsed / 1_000_000_000.0;
+                operations = Math.min(maxPerSecond, operations + seconds * maxPerSecond);
+                bytes = Math.min(bytesPerSecond, bytes + seconds * bytesPerSecond);
+                lastUpdate = now;
+            }
+            return operations >= 1 && bytes > 0;
+        }
+
+        void charge(long estimatedBytes)
+        {
+            operations--;
+            bytes -= estimatedBytes;
+        }
     }
 
     synchronized int flushingCount()

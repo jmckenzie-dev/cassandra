@@ -28,10 +28,13 @@ Prefer the `.build/*.sh` helper scripts over calling `ant` directly. See
 
 All three scripts accept `-s`/`--summary`, which prints a summary of failures instead of the full ant output.  Omit it for the full output.  `--clean` applies to `.build/build-jars.sh` only.
 
+Wait for benchmark JVMs to exit before rebuilding their shared JAR or test classes.
+
 ## Testing
 
 - Do NOT run the entire test suite. Run only the specific test(s) relevant to your change.
 - The project must be built first (e.g. `.build/build-jars.sh`).
+- Run test wrappers sequentially in a shared checkout. They clean common output and data directories.
 
     ```bash
     # Run a single test class: -a is the test type, -t is a class-name regexp

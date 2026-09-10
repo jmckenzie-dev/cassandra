@@ -177,7 +177,7 @@ public class IdleMemtableFlusherTest extends CQLTester
         execute("INSERT INTO %s (pk, v) VALUES (1, 10)");
         TrieMemtable old = current(cfs);
         AtomicLong calls = new AtomicLong();
-        IdleMemtableFlusher flusher = new IdleMemtableFlusher(TIMEOUT, 1, () -> old.lastWriteNanos() + TIMEOUT, m -> {
+        IdleMemtableFlusher flusher = new IdleMemtableFlusher(TIMEOUT, 1, 100, 16 * 1024 * 1024, () -> old.lastWriteNanos() + TIMEOUT, m -> {
             calls.incrementAndGet();
             return ImmediateFuture.failure(new IllegalStateException("test flush failure"));
         });
@@ -236,10 +236,110 @@ public class IdleMemtableFlusherTest extends CQLTester
 
     private IdleMemtableFlusher controller(AtomicLong now, int maxConcurrent)
     {
-        IdleMemtableFlusher flusher = new IdleMemtableFlusher(TIMEOUT, maxConcurrent, now::get,
+        IdleMemtableFlusher flusher = new IdleMemtableFlusher(TIMEOUT, maxConcurrent, 100, 16 * 1024 * 1024, now::get,
                                                             m -> ((ColumnFamilyStore) m.owner).flushIdleMemtable(m, now.get(), TIMEOUT));
         controllers.add(flusher);
         return flusher;
+    }
+
+    @Test
+    public void rateBudgetSurvivesCompletionAndDoesNotBlockForcedFlush() throws Throwable
+    {
+        ColumnFamilyStore cfs = createEligibleTable();
+        execute("INSERT INTO %s (pk,v) VALUES (1,10)");
+        TrieMemtable first = current(cfs);
+        AtomicLong now = new AtomicLong(first.lastWriteNanos() + TimeUnit.HOURS.toNanos(1));
+        IdleMemtableFlusher flusher = new IdleMemtableFlusher(TIMEOUT, 2, 1, 1_000_000, now::get,
+                                                            m -> ((ColumnFamilyStore) m.owner).flushIdleMemtable(m, now.get(), TIMEOUT));
+        controllers.add(flusher);
+        flusher.add(first);
+        flusher.scan();
+        awaitReclaimed(first);
+        execute("INSERT INTO %s (pk,v) VALUES (2,20)");
+        TrieMemtable second = current(cfs);
+        flusher.add(second);
+        flusher.scan();
+        assertEquals(0, flusher.flushingCount());
+        assertSame(second, current(cfs));
+        cfs.forceBlockingFlush(ColumnFamilyStore.FlushReason.USER_FORCED);
+        flusher.scan();
+        assertRowsIgnoringOrder(execute("SELECT * FROM %s"), row(1, 10), row(2, 20));
+        now.addAndGet(TimeUnit.SECONDS.toNanos(1));
+        flusher.scan();
+        assertEquals(0, flusher.candidateCount());
+    }
+
+    @Test
+    public void byteDebtDelaysAnotherTableUntilRepaid() throws Throwable
+    {
+        ColumnFamilyStore first = createEligibleTable();
+        execute("INSERT INTO %s (pk,v) VALUES (1,10)");
+        TrieMemtable old = current(first);
+        assertTrue(old.getLiveDataSize() > 1);
+        long estimate = old.getLiveDataSize();
+        AtomicLong now = new AtomicLong(old.lastWriteNanos() + TimeUnit.HOURS.toNanos(1));
+        IdleMemtableFlusher flusher = new IdleMemtableFlusher(TIMEOUT, 2, 100, 1, now::get,
+                                                            m -> ((ColumnFamilyStore) m.owner).flushIdleMemtable(m, now.get(), TIMEOUT));
+        controllers.add(flusher);
+        flusher.add(old);
+        flusher.scan();
+        awaitReclaimed(old);
+        ColumnFamilyStore second = createEligibleTable();
+        execute("INSERT INTO %s (pk,v) VALUES (2,20)");
+        TrieMemtable another = current(second);
+        flusher.add(another);
+        flusher.scan();
+        assertSame(another, current(second));
+        assertEquals(0, flusher.flushingCount());
+        now.addAndGet(TimeUnit.SECONDS.toNanos(estimate + 1));
+        flusher.scan();
+        awaitReclaimed(another);
+        assertRows(execute("SELECT * FROM %s"), row(2, 20));
+        flusher.scan();
+        assertEquals(0, flusher.candidateCount());
+    }
+
+    @Test
+    public void staleSubmissionDoesNotSpendBudget() throws Throwable
+    {
+        ColumnFamilyStore cfs = createEligibleTable();
+        execute("INSERT INTO %s (pk,v) VALUES (1,10)");
+        TrieMemtable old = current(cfs);
+        AtomicLong now = new AtomicLong(old.lastWriteNanos() + TIMEOUT);
+        AtomicLong calls = new AtomicLong();
+        IdleMemtableFlusher flusher = new IdleMemtableFlusher(TIMEOUT, 1, 1, 1, now::get, m -> {
+            if (calls.getAndIncrement() == 0)
+                return null;
+            return cfs.flushIdleMemtable(m, now.get(), TIMEOUT);
+        });
+        controllers.add(flusher);
+        flusher.add(old);
+        flusher.scan();
+        assertSame(old, current(cfs));
+        flusher.scan();
+        awaitReclaimed(old);
+        assertEquals(2, calls.get());
+        assertRows(execute("SELECT * FROM %s"), row(1, 10));
+    }
+
+    @Test
+    public void queuedWriteIsRecheckedBeforeAdmission() throws Throwable
+    {
+        ColumnFamilyStore cfs = createEligibleTable();
+        execute("INSERT INTO %s (pk,v) VALUES (1,10)");
+        TrieMemtable old = current(cfs);
+        AtomicLong now = new AtomicLong(old.lastWriteNanos() + TIMEOUT);
+        long staleNow = now.get();
+        IdleMemtableFlusher flusher = controller(now, 1);
+        flusher.add(old);
+        execute("UPDATE %s SET v = 20 WHERE pk = 1");
+        now.set(staleNow);
+        flusher.scan();
+        assertSame(old, current(cfs));
+        now.set(old.lastWriteNanos() + TIMEOUT);
+        flusher.scan();
+        awaitReclaimed(old);
+        assertRows(execute("SELECT * FROM %s"), row(1, 20));
     }
 
     @Test

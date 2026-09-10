@@ -25,9 +25,14 @@ if [[ ${#launchers[@]} != 1 || ! -f "${launchers[0]}" ]]; then
     echo "Expected one existing Eclipse MAT launcher under $mat_directory" >&2
     exit 1
 fi
+query_limit="${MAT_QUERY_LIMIT:-1000}"
+if [[ ! "$query_limit" =~ ^[1-9][0-9]*$ ]]; then
+    echo 'MAT_QUERY_LIMIT must be a positive integer' >&2
+    exit 2
+fi
 java -Xmx4g -Djava.awt.headless=true --add-exports=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED \
      -jar "${launchers[0]}" -consolelog -nosplash -application org.eclipse.mat.api.parse \
-     "$1" "-command=${2:-dominator_tree -groupby BY_CLASS}" -format=csv -limit=1000 org.eclipse.mat.api:query
+     "$1" "-command=${2:-dominator_tree -groupby BY_CLASS}" -format=csv -limit="$query_limit" org.eclipse.mat.api:query
 report="logs/$stamp-$(basename "${1%.*}")-dominators.zip"
 cp "${1%.*}_Query.zip" "$report"
 echo "Query: ${2:-dominator_tree -groupby BY_CLASS}"

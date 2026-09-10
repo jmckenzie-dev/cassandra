@@ -29,6 +29,33 @@ if [[ $# == 0 ]]; then
         org.apache.cassandra.db.memtable.TrieMemtableLazyPropertyTest
         org.apache.cassandra.distributed.test.TrieMemtableLazyRecoveryTest
     )
+elif [[ $# == 1 && "$1" == --idle-admission ]]; then
+    test_classes=(
+        org.apache.cassandra.config.IdleMemtableConfigTest
+        org.apache.cassandra.db.memtable.IdleFlushAdmissionBudgetTest
+        org.apache.cassandra.db.memtable.IdleMemtableFlusherTest
+        org.apache.cassandra.distributed.test.IdleMemtableFlushTest
+        org.apache.cassandra.db.memtable.TrieMemtableRetirementTest
+        org.apache.cassandra.db.memtable.TrieMemtableRetirementFailureTest
+        org.apache.cassandra.db.virtual.SettingsTableTest
+        org.apache.cassandra.db.compaction.unified.ControllerTest
+        org.apache.cassandra.db.compaction.unified.ControllerHierarchyTest
+    )
+elif [[ $# == 1 && "$1" == --idle-admission-property ]]; then
+    test_classes=(org.apache.cassandra.db.memtable.IdleFlushAdmissionBudgetPropertyTest)
+elif [[ $# == 1 && "$1" == --ucs-hierarchy ]]; then
+    test_classes=(
+        org.apache.cassandra.db.compaction.unified.ControllerTest
+        org.apache.cassandra.db.compaction.unified.ControllerHierarchyTest
+        org.apache.cassandra.db.compaction.UnifiedCompactionStrategyTest
+        org.apache.cassandra.db.compaction.unified.ShardedMultiWriterTest
+        org.apache.cassandra.db.memtable.IdleMemtableFlusherTest
+        org.apache.cassandra.distributed.test.IdleMemtableFlushTest
+        org.apache.cassandra.distributed.test.MemtableResidencyConfigTest
+        org.apache.cassandra.db.memtable.TrieMemtableRetirementTest
+    )
+elif [[ $# == 1 && "$1" == --ucs-hierarchy-property ]]; then
+    test_classes=(org.apache.cassandra.db.compaction.unified.ControllerTest)
 elif [[ $# == 1 && "$1" == --idle-flush ]]; then
     test_classes=(
         org.apache.cassandra.db.memtable.IdleMemtableFlusherTest
@@ -92,7 +119,7 @@ elif [[ $# == 1 && "$1" == --meters ]]; then
 elif [[ $# == 1 && "$1" == --meter-property ]]; then
     test_classes=(org.apache.cassandra.metrics.GeometricThreadLocalMeterPropertyTest)
 else
-    echo 'Usage: ai-test-memtable-lazy [--idle-flush|--property|--retirement|--histograms|--histogram-property|--reservoirs|--reservoir-property|--meters|--meter-property]' >&2
+    echo 'Usage: ai-test-memtable-lazy [--idle-admission|--idle-admission-property|--ucs-hierarchy|--ucs-hierarchy-property|--idle-flush|--property|--retirement|--histograms|--histogram-property|--reservoirs|--reservoir-property|--meters|--meter-property]' >&2
     exit 2
 fi
 ant build-test

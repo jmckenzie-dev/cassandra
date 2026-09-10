@@ -19,6 +19,12 @@ set -euo pipefail
 project_root="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$project_root/logs"
 exec > >(tee "$project_root/logs/$(date +%Y%m%d-%H%M%S)-run_property_tests.log") 2>&1
+if [[ $# == 1 && "$1" == --idle-admission ]]; then
+    exec "$project_root/.build/sh/ai-test-memtable-lazy" --idle-admission-property
+fi
+if [[ $# == 1 && "$1" == --ucs-hierarchy ]]; then
+    exec "$project_root/.build/sh/ai-test-memtable-lazy" --ucs-hierarchy-property
+fi
 if [[ $# == 1 && "$1" == --idle-flush ]]; then
     exec "$project_root/.build/sh/ai-ci-test" org.apache.cassandra.db.memtable.IdleMemtableFlusherTest
 fi
@@ -75,7 +81,7 @@ if [[ $# == 1 && "$1" == --meters ]]; then
     exec "$project_root/.build/sh/ai-test-memtable-lazy" --meter-property
 fi
 if [[ $# != 0 ]]; then
-    echo 'Usage: run_property_tests.sh [--idle-flush|--lazy|--histograms|--meters|--reservoirs|--metrics-ref|--metric-profiles|--jmx-history|--otel-storage|--histogram-widths|--jmx-names|--jmx-query|--jmx-registration|--metric-ids|--metric-bookkeeping]' >&2
+    echo 'Usage: run_property_tests.sh [--idle-admission|--ucs-hierarchy|--idle-flush|--lazy|--histograms|--meters|--reservoirs|--metrics-ref|--metric-profiles|--jmx-history|--otel-storage|--histogram-widths|--jmx-names|--jmx-query|--jmx-registration|--metric-ids|--metric-bookkeeping]' >&2
     exit 2
 fi
 export PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore

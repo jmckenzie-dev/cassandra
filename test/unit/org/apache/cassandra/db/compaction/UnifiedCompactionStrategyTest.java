@@ -318,6 +318,37 @@ public class UnifiedCompactionStrategyTest
     }
 
     @Test
+    public void testSmallLevelBoundariesAndGapsAcrossLocalCoverage()
+    {
+        for (double coverage : new double[] { 1.0, 0.5, 0.25 })
+        {
+            localRanges = new ColumnFamilyStore.VersionedLocalRanges(ClusterMetadata.current().epoch, 1);
+            localRanges.add(new Splitter.WeightedRange(coverage, new Range<>(partitioner.getMinimumToken(), partitioner.getMinimumToken())));
+            when(cfs.localRangesWeighted()).thenReturn(localRanges);
+            Controller controller = Mockito.mock(Controller.class);
+            when(controller.getScalingParameter(anyInt())).thenReturn(2);
+            when(controller.getFanout(anyInt())).thenCallRealMethod();
+            when(controller.getThreshold(anyInt())).thenCallRealMethod();
+            when(controller.getSurvivalFactor(anyInt())).thenReturn(1.0);
+            when(controller.getMaxLevelDensity(anyInt(), anyDouble())).thenCallRealMethod();
+            when(controller.getBaseSstableSize(anyInt())).thenReturn(1000.0);
+            UnifiedCompactionStrategy strategy = new UnifiedCompactionStrategy(cfs, Map.of(), controller);
+            DecoratedKey key = new BufferDecoratedKey(partitioner.getMinimumToken(), ByteBuffer.allocate(0));
+            DecoratedKey last = new BufferDecoratedKey(partitioner.getMaximumTokenForSplitting(), ByteBuffer.allocate(0));
+            SSTableReader below = mockSSTable(3999, 0, key, last);
+            SSTableReader boundary = mockSSTable(4000, 0, key, last);
+            SSTableReader upper = mockSSTable(64000, 0, key, last);
+            List<UnifiedCompactionStrategy.Level> levels = strategy.getLevels(Arrays.asList(below, boundary, upper), s -> true);
+            assertEquals(4, levels.size());
+            assertEquals(List.of(below), levels.get(0).getSSTables());
+            assertEquals(List.of(boundary), levels.get(1).getSSTables());
+            assertTrue(levels.get(2).getSSTables().isEmpty());
+            assertEquals(List.of(upper), levels.get(3).getSSTables());
+            assertEquals(4000 / coverage, levels.get(0).max, 0.0);
+        }
+    }
+
+    @Test
     public void testPreserveLayout_WM2_947()
     {
         testPreserveLayout(-2, 947);

@@ -977,6 +977,13 @@ memtable_idle_timeout: 0s
 # Includes idle flushes waiting for reader reclamation. Other flush reasons
 # retain their existing limits. A failed idle flush stops this policy until restart.
 memtable_idle_flush_max_concurrent: 2
+# Node-wide idle admission budgets. Positive values; settings take effect at restart.
+# Credit accumulates for at most one second, including initial credit at startup.
+memtable_idle_flush_max_per_second: 100
+# Charges estimated live memtable data, not actual SSTable or index output bytes.
+# One flush may overdraw byte credit; further idle admission waits for repayment.
+# Normal flushes and background compaction retain their existing limits.
+memtable_idle_flush_throughput: 16MiB/s
 
 # Total space to use for change-data-capture logs on disk.
 #

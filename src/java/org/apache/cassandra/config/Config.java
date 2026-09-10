@@ -266,6 +266,8 @@ public class Config
     public int memtable_flush_writers = 0;
     public DurationSpec.IntMillisecondsBound memtable_idle_timeout = new DurationSpec.IntMillisecondsBound("0s");
     public int memtable_idle_flush_max_concurrent = 2;
+    public int memtable_idle_flush_max_per_second = 100;
+    public DataRateSpec.LongBytesPerSecondBound memtable_idle_flush_throughput = new DataRateSpec.LongBytesPerSecondBound("16MiB/s");
     @Replaces(oldName = "memtable_heap_space_in_mb", converter = Converters.MEBIBYTES_DATA_STORAGE_INT, deprecated = true)
     public DataStorageSpec.IntMebibytesBound memtable_heap_space;
     @Replaces(oldName = "memtable_offheap_space_in_mb", converter = Converters.MEBIBYTES_DATA_STORAGE_INT, deprecated = true)
