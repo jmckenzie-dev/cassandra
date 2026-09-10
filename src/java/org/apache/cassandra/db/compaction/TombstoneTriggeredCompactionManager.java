@@ -197,46 +197,51 @@ final class TombstoneTriggeredCompactionManager
         draining = false;
     }
 
+    private synchronized Request nextRequest()
+    {
+        if (forceShutdown || pending.isEmpty())
+        {
+            active = null;
+            draining = false;
+            return null;
+        }
+
+        Request request = pending.iterator().next();
+        pending.remove(request);
+        active = request;
+        return request;
+    }
+
+    private int retryBusy(Request request, int consecutiveBusy) throws InterruptedException
+    {
+        int pendingCount;
+        synchronized (this)
+        {
+            active = null;
+            if (!shutdown)
+                pending.add(request);
+            pendingCount = pending.size();
+        }
+
+        consecutiveBusy++;
+        if (pendingCount > 0 && consecutiveBusy >= pendingCount)
+        {
+            Thread.sleep(retryDelayMillis);
+            return 0;
+        }
+        return consecutiveBusy;
+    }
+
     private void drain()
     {
         int consecutiveBusy = 0;
-        while (true)
+        Request request;
+        while ((request = nextRequest()) != null)
         {
-            Request request;
-            synchronized (this)
-            {
-                if (forceShutdown || pending.isEmpty())
-                {
-                    active = null;
-                    draining = false;
-                    return;
-                }
-
-                request = pending.iterator().next();
-                pending.remove(request);
-                active = request;
-            }
-
             try
             {
                 if (taskRunner.run(request.tableId, request.key) == ExecutionResult.BUSY)
-                {
-                    int pendingCount;
-                    synchronized (this)
-                    {
-                        active = null;
-                        if (!shutdown)
-                            pending.add(request);
-                        pendingCount = pending.size();
-                    }
-
-                    consecutiveBusy++;
-                    if (pendingCount > 0 && consecutiveBusy >= pendingCount)
-                    {
-                        Thread.sleep(retryDelayMillis);
-                        consecutiveBusy = 0;
-                    }
-                }
+                    consecutiveBusy = retryBusy(request, consecutiveBusy);
                 else
                 {
                     complete(request);

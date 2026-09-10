@@ -955,27 +955,7 @@ public class CompactionsTest
                 assertThat(store.getTracker().getView().getCurrentMemtable()).isSameAs(memtable);
                 assertThat(store.getLiveSSTables()).doesNotContain(deletion);
 
-                boolean retained = false;
-                for (SSTableReader sstable : store.getLiveSSTables())
-                {
-                    try (ISSTableScanner scanner = sstable.getScanner())
-                    {
-                        while (scanner.hasNext())
-                        {
-                            try (UnfilteredRowIterator partition = scanner.next())
-                            {
-                                while (partition.hasNext())
-                                {
-                                    Unfiltered item = partition.next();
-                                    if (item.isRow())
-                                        for (Cell<?> cell : ((Row) item).cells())
-                                            retained |= cell.isTombstone();
-                                }
-                            }
-                        }
-                    }
-                }
-                assertTrue("Older data must remain covered by a tombstone", retained);
+                assertTrue("Older data must remain covered by a tombstone", hasCellTombstone(store.getLiveSSTables()));
                 Util.assertEmpty(Util.cmd(store, "safety").build());
             }
         }
@@ -984,6 +964,40 @@ public class CompactionsTest
             store.truncateBlocking();
             store.enableAutoCompaction();
         }
+    }
+
+    private static boolean hasCellTombstone(Iterable<SSTableReader> sstables)
+    {
+        for (SSTableReader sstable : sstables)
+        {
+            try (ISSTableScanner scanner = sstable.getScanner())
+            {
+                while (scanner.hasNext())
+                {
+                    try (UnfilteredRowIterator partition = scanner.next())
+                    {
+                        if (hasCellTombstone(partition))
+                            return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasCellTombstone(UnfilteredRowIterator partition)
+    {
+        while (partition.hasNext())
+        {
+            Unfiltered item = partition.next();
+            if (!item.isRow())
+                continue;
+
+            for (Cell<?> cell : ((Row) item).cells())
+                if (cell.isTombstone())
+                    return true;
+        }
+        return false;
     }
 
     @Test(timeout = 60000)

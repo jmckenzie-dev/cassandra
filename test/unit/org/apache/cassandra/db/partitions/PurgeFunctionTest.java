@@ -27,6 +27,7 @@ import com.google.common.collect.Iterators;
 import org.junit.Before;
 import org.junit.Test;
 
+import org.apache.cassandra.Util;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.BufferClusteringBound;
 import org.apache.cassandra.db.BufferClusteringBoundary;
@@ -123,14 +124,7 @@ public final class PurgeFunctionTest
                                                                                                  : iter(false, start, middle, end),
                                                                                          1, purged))
                 {
-                    while (partitions.hasNext())
-                    {
-                        try (UnfilteredRowIterator rows = partitions.next())
-                        {
-                            while (rows.hasNext())
-                                rows.next();
-                        }
-                    }
+                    Util.consume(partitions);
                 }
                 assertEquals(2 * Integer.bitCount(eligibleSides), purged.get());
             }
