@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import com.datastax.driver.core.Session;
@@ -46,12 +47,71 @@ import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 import static org.apache.cassandra.distributed.util.TombstonePagingTestUtil.readPages;
 import static org.junit.Assert.assertTrue;
+import static org.quicktheories.QuickTheory.qt;
+import static org.quicktheories.generators.SourceDSL.integers;
 
 /** Compares paged reconciliation of divergent replicas with a timestamp-ordered mutation model. */
 public class PagingAcrossTombstonesFuzzTest extends TestBaseImpl
 {
     private static final String TABLE = "paging_fuzz";
     private static final int ROWS = 48;
+
+    @Test(timeout = 180000)
+    public void localCheckpointCopiesMatchLiveRowModel() throws IOException
+    {
+        long seed = TEST_SEED.getLong(18424L);
+        try (Cluster cluster = init(Cluster.build(3).withSubnet(19)
+                                          .withConfig(config -> config.with(Feature.NATIVE_PROTOCOL)
+                                                                      .set("dynamic_snitch", false)
+                                                                      .set("hinted_handoff_enabled", false)
+                                                                      .set("tombstone_failure_threshold", 10000))
+                                          .start());
+             com.datastax.driver.core.Cluster client = client(cluster, 1);
+             Session session = client.connect())
+        {
+            String table = KEYSPACE + '.' + TABLE;
+            cluster.schemaChange("CREATE TABLE " + table + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))" +
+                                 " WITH read_repair = 'NONE' AND speculative_retry = 'NONE'");
+            AtomicInteger keys = new AtomicInteger();
+            qt().withFixedSeed(seed).withExamples(12)
+                .forAll(integers().between(1, 4), integers().between(1, 4), integers().between(1, 4), integers().between(1, 2))
+                .checkAssert((threshold, extraDeleted, live, fetchSize) -> {
+                    cluster.forEach(node -> node.runOnInstance(() -> DatabaseDescriptor.setTombstonePagingThreshold(threshold)));
+                    int deleted = threshold + extraDeleted;
+                    for (boolean reversed : new boolean[]{ false, true })
+                    {
+                        int pk = keys.incrementAndGet();
+                        List<Object[]> expected = new ArrayList<>();
+                        for (int offset = 0; offset < deleted + live; offset++)
+                        {
+                            int ck = reversed ? deleted + live - offset - 1 : offset;
+                            for (int node = 1; node <= 3; node++)
+                            {
+                                cluster.get(node).executeInternal("INSERT INTO " + table +
+                                                                  " (pk, ck, v) VALUES (?, ?, ?) USING TIMESTAMP 1", pk, ck, ck);
+                                if (offset < deleted)
+                                    cluster.get(node).executeInternal("DELETE FROM " + table + " USING TIMESTAMP 2 WHERE pk = ? AND ck = ?", pk, ck);
+                            }
+                            if (offset >= deleted)
+                                expected.add(row(ck, ck));
+                        }
+                        for (boolean flushed : new boolean[]{ false, true })
+                        {
+                            if (flushed)
+                                cluster.forEach(node -> node.flush(KEYSPACE));
+                            long before = cluster.get(1).callOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE).metric.tombstonePages.getCount());
+                            String cql = "SELECT ck, v FROM " + table + " WHERE pk = " + pk + " ORDER BY ck " +
+                                         (reversed ? "DESC" : "ASC") + " LIMIT " + (live + 2);
+                            Object[][] actual = readPages(session, cql, fetchSize, deleted + live).stream()
+                                                .map(result -> row(result.getInt("ck"), result.getInt("v"))).toArray(Object[][]::new);
+                            assertRows(actual, expected.toArray(new Object[0][]));
+                            assertTrue("Expected coordinator-local checkpoints; seed=" + seed,
+                                       cluster.get(1).callOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE).metric.tombstonePages.getCount()) > before);
+                        }
+                    }
+                });
+        }
+    }
 
     @Test
     public void divergentReplicasMatchModel() throws IOException

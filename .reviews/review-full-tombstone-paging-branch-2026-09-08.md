@@ -17,6 +17,7 @@ limitations under the License.
 
 Follow-up: [reproduction results and dispositions](../.debug/tombstone-review-reproductions.md).
 Test follow-up: [remaining test work and validation](../.debug/tombstone-test-followups.md).
+Ownership/error follow-up: [FUL-011 tests and FUL-019 native reproduction](../.debug/tombstone-checkpoint-ownership-reproductions.md).
 The findings below preserve the original review; consult the follow-up for tested conclusions.
 
 Aggregate output of the review-full skill (ten-discipline fan-out) for the

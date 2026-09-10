@@ -16,10 +16,11 @@ under the License.
 -->
 
 # TODO
-- [ ] Assess remaining review follow-ups: specialized ownership/error paths, local-copy allocation, and API/design suggestions. See `.debug/tombstone-review-reproductions.md` and `.debug/tombstone-test-followups.md` for the evidence and limits.
+- [ ] Assess remaining review follow-ups: local-copy allocation and API/design suggestions. See `.debug/tombstone-review-reproductions.md`, `.debug/tombstone-test-followups.md`, and `.debug/tombstone-checkpoint-ownership-reproductions.md` for the evidence and limits.
 
 # DONE
 
+- [x] Test FUL-011 and FUL-019 through real local and native reads. Verify rejected pager state and accepted checkpoint copies. Reproduce FUL-019 with a rejected local checkpoint and a mismatching remote quorum; return a typed tombstone read failure instead of ServerError. Validate the unit contract, generated live-row model, and distributed regressions. Record limits in `.debug/tombstone-checkpoint-ownership-reproductions.md`.
 - [x] Address the remaining test work (FUL-006, FUL-023, FUL-024, FUL-036): implement the asymmetric upgrade case, remove three redundant copies, bound both legacy validators, and replace the logger sleep with grouped diagnostics. Fix checkpoint-state comparison and JVM seed replay in the test helpers. Record unit, property, distributed, Java 17 upgrade, and Java 11 legacy-upgrade validation in `.debug/tombstone-test-followups.md`.
 - [x] Test the tombstone paging review claims and fix reproduced range-pager, marker-scan, metric, and decoder defects. Repair and refill regressions pass without the proposed cursor/loop changes. Record targeted tests, real upgrades, coverage, and repository check limits in `.debug/tombstone-review-reproductions.md`.
 - [x] Check out the opencode review on the branch and record a disposition for every finding.

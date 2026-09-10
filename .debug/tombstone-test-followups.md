@@ -171,9 +171,9 @@ changed, and the test was not skipped or weakened.
 
 ## Remaining work
 
-FUL-011 and FUL-019 still need concrete user-visible reproductions. The
-allocation measurement and API/state-design suggestions remain separate
-follow-ups. This test pass does not establish those findings as defects.
+The subsequent [ownership/error tests](tombstone-checkpoint-ownership-reproductions.md)
+test FUL-011 and reproduce and fix FUL-019's native ServerError. The allocation
+measurement and API/state-design suggestions remain separate follow-ups.
 
 # Unit author result
 

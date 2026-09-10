@@ -196,6 +196,15 @@ blocking read repair, reverse composite clustering, static data, and a remote
 data replica. Its original ALL regressions now pass in memory and after flush.
 Run it with the same test or coverage wrapper as the fuzzer.
 
+`PagingCheckpointOwnershipTest` checks rejected local pager state, accepted
+local command copies, and native failure reporting during unsupported read
+repair. Its speculative QUORUM regression reproduces a rejected local checkpoint
+reaching repair after the two successful remote replicas disagree. Repair now
+returns a typed read failure instead of a generic server error. The fuzzer's
+`localCheckpointCopiesMatchLiveRowModel` property checks native completion across
+generated thresholds and tombstone layouts. See the
+[ownership/error results](../.debug/tombstone-checkpoint-ownership-reproductions.md).
+
 `PagingAcrossTombstonesInteractionTest` adds concurrent writes, speculation,
 timeout/retry, replica shutdown, TTL expiry, collection deletions, GROUP BY,
 partition-key IN, and safe range-checkpoint rejection. Its IN and GROUP BY

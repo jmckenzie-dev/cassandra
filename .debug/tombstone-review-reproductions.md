@@ -17,6 +17,8 @@ limitations under the License.
 
 Later test work: [test follow-ups](tombstone-test-followups.md) closes the
 remaining FUL-006, FUL-023, FUL-024, and FUL-036 test items listed below.
+Subsequent [ownership/error tests](tombstone-checkpoint-ownership-reproductions.md)
+reproduce and fix FUL-019's native ServerError and test FUL-011's pager claims.
 
 Review: `.reviews/review-full-tombstone-paging-branch-2026-09-08.md`.
 Mechanical cleanup commit: `081999b31b`. The tests below first ran against

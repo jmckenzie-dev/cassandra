@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.service.reads.repair;
 
+import java.util.Collections;
 import java.util.function.Consumer;
 
 import com.codahale.metrics.Meter;
@@ -33,10 +34,11 @@ import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
-import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.exceptions.ReadFailureException;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
+import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.locator.ReplicaPlan;
@@ -49,6 +51,7 @@ import org.apache.cassandra.service.reads.ReadCallback;
 import org.apache.cassandra.service.reads.ReadCoordinator;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.Dispatcher;
+import org.apache.cassandra.utils.FBUtilities;
 
 import static java.util.concurrent.TimeUnit.MICROSECONDS;
 
@@ -158,18 +161,9 @@ public abstract class AbstractReadRepair<E extends Endpoints<E>, P extends Repli
         {
             if (!supportsTombstonePageCheckpoints)
             {
-                if (command instanceof SinglePartitionReadCommand && tombstoneLimitedRow != null)
-                {
-                    throw new TombstoneOverwhelmingException(tombstoneLimitedCount,
-                                                              command.toCQLString(),
-                                                              command.metadata(),
-                                                              ((SinglePartitionReadCommand) command).partitionKey(),
-                                                              tombstoneLimitedRow.clustering());
-                }
-
-                throw new IllegalStateException(String.format("Cannot continue tombstone-limited read repair for %s at consistency level %s",
-                                                              command.toCQLString(),
-                                                              replicaPlan().consistencyLevel()));
+                throw new ReadFailureException(replicaPlan().consistencyLevel(), 0, replicaPlan().readQuorum(), false,
+                                               Collections.singletonMap(FBUtilities.getBroadcastAddressAndPort(),
+                                                                        RequestFailureReason.READ_TOO_MANY_TOMBSTONES));
             }
 
             command.consumeTombstoneLimitedRow();

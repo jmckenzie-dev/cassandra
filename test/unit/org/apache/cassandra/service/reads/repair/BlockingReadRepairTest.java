@@ -45,11 +45,12 @@ import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.filter.DataLimits;
-import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionIterators;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.exceptions.ReadFailureException;
+import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.locator.EndpointsForRange;
@@ -255,9 +256,15 @@ public class BlockingReadRepairTest extends AbstractReadRepairTest
                 repair.startRepair(null, PartitionIterator::close);
                 Assert.fail("Expected checkpointed CL ONE repair to fail synchronously");
             }
-            catch (TombstoneOverwhelmingException expected)
+            catch (ReadFailureException expected)
             {
-                Assert.assertTrue(expected.getMessage().contains("Scanned over 3 tombstones"));
+                Assert.assertEquals(ConsistencyLevel.ONE, expected.consistency);
+                Assert.assertEquals(0, expected.received);
+                Assert.assertEquals(1, expected.blockFor);
+                Assert.assertFalse(expected.dataPresent);
+                Assert.assertEquals(1, expected.failureReasonByEndpoint.size());
+                Assert.assertEquals(RequestFailureReason.READ_TOO_MANY_TOMBSTONES,
+                                    expected.failureReasonByEndpoint.get(FBUtilities.getBroadcastAddressAndPort()));
             }
 
             Assert.assertNotNull("Failed ownership transfer cleared the outer checkpoint", outerCommand.tombstoneLimitedRow());
