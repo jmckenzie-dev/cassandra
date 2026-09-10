@@ -439,8 +439,7 @@ public class SinglePartitionReadCommand extends ReadCommand implements SinglePar
 
     private SinglePartitionReadCommand copyTombstonePageCheckpointOwner(SinglePartitionReadCommand copy)
     {
-        if (hasTombstonePageCheckpointOwner())
-            copy.setTombstonePageCheckpointOwner();
+        copy.initializeTombstonePagingStateFrom(this);
         return copy;
     }
 

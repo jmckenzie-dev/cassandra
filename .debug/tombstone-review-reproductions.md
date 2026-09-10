@@ -110,7 +110,9 @@ failure involving these classes.
   `TombstoneOverwhelmingException`. No native-client reproduction of a wrong
   error type was established; no exception-contract change was made.
 - FUL-020: The extra local command copy is present. No allocation profile was
-  collected and no copy guard was changed. Avoiding it is a performance follow-up.
+  collected and no copy guard was changed. Decision on 2026-09-10: decline the
+  proposed optimization for this patch. Preserve command isolation and revisit
+  the allocation cost during final end-to-end performance testing.
 - FUL-021, FUL-022, FUL-034: Current validation is recorded below. Old run counts
   and coverage percentages are not treated as evidence for these new changes.
 - FUL-023: The three older copied upgrade tests remain. They are not claimed as

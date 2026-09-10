@@ -35,8 +35,11 @@ applies to unpaged reads (`4decacfc0d`).
 - **Replica side** (`ReadCommand`, `ReadQuery`, `SinglePartitionReadCommand`,
   `StoppingTransformation`, `ReadCommandVerbHandler`): execution stops at the
   paging threshold and records the checkpoint (last clustering row + tombstone
-  count). Local execution state (`tombstoneLimitedRow`/`tombstoneLimitedCount`)
-  is distinct from transmitted page-checkpoint metadata.
+  count). Each `ReadCommand` owns a `TombstonePagingState` that encapsulates
+  pager ownership, local-stop recording, accepted continuation publication,
+  reset, and reconciliation consumption. Command copies inherit ownership but
+  have independent, empty payload state. Local execution state is distinct
+  from transmitted page-checkpoint metadata.
 - **Wire** (`ParamType`, `TombstonePageContinuation`): new schema-independent
   clustering-continuation message parameter plus the compatibility
   `TOMBSTONE_FAIL` parameter. Every remote checkpoint also carries
@@ -56,9 +59,10 @@ applies to unpaged reads (`4decacfc0d`).
   `MultiPartitionPager`, `AggregationQueryPager`): checkpoint adoption with
   explicit ownership. The pager marks the command it created; ownership must
   transfer before full-data read repair, and repair uses copied commands so a
-  late local response cannot restore a stale cursor (`08e09677b`). Tracked
-  `pageQueries` are reset per fetch so a prior fetch cannot overwrite a newer
-  live-row cursor (`0b3a07c55`).
+  late local response cannot restore a stale cursor (`08e09677b`). The pager
+  replaces `currentPageQuery` per fetch and reads its checkpoint at iterator
+  close so a prior fetch cannot overwrite a newer live-row cursor. This replaces
+  the former zero-or-one `pageQueries` list without changing accounting order.
 - **Config** (`Config`, `DatabaseDescriptor`, `cassandra.yaml`,
   `StorageService` accessors): separate paging vs failure thresholds,
   documented as independent.

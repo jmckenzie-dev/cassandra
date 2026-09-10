@@ -16,10 +16,14 @@ under the License.
 -->
 
 # TODO
-- [ ] Assess remaining review follow-ups: local-copy allocation and API/design suggestions. See `.debug/tombstone-review-reproductions.md`, `.debug/tombstone-test-followups.md`, and `.debug/tombstone-checkpoint-ownership-reproductions.md` for the evidence and limits.
+- [ ] During final end-to-end performance testing, measure coordinator-local command-copy allocation (FUL-020). The copy optimization is declined for this patch; revisit only with performance evidence and correctness validation.
 
 # DONE
 
+- [x] Encapsulate checkpoint lifecycle in command-owned `TombstonePagingState` (FUL-015). Preserve copy isolation and existing acceptance rules. Add holder lifecycle tests and real command-copy assertions. After correcting a test fixture, 244 selected cases pass with six existing skips; the holder has 100% line and branch coverage. See `.debug/tombstone-paging-state.md`.
+- [x] Decline FUL-020's proposed copy-guard optimization for this patch. Preserve command isolation; defer allocation measurement to final end-to-end performance testing.
+- [x] Document the distinct checkpoint policies and related call sites for initial reads, full-data reconciliation, individual replica retries, and response metadata emission (FUL-016). Keep the predicates separate.
+- [x] Rename the tombstone paging management accessors to `get/setTombstonePagingThreshold` (FUL-014). Update the MBean interface, implementation, and accessor regression. The build and focused accessor test pass.
 - [x] Simplify pager close-time checkpoint lookup to one current query reference and remove dead diagnostics. Preserve accounting order. All 29 selected branch and paging test classes pass: 361 cases passed, six existing skips, no failures; both bounded fuzzers and real 5.0.10/4.1.13 upgrades pass. PMD reports `onClose` cyclomatic complexity 6 (was 16), cognitive complexity 6 (was 26), and NPath 20 (was 50).
 - [x] Fix the tombstone warning-counter assertion at the failure threshold. All six `TombstonesTest` cases and 35 `ReadCommandTest` cases, including the checkpoint property, pass.
 - [x] Test reversed remote response order and local checkpoint responses delayed until remote repair or native completion. All 24 ordering, repair-mode, and storage combinations pass; the seven-test class passes twice. No production fix needed. See `.debug/tombstone-response-order-tests.md`.

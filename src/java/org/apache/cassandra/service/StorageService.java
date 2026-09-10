@@ -4849,13 +4849,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     }
 
     @Override
-    public int getTombstonePagingEnabled()
+    public int getTombstonePagingThreshold()
     {
         return DatabaseDescriptor.getTombstonePagingThreshold();
     }
 
     @Override
-    public void setTombstonePagingEnabled(int value)
+    public void setTombstonePagingThreshold(int value)
     {
         DatabaseDescriptor.setTombstonePagingThreshold(value);
     }

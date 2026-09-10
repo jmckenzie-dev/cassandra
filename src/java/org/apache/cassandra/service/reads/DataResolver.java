@@ -92,6 +92,12 @@ public class DataResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
         return !responses.isEmpty();
     }
 
+    /**
+     * Full-data reconciliation requires read quorum greater than one, unlike the owned-page path in
+     * {@link DigestResolver#supportsTombstonePageCheckpoints()}. {@link ShortReadPartitionsProtection}
+     * accepts checkpoints on individual replica retries within reconciliation. Metadata emitted by
+     * {@link ReadCommand#addTombstonePageCheckpoint} does not establish support for reconciliation.
+     */
     public boolean supportsTombstonePageCheckpoints()
     {
         return command.isLimitedToOnePartition()

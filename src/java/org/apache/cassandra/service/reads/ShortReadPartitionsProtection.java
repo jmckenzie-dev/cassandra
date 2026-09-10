@@ -186,6 +186,12 @@ public class ShortReadPartitionsProtection extends Transformation<UnfilteredRowI
         return response.payload.makeIterator(command);
     }
 
+    /**
+     * Retry one replica within reconciliation; do not apply the multi-replica quorum requirement from
+     * {@link DataResolver#supportsTombstonePageCheckpoints()} to this request. The owned-page exception in
+     * {@link DigestResolver#supportsTombstonePageCheckpoints()} applies to initial reads.
+     * {@link ReadCommand#addTombstonePageCheckpoint} supplies metadata for either path.
+     */
     private <E extends Endpoints<E>, P extends ReplicaPlan.ForRead<E, P>>
     Message<ReadResponse> executeReadCommand(ReadCommand cmd, ReplicaPlan.Shared<E, P> replicaPlan)
     {

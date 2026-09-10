@@ -53,6 +53,11 @@ public class DigestResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRea
 {
     private volatile Message<ReadResponse> dataResponse;
 
+    /**
+     * Unlike {@link DataResolver#supportsTombstonePageCheckpoints()}, matching responses can resume an owned
+     * page at consistency ONE. {@link ShortReadPartitionsProtection} handles individual replica retries;
+     * {@link ReadCommand#addTombstonePageCheckpoint} only attaches metadata, not acceptance policy.
+     */
     public boolean supportsTombstonePageCheckpoints()
     {
         return command.isLimitedToOnePartition() && !command.isTopK() && !command.limits().isUnlimited()

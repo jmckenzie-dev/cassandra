@@ -134,14 +134,14 @@ public class StorageServiceServerTest
         {
             for (int threshold : new int[]{ -1, 0, 1, 100 })
             {
-                service.setTombstonePagingEnabled(threshold);
+                service.setTombstonePagingThreshold(threshold);
                 assertEquals(threshold, DatabaseDescriptor.getTombstonePagingThreshold());
-                assertEquals(threshold, service.getTombstonePagingEnabled());
+                assertEquals(threshold, service.getTombstonePagingThreshold());
             }
         }
         finally
         {
-            service.setTombstonePagingEnabled(original);
+            service.setTombstonePagingThreshold(original);
         }
     }
 

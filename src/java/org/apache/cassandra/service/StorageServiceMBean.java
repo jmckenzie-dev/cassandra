@@ -1078,9 +1078,9 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void setTombstoneFailureThreshold(int tombstoneDebugThreshold);
 
     /** Returns the tombstone paging threshold; -1 disables tombstone paging. */
-    public int getTombstonePagingEnabled();
+    public int getTombstonePagingThreshold();
     /** Sets the tombstone paging threshold; -1 disables tombstone paging. */
-    public void setTombstonePagingEnabled(int value);
+    public void setTombstonePagingThreshold(int value);
 
     /** Returns the number of rows cached at the coordinator before filtering/index queries log a warning. */
     public int getCachedReplicaRowsWarnThreshold();

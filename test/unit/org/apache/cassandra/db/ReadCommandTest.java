@@ -918,9 +918,23 @@ public class ReadCommandTest
 
             SinglePartitionReadCommand command = getWholePartitionReadCommand(cfs, partitionKey, FBUtilities.nowInSeconds())
                                                    .withUpdatedLimit(DataLimits.cqlLimits(1));
+            command.setTombstonePageCheckpointOwner();
             executeAndConsume(command, 2);
             Assert.assertNotNull(command.tombstoneLimitedRow());
             assertEquals(3, command.tombstoneLimitedCount());
+
+            for (SinglePartitionReadCommand copy : new SinglePartitionReadCommand[]{ command.copy(),
+                                                                                     command.withUpdatedLimit(DataLimits.cqlLimits(2)),
+                                                                                     command.withTransactionalSettings(false, command.nowInSec()) })
+            {
+                assertTrue(copy.hasTombstonePageCheckpointOwner());
+                Assert.assertNull(copy.tombstoneLimitedRow());
+                assertEquals(0, copy.tombstoneLimitedCount());
+                executeAndConsume(copy, 2);
+                Assert.assertNotNull(copy.consumeTombstoneLimitedRow());
+                Assert.assertNotNull(command.tombstoneLimitedRow());
+                assertEquals(3, command.tombstoneLimitedCount());
+            }
 
             Assert.assertNotNull(command.consumeTombstoneLimitedRow());
             Assert.assertNull(command.tombstoneLimitedRow());

@@ -58,7 +58,6 @@ import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PurgeFunction;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
-import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.RangeTombstoneBoundMarker;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
@@ -165,10 +164,7 @@ public abstract class ReadCommand extends AbstractReadQuery
 
     private final Kind kind;
 
-    /** Resume row from a local tombstone stop or an accepted coordinator continuation. */
-    private Row tombstoneLimitedRow;
-    private int tombstoneLimitedCount;
-    private boolean hasTombstonePageCheckpointOwner;
+    private final TombstonePagingState tombstonePagingState = new TombstonePagingState();
 
     private final boolean isDigestQuery;
     private final boolean acceptsTransient;
@@ -393,23 +389,30 @@ public abstract class ReadCommand extends AbstractReadQuery
     @Override
     public @Nullable Row tombstoneLimitedRow()
     {
-        return tombstoneLimitedRow;
+        return tombstonePagingState.checkpointRow();
     }
 
     public int tombstoneLimitedCount()
     {
-        return tombstoneLimitedCount;
+        return tombstonePagingState.tombstoneCount();
     }
 
     public void setTombstonePageContinuation(TombstonePageContinuation continuation, int count)
     {
-        Preconditions.checkState(hasTombstonePageCheckpointOwner);
-        tombstoneLimitedRow = continuation == null ? null : BTreeRow.emptyRow(continuation.clustering);
-        tombstoneLimitedCount = continuation == null ? 0 : count;
+        tombstonePagingState.acceptContinuation(continuation, count);
     }
 
+    /**
+     * Attach the stop count and, when available, a resumable clustering position. Emission does not imply
+     * acceptance: {@link org.apache.cassandra.service.reads.DigestResolver#supportsTombstonePageCheckpoints()}
+     * checks initial responses; {@link org.apache.cassandra.service.reads.DataResolver#supportsTombstonePageCheckpoints()}
+     * checks reconciliation support; {@link org.apache.cassandra.service.reads.ShortReadPartitionsProtection}
+     * checks individual replica retries. Keep their policies separate.
+     */
     public <T> Message<T> addTombstonePageCheckpoint(Message<T> response, boolean failOnCheckpoint)
     {
+        int tombstoneLimitedCount = tombstonePagingState.tombstoneCount();
+        Row tombstoneLimitedRow = tombstonePagingState.checkpointRow();
         if (tombstoneLimitedCount == 0)
             return response;
 
@@ -426,20 +429,22 @@ public abstract class ReadCommand extends AbstractReadQuery
 
     public void setTombstonePageCheckpointOwner()
     {
-        hasTombstonePageCheckpointOwner = true;
+        tombstonePagingState.attachPager();
     }
 
     public boolean hasTombstonePageCheckpointOwner()
     {
-        return hasTombstonePageCheckpointOwner;
+        return tombstonePagingState.hasPager();
     }
 
     public @Nullable Row consumeTombstoneLimitedRow()
     {
-        Row row = tombstoneLimitedRow;
-        tombstoneLimitedRow = null;
-        tombstoneLimitedCount = 0;
-        return row;
+        return tombstonePagingState.consumeForReconciliation();
+    }
+
+    protected final void initializeTombstonePagingStateFrom(ReadCommand source)
+    {
+        tombstonePagingState.initializeForNewExecution(source.tombstonePagingState);
     }
 
     /**
@@ -606,8 +611,7 @@ public abstract class ReadCommand extends AbstractReadQuery
                                   // iterators created inside the try as long as we do close the original resultIterator), or by closing the result.
     public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, @Nullable ClusterMetadata cm, int tombstonePagingThreshold)
     {
-        tombstoneLimitedRow = null;
-        tombstoneLimitedCount = 0;
+        tombstonePagingState.beginLocalExecution();
 
         long startTimeNanos = nanoTime();
 
@@ -786,8 +790,7 @@ public abstract class ReadCommand extends AbstractReadQuery
 
                 if (isStopped())
                 {
-                    tombstoneLimitedRow = row;
-                    tombstoneLimitedCount = tombstones;
+                    tombstonePagingState.recordLocalStop(row, tombstones);
                 }
 
                 return row;
