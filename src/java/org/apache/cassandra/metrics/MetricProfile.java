@@ -119,35 +119,38 @@ public final class MetricProfile
         }
         Map<Scope, Set<String>> selected = new EnumMap<>(Scope.class);
         for (Scope scope : Scope.values())
-        {
-            String context = source + ": " + scope.key;
-            Map<?, ?> sections = mapping(profile.get(scope.key), context);
-            check(sections.keySet().equals(Set.of("required", "optional", "disabled")), context,
-                  "expected required, optional, and disabled lists; found " + sections.keySet());
-            Set<String> required = scope == Scope.TABLE ? REQUIRED_TABLE : Collections.emptySet();
-            Set<String> foundRequired = new HashSet<>();
-            Set<String> seen = new HashSet<>();
-            Set<String> exposed = new HashSet<>();
-            for (String section : List.of("required", "optional", "disabled"))
-            {
-                Object values = sections.get(section);
-                check(values instanceof List, context + '.' + section, "must be a list; use [] for an empty list");
-                for (Object value : (List<?>) values)
-                {
-                    check(value instanceof String, context + '.' + section, "metric names must be strings: " + value);
-                    String name = (String) value;
-                    check(knownNames(scope).contains(name), context, "unknown canonical metric name: " + name);
-                    check(seen.add(name), context, "duplicate metric: " + name);
-                    if (section.equals("required"))
-                        foundRequired.add(name);
-                    if (!section.equals("disabled"))
-                        exposed.add(name);
-                }
-            }
-            check(foundRequired.equals(required), context, "required must contain exactly " + required + "; found " + foundRequired);
-            selected.put(scope, Set.copyOf(exposed));
-        }
+            selected.put(scope, parseScope(profile.get(scope.key), scope, source));
         return new MetricProfile(Collections.unmodifiableMap(selected), includeAliases);
+    }
+
+    private static Set<String> parseScope(Object value, Scope scope, String source)
+    {
+        String context = source + ": " + scope.key;
+        Map<?, ?> sections = mapping(value, context);
+        check(sections.keySet().equals(Set.of("required", "optional", "disabled")), context,
+              "expected required, optional, and disabled lists; found " + sections.keySet());
+        Set<String> required = scope == Scope.TABLE ? REQUIRED_TABLE : Collections.emptySet();
+        Set<String> foundRequired = new HashSet<>();
+        Set<String> seen = new HashSet<>();
+        Set<String> exposed = new HashSet<>();
+        for (String section : List.of("required", "optional", "disabled"))
+        {
+            Object values = sections.get(section);
+            check(values instanceof List, context + '.' + section, "must be a list; use [] for an empty list");
+            for (Object metric : (List<?>) values)
+            {
+                check(metric instanceof String, context + '.' + section, "metric names must be strings: " + metric);
+                String name = (String) metric;
+                check(knownNames(scope).contains(name), context, "unknown canonical metric name: " + name);
+                check(seen.add(name), context, "duplicate metric: " + name);
+                if (section.equals("required"))
+                    foundRequired.add(name);
+                if (!section.equals("disabled"))
+                    exposed.add(name);
+            }
+        }
+        check(foundRequired.equals(required), context, "required must contain exactly " + required + "; found " + foundRequired);
+        return Set.copyOf(exposed);
     }
 
     public boolean includesLegacyAliases()

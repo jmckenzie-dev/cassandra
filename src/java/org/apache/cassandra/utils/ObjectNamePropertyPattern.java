@@ -52,39 +52,51 @@ final class ObjectNamePropertyPattern
         {
             int separator = canonical.indexOf('=', keyStart);
             int valueStart = separator + 1;
-            int valueEnd;
-            if (valueStart < canonical.length() && canonical.charAt(valueStart) == '"')
-            {
-                valueEnd = valueStart + 1;
-                while (canonical.charAt(valueEnd) != '"')
-                {
-                    if (canonical.charAt(valueEnd) == '\\')
-                        valueEnd++;
-                    valueEnd++;
-                }
-                valueEnd++;
-            }
-            else
-            {
-                valueEnd = canonical.indexOf(',', valueStart);
-                if (valueEnd < 0)
-                    valueEnd = canonical.length();
-            }
+            int valueEnd = valueEnd(canonical, valueStart);
             properties++;
-            for (int i = 0; i < keys.length; i++)
+            int key = keyIndex(canonical, keyStart, separator);
+            if (key >= 0)
             {
-                if (keys[i].length() != separator - keyStart || !canonical.regionMatches(keyStart, keys[i], 0, keys[i].length()))
-                    continue;
-                if (wildcards[i] ? !wildcardMatches(values[i], canonical, valueStart, valueEnd)
-                                 : values[i].length() != valueEnd - valueStart
-                                   || !canonical.regionMatches(valueStart, values[i], 0, values[i].length()))
+                if (!valueMatches(key, canonical, valueStart, valueEnd))
                     return false;
                 matched++;
-                break;
             }
             keyStart = valueEnd + 1;
         }
         return matched == keys.length && (allowAdditionalKeys || properties == keys.length);
+    }
+
+    private static int valueEnd(String canonical, int start)
+    {
+        if (start == canonical.length() || canonical.charAt(start) != '"')
+        {
+            int comma = canonical.indexOf(',', start);
+            return comma < 0 ? canonical.length() : comma;
+        }
+
+        int end = start + 1;
+        while (canonical.charAt(end) != '"')
+        {
+            if (canonical.charAt(end) == '\\')
+                end++;
+            end++;
+        }
+        return end + 1;
+    }
+
+    private int keyIndex(String canonical, int start, int end)
+    {
+        for (int i = 0; i < keys.length; i++)
+            if (keys[i].length() == end - start && canonical.regionMatches(start, keys[i], 0, keys[i].length()))
+                return i;
+        return -1;
+    }
+
+    private boolean valueMatches(int key, String canonical, int start, int end)
+    {
+        if (wildcards[key])
+            return wildcardMatches(values[key], canonical, start, end);
+        return values[key].length() == end - start && canonical.regionMatches(start, values[key], 0, values[key].length());
     }
 
     // JMX matches the encoded value, including quotes and backslashes, using UTF-16 '*' and '?'.

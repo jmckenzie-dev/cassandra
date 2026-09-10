@@ -69,6 +69,7 @@ if [[ $# == 1 && "$1" == --jmx-query ]]; then
     bash "$project_root/.build/sh/ai-probe-jmx-names" --boundaries 10
     bash "$project_root/.build/sh/ai-probe-jmx-names" --boundaries --late
     bash "$project_root/.build/sh/ai-probe-jmx-names" --boundaries --protected 10
+    "$project_root/.build/sh/ai-ci-test" org.apache.cassandra.utils.ObjectNamePropertyPatternTest
     exec "$project_root/.build/sh/ai-ci-test" org.apache.cassandra.auth.jmx.TransientMBeanServerAuthorizationTest
 fi
 if [[ $# == 1 && "$1" == --jmx-registration ]]; then

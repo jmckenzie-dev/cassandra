@@ -27,6 +27,8 @@ specific language governing permissions and limitations under the License.
 
 # DONE
 
+- [x] Compare three refactor designs for each new production method with cognitive complexity at least 18. Reduce matches/scan/pack/parse from 30/24/24/19 to 8/8/9/4, with every extracted helper at most 10. Pass build/Checkstyle, 79 focused tests, and four JMX boundary runs; record 100% line and 99.2% branch coverage for the refactored methods/helpers. The highest remaining new-method score is 15 (.plans/simplify-new-method-complexity.md).
+
 - [x] Upgrade the shared JaCoCo dependency from 0.8.8 to 0.8.11 for Java 21. Pass build/Checkstyle and all 74 idle-admission tests with instrumentation; generate reports showing 100% line/branch coverage for AdmissionBudget and idle configuration validation (research/bounded_idle_flush_admission.md).
 
 - [x] Add node-wide idle-flush rate and estimated-byte budgets, preserving disabled-by-default retirement and manual UCS DDL controls. Pass 74 focused tests, including 100,000 generated budget steps. Six-table drain changes from 2.223s at 100/s to 7.149s at 1/s; oversized-flush byte pacing drains four tables in 7.151s. Document the Java 21/JaCoCo instrumentation limit (research/bounded_idle_flush_admission.md).

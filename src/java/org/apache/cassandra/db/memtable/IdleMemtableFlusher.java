@@ -153,20 +153,8 @@ public final class IdleMemtableFlusher
             return;
         try
         {
-            Iterator<Map.Entry<TrieMemtable, Future<?>>> pending = flushing.entrySet().iterator();
-            while (pending.hasNext())
-            {
-                Map.Entry<TrieMemtable, Future<?>> entry = pending.next();
-                Future<?> future = entry.getValue();
-                if (future.isDone() && !future.isSuccess())
-                {
-                    logger.error("Idle memtable flush failed; stopping idle flush admission until restart", future.cause());
-                    close();
-                    return;
-                }
-                if (future.isSuccess() && entry.getKey().idleFlushReclaimed())
-                    pending.remove();
-            }
+            if (!reclaimCompletedFlushes())
+                return;
 
             if (candidates.isEmpty())
             {
@@ -178,30 +166,56 @@ public final class IdleMemtableFlusher
             long now = clock.getAsLong();
             for (int scanned = 0; scanned < SCAN_BATCH_SIZE && iterator.hasNext() && flushing.size() < maxConcurrent
                                   && budget.available(now); scanned++)
-            {
-                TrieMemtable memtable = iterator.next();
-                if (!memtable.idleFlushEligible())
-                    candidates.remove(memtable);
-                else if (memtable.isIdle(now, timeoutNanos))
-                {
-                    long estimatedBytes = Math.max(0, memtable.getLiveDataSize());
-                    Future<?> future = submit.apply(memtable);
-                    if (future != null)
-                    {
-                        budget.charge(estimatedBytes);
-                        candidates.remove(memtable);
-                        flushing.put(memtable, future);
-                        if (task != null)
-                            future.addListener(this::requestScan);
-                    }
-                }
-            }
+                flushIfIdle(iterator.next(), now);
         }
         catch (RuntimeException e)
         {
             logger.error("Idle memtable flush admission failed; stopping until restart", e);
             close();
         }
+    }
+
+    /** Called under scan's monitor; a flush occupies its slot until readers release the memtable. */
+    private boolean reclaimCompletedFlushes()
+    {
+        Iterator<Map.Entry<TrieMemtable, Future<?>>> pending = flushing.entrySet().iterator();
+        while (pending.hasNext())
+        {
+            Map.Entry<TrieMemtable, Future<?>> entry = pending.next();
+            Future<?> future = entry.getValue();
+            if (future.isDone() && !future.isSuccess())
+            {
+                logger.error("Idle memtable flush failed; stopping idle flush admission until restart", future.cause());
+                close();
+                return false;
+            }
+            if (future.isSuccess() && entry.getKey().idleFlushReclaimed())
+                pending.remove();
+        }
+        return true;
+    }
+
+    /** Called under scan's monitor, after checking admission capacity. */
+    private void flushIfIdle(TrieMemtable memtable, long now)
+    {
+        if (!memtable.idleFlushEligible())
+        {
+            candidates.remove(memtable);
+            return;
+        }
+        if (!memtable.isIdle(now, timeoutNanos))
+            return;
+
+        long estimatedBytes = Math.max(0, memtable.getLiveDataSize());
+        Future<?> future = submit.apply(memtable);
+        if (future == null)
+            return;
+
+        budget.charge(estimatedBytes);
+        candidates.remove(memtable);
+        flushing.put(memtable, future);
+        if (task != null)
+            future.addListener(this::requestScan);
     }
 
     synchronized void close()

@@ -195,6 +195,31 @@ public class IdleMemtableFlusherTest extends CQLTester
     }
 
     @Test
+    public void thrownSubmissionStopsAdmissionWithoutDiscardingData() throws Throwable
+    {
+        ColumnFamilyStore cfs = createEligibleTable();
+        execute("INSERT INTO %s (pk, v) VALUES (1, 10)");
+        TrieMemtable old = current(cfs);
+        AtomicLong calls = new AtomicLong();
+        IdleMemtableFlusher flusher = new IdleMemtableFlusher(TIMEOUT, 1, 100, 16 * 1024 * 1024,
+                                                            () -> old.lastWriteNanos() + TIMEOUT, m -> {
+            calls.incrementAndGet();
+            throw new IllegalStateException("test submission exception");
+        });
+        controllers.add(flusher);
+        flusher.add(old);
+        flusher.scan();
+        flusher.add(old);
+        flusher.scan();
+        assertEquals(1, calls.get());
+        assertEquals(0, flusher.candidateCount());
+        assertEquals(0, flusher.flushingCount());
+        assertSame(old, current(cfs));
+        assertFalse(old.idleFlushReclaimed());
+        assertRows(execute("SELECT * FROM %s"), row(1, 10));
+    }
+
+    @Test
     public void localStrategyOverridesRefreshTracking() throws Throwable
     {
         createTable("CREATE TABLE %s (pk int PRIMARY KEY, v int) WITH memtable = 'trie' " +

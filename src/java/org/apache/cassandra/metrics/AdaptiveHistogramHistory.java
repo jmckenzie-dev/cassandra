@@ -73,29 +73,38 @@ final class AdaptiveHistogramHistory
         if (min == 0 && max == 0)
             return null;
         if (min >= Byte.MIN_VALUE && max <= Byte.MAX_VALUE)
-        {
-            byte[] packed = previous instanceof byte[] && ((byte[]) previous).length == now.length
-                            ? (byte[]) previous : new byte[now.length];
-            for (int i = 0; i < now.length; i++)
-                packed[i] = (byte) now[i];
-            return packed;
-        }
+            return packBytes(now, previous);
         if (min >= Short.MIN_VALUE && max <= Short.MAX_VALUE)
-        {
-            short[] packed = previous instanceof short[] && ((short[]) previous).length == now.length
-                             ? (short[]) previous : new short[now.length];
-            for (int i = 0; i < now.length; i++)
-                packed[i] = (short) now[i];
-            return packed;
-        }
+            return packShorts(now, previous);
         if (min >= Integer.MIN_VALUE && max <= Integer.MAX_VALUE)
-        {
-            int[] packed = previous instanceof int[] && ((int[]) previous).length == now.length
-                           ? (int[]) previous : new int[now.length];
-            for (int i = 0; i < now.length; i++)
-                packed[i] = (int) now[i];
-            return packed;
-        }
+            return packInts(now, previous);
         return now;
+    }
+
+    private static byte[] packBytes(long[] now, Object previous)
+    {
+        byte[] packed = previous instanceof byte[] && ((byte[]) previous).length == now.length
+                        ? (byte[]) previous : new byte[now.length];
+        for (int i = 0; i < now.length; i++)
+            packed[i] = (byte) now[i];
+        return packed;
+    }
+
+    private static short[] packShorts(long[] now, Object previous)
+    {
+        short[] packed = previous instanceof short[] && ((short[]) previous).length == now.length
+                         ? (short[]) previous : new short[now.length];
+        for (int i = 0; i < now.length; i++)
+            packed[i] = (short) now[i];
+        return packed;
+    }
+
+    private static int[] packInts(long[] now, Object previous)
+    {
+        int[] packed = previous instanceof int[] && ((int[]) previous).length == now.length
+                       ? (int[]) previous : new int[now.length];
+        for (int i = 0; i < now.length; i++)
+            packed[i] = (int) now[i];
+        return packed;
     }
 }

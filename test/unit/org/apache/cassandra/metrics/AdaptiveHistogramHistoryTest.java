@@ -71,6 +71,21 @@ public class AdaptiveHistogramHistoryTest
     }
 
     @Test
+    public void packingPreservesInputAndTakesOwnershipOnlyForLongStorage()
+    {
+        for (long value : new long[]{ 1, 128, 32768, Long.MAX_VALUE })
+        {
+            long[] now = { value, -value };
+            Object history = AdaptiveHistogramHistory.pack(now, null);
+            assertArrayEquals(new long[]{ value, -value }, now);
+            if (history instanceof long[])
+                assertSame(now, history);
+            else
+                assertNotSame(now, history);
+        }
+    }
+
+    @Test
     public void historyShrinksThroughEveryWidthAndDisappearsAfterReset()
     {
         Object history = null;
