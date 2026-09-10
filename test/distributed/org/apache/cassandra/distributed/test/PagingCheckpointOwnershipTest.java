@@ -20,13 +20,19 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
@@ -40,6 +46,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.Util;
+import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.partitions.PartitionIterator;
@@ -61,6 +68,7 @@ import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.transport.Dispatcher;
 import org.apache.cassandra.transport.ProtocolVersion;
 
+import static com.google.common.util.concurrent.Uninterruptibles.awaitUninterruptibly;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertEquals;
@@ -82,6 +90,7 @@ public class PagingCheckpointOwnershipTest extends TestBaseImpl
                               .withConfig(config -> config.with(Feature.NATIVE_PROTOCOL)
                                                           .set("dynamic_snitch", false)
                                                           .set("hinted_handoff_enabled", false)
+                                                          .set("concurrent_reads", 2)
                                                           .set("read_request_timeout", "30s")
                                                           .set("tombstone_paging_threshold", 2)
                                                           .set("tombstone_failure_threshold", 10000))
@@ -274,12 +283,45 @@ public class PagingCheckpointOwnershipTest extends TestBaseImpl
     {
         for (String repair : new String[]{ "NONE", "BLOCKING" })
             for (boolean flushed : new boolean[]{ false, true })
-                verifyRejectedLocalRepair(repair, flushed);
+                verifyRejectedLocalRepair(repair, flushed, LocalResponseOrder.BEFORE_QUORUM, false);
     }
 
-    private static void verifyRejectedLocalRepair(String repair, boolean flushed) throws Exception
+    @Test(timeout = 180000)
+    public void rejectedLocalCheckpointWithReversedRemoteResponsesReturnsTypedFailure() throws Exception
     {
-        String table = "rejected_local_repair_" + repair.toLowerCase(java.util.Locale.ROOT) + '_' + flushed;
+        for (String repair : new String[]{ "NONE", "BLOCKING" })
+            for (boolean flushed : new boolean[]{ false, true })
+                verifyRejectedLocalRepair(repair, flushed, LocalResponseOrder.BEFORE_QUORUM, true);
+    }
+
+    @Test(timeout = 180000)
+    public void remoteQuorumCompletesBeforeLateLocalCheckpoint() throws Exception
+    {
+        for (String repair : new String[]{ "NONE", "BLOCKING" })
+            for (boolean flushed : new boolean[]{ false, true })
+                for (boolean reverseRemote : new boolean[]{ false, true })
+                    verifyRejectedLocalRepair(repair, flushed, LocalResponseOrder.AFTER_RESULT, reverseRemote);
+    }
+
+    @Test(timeout = 180000)
+    public void lateLocalCheckpointDuringRepairDoesNotPoisonRemoteQuorum() throws Exception
+    {
+        for (String repair : new String[]{ "NONE", "BLOCKING" })
+            for (boolean flushed : new boolean[]{ false, true })
+                for (boolean reverseRemote : new boolean[]{ false, true })
+                    verifyRejectedLocalRepair(repair, flushed, LocalResponseOrder.DURING_REPAIR, reverseRemote);
+    }
+
+    private enum LocalResponseOrder
+    {
+        BEFORE_QUORUM, DURING_REPAIR, AFTER_RESULT
+    }
+
+    private static void verifyRejectedLocalRepair(String repair, boolean flushed, LocalResponseOrder localOrder, boolean reverseRemote) throws Exception
+    {
+        boolean lateLocal = localOrder != LocalResponseOrder.BEFORE_QUORUM;
+        String table = "local_order_" + repair.toLowerCase(java.util.Locale.ROOT) + '_' + flushed + '_' +
+                       localOrder.name().toLowerCase(java.util.Locale.ROOT) + '_' + reverseRemote;
         String qualified = KEYSPACE + '.' + table;
         cluster.schemaChange("CREATE TABLE " + qualified + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))" +
                              " WITH read_repair = '" + repair + "' AND speculative_retry = 'ALWAYS'");
@@ -291,36 +333,144 @@ public class PagingCheckpointOwnershipTest extends TestBaseImpl
             cluster.forEach(node -> node.flush(KEYSPACE));
 
         Map<Integer, IMessage> responses = new ConcurrentHashMap<>();
+        Map<Integer, IMessage> repairResponses = new ConcurrentHashMap<>();
         CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch repairReady = new CountDownLatch(2);
         cluster.filters().outbound().verbs(Verb.READ_RSP.id).to(1).messagesMatching((from, to, message) -> {
             if (responses.putIfAbsent(from, message) == null)
             {
                 ready.countDown();
                 return true;
             }
+            if (lateLocal && repairResponses.putIfAbsent(from, message) == null)
+            {
+                repairReady.countDown();
+                return true;
+            }
             return false;
         }).drop();
         try
         {
+            if (lateLocal)
+                cluster.get(1).runOnInstance(ReadStageGate::start);
             long reads = localReads(table);
             long repairs = repairs();
             long checkpoints = checkpoints(table);
             ResultSetFuture result = session.executeAsync(statement("SELECT ck, v FROM " + qualified + " WHERE pk = 0",
                                                                     ConsistencyLevel.QUORUM, Integer.MAX_VALUE));
             assertTrue("Expected both remote responses", ready.await(10, TimeUnit.SECONDS));
-            await().atMost(10, TimeUnit.SECONDS).until(() -> localReads(table) > reads);
-            assertTrue("Expected the local replica to checkpoint before remote quorum", checkpoints(table) > checkpoints);
-            for (int node = 2; node <= 3; node++)
+            if (lateLocal)
+            {
+                assertEquals("Local read escaped the gate", reads, localReads(table));
+                assertEquals(checkpoints, checkpoints(table));
+            }
+            else
+            {
+                await().atMost(10, TimeUnit.SECONDS).until(() -> localReads(table) > reads);
+                assertTrue("Expected the local replica to checkpoint before remote quorum", checkpoints(table) > checkpoints);
+            }
+            for (int node : reverseRemote ? new int[]{ 3, 2 } : new int[]{ 2, 3 })
             {
                 IMessage response = responses.get(node);
                 cluster.get(1).runOnInstance(() -> MessagingService.instance().inboundSink.accept(Instance.deserializeMessage(response)));
             }
-            assertNativeFailure(() -> result.getUninterruptibly(10, TimeUnit.SECONDS), ConsistencyLevel.QUORUM);
+            if (lateLocal)
+            {
+                assertTrue("Expected full-data repair responses", repairReady.await(10, TimeUnit.SECONDS));
+                assertTrue("Expected repair to start before local reads", repairs() > repairs);
+                assertEquals(reads, localReads(table));
+                assertEquals(checkpoints, checkpoints(table));
+                if (localOrder == LocalResponseOrder.DURING_REPAIR)
+                {
+                    cluster.get(1).runOnInstance(ReadStageGate::releaseAndDrain);
+                    assertTrue("Expected late initial and repair reads to checkpoint", checkpoints(table) >= checkpoints + 2);
+                    assertFalse("Rejected local responses must not finish the pending remote repair", result.isDone());
+                }
+                for (int node : reverseRemote ? new int[]{ 3, 2 } : new int[]{ 2, 3 })
+                {
+                    IMessage response = repairResponses.get(node);
+                    cluster.get(1).runOnInstance(() -> MessagingService.instance().inboundSink.accept(Instance.deserializeMessage(response)));
+                }
+                ResultSet rows = result.getUninterruptibly(10, TimeUnit.SECONDS);
+                assertTrue("Unpaged remote quorum must return a complete result", rows.isFullyFetched());
+                assertNull(rows.getExecutionInfo().getPagingState());
+                assertEquals(1, rows.getAvailableWithoutFetching());
+                com.datastax.driver.core.Row row = rows.one();
+                assertEquals(0, row.getInt("ck"));
+                assertEquals(3, row.getInt("v"));
+                assertEquals(0, rows.getAvailableWithoutFetching());
+                if (localOrder == LocalResponseOrder.AFTER_RESULT)
+                {
+                    assertEquals("Local reads ran before the remote result completed", reads, localReads(table));
+                    assertEquals(checkpoints, checkpoints(table));
+                    cluster.get(1).runOnInstance(ReadStageGate::releaseAndDrain);
+                    assertTrue("Expected late initial and repair reads to checkpoint", checkpoints(table) >= checkpoints + 2);
+                }
+            }
+            else
+            {
+                assertNativeFailure(() -> result.getUninterruptibly(10, TimeUnit.SECONDS), ConsistencyLevel.QUORUM);
+            }
             assertTrue("Expected remote digest mismatch to start repair", repairs() > repairs);
         }
         finally
         {
-            cluster.filters().reset();
+            try
+            {
+                if (lateLocal)
+                    cluster.get(1).runOnInstance(ReadStageGate::releaseAndDrain);
+            }
+            finally
+            {
+                cluster.filters().reset();
+            }
+        }
+    }
+
+    private static final class ReadStageGate
+    {
+        private static CountDownLatch release;
+        private static List<Future<?>> blockers;
+
+        private static void start()
+        {
+            int threads = Stage.READ.getMaximumPoolSize();
+            CountDownLatch ready = new CountDownLatch(threads);
+            CountDownLatch gate = new CountDownLatch(1);
+            release = gate;
+            blockers = new ArrayList<>();
+            for (int i = 0; i < threads; i++)
+                blockers.add(Stage.READ.submit(() -> {
+                    ready.countDown();
+                    assertTrue("Local read gate was not released", gate.await(30, TimeUnit.SECONDS));
+                    return null;
+                }));
+            assertTrue("Read workers did not enter the gate", awaitUninterruptibly(ready, 10, TimeUnit.SECONDS));
+        }
+
+        private static void releaseAndDrain()
+        {
+            if (release == null)
+                return;
+            release.countDown();
+            try
+            {
+                for (Future<?> blocker : blockers)
+                    blocker.get(10, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException e)
+            {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+            catch (ExecutionException | TimeoutException e)
+            {
+                throw new AssertionError(e);
+            }
+            await().atMost(10, TimeUnit.SECONDS).until(() -> Stage.READ.executor().getPendingTaskCount() == 0
+                                                           && Stage.READ.executor().getActiveTaskCount() == 0);
+            release = null;
+            blockers = null;
         }
     }
 

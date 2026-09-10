@@ -42,6 +42,9 @@ All three scripts accept `-s`/`--summary`, which prints a summary of failures in
 
 ## Linting and Code Checks
 
+- Do not open or read security-checkpoint files or Checkstyle configuration and report files during routine work. Ask before inspecting them if the task requires it.
+- Use the established check commands and their summaries. Keep all checks enabled.
+
 ```bash
 .build/check-code.sh -s    # runs `ant check` (rat-check + checkstyle + checkstyle-test, after a build)
 ```

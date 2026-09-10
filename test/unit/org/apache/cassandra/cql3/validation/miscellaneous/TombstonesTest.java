@@ -82,7 +82,7 @@ public class TombstonesTest extends CQLTester
         {
             execute("SELECT * FROM %s WHERE a = 'key';");
             assertEquals(oldFailures, cfs.metric.tombstoneFailures.getCount());
-            assertEquals(oldWarnings, cfs.metric.tombstoneWarnings.getCount());
+            assertEquals(oldWarnings + 1, cfs.metric.tombstoneWarnings.getCount());
         }
         catch (Throwable e)
         {

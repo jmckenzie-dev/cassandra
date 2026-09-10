@@ -17,11 +17,7 @@
  */
 package org.apache.cassandra.service.pager;
 
-import java.util.ArrayList;
-
 import javax.annotation.Nullable;
-
-import com.google.common.base.Preconditions;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,11 +53,10 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
     protected final T query;
 
     /**
-     * Queries for the current fetch, retained until its iterator closes so their tombstone
-     * checkpoints can update the continuation and exhaustion state.
+     * Query for the current fetch, retained until its iterator closes to read its tombstone checkpoint.
      */
     @Nullable
-    protected ArrayList<ReadQuery> pageQueries;
+    protected ReadQuery currentPageQuery;
 
     protected final DataLimits limits;
     protected final ProtocolVersion protocolVersion;
@@ -145,6 +140,15 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
         return Transformation.apply(readQuery.executeLocally(executionController, tombstonePagingThreshold), pager);
     }
 
+    @Nullable
+    private Row currentTombstoneCheckpoint()
+    {
+        if (tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED || currentPageQuery == null)
+            return null;
+
+        return currentPageQuery.tombstoneLimitedRow();
+    }
+
     private class UnfilteredPager extends Pager<Unfiltered>
     {
 
@@ -219,45 +223,14 @@ abstract class AbstractQueryPager<T extends ReadQuery> implements QueryPager
         @Override
         public void onClose()
         {
-            Preconditions.checkNotNull(query, "Expected query to be non-null in Query Pager.");
-
-            boolean hitTombstoneLimit = false;
             // A checkpoint from this fetch can advance beyond the last live row observed by the pager.
-            if (tombstonePagingThreshold != -1 && pageQueries != null)
-            {
-                try
-                {
-                    for (ReadQuery cmd : pageQueries)
-                    {
-                        Row tsRow = cmd.tombstoneLimitedRow();
-                        if (tsRow != null)
-                        {
-                            // Logical error: only one ReadCommand should _ever_ hit the tombstone limit
-                            if (hitTombstoneLimit)
-                                throw new IllegalStateException("Saw more than one ReadCommand child in a paging operation that hit their tombstone limit. This is a bug.");
-
-                            lastRow = cmd.tombstoneLimitedRow();
-                            assert lastRow != null;
-                            hitTombstoneLimit = true;
-                            break;
-                        }
-                    }
-                }
-                catch (IllegalStateException ise)
-                {
-                    // Record the query state to diagnose the invalid checkpoint.
-                    StringBuilder errorDetails = new StringBuilder().append("CQL Query with failure: ").append(query.toCQLString());
-                    if (pageQueries != null)
-                    {
-                        for (ReadQuery cmd : pageQueries)
-                            errorDetails.append(", ").append(cmd.toString());
-                    }
-                    logger.error(errorDetails.toString());
-                    throw ise;
-                }
-            }
+            Row checkpoint = currentTombstoneCheckpoint();
+            boolean hitTombstoneLimit = checkpoint != null;
             if (hitTombstoneLimit)
+            {
+                lastRow = checkpoint;
                 logger.debug("Hit tombstone limit while paging; setting clustering to resume page to: {}", lastRow.clustering().toString(query.metadata()));
+            }
 
             rowCounter.onClose(!hitTombstoneLimit);
             recordLast(lastKey, lastRow);
