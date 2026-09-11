@@ -13,9 +13,15 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
+- [ ] Extract final idle flushing and bounded admission behavior.
+- [ ] Split the mixed distributed idle-flush fixture for standalone use.
+- [ ] Build and run all planned targeted tests with JDK 21.
+- [ ] Run small never-written and idle/reactivation measurements.
+- [ ] Record validation, review, and source-independence evidence.
 
 # DONE
 
+- [x] Extract lazy Trie memtable initialization and retirement coverage.
 - [x] Extract generic tools, JaCoCo upgrade, and shared metric contracts.
 - [x] Build with JDK 21 and pass main/test Checkstyle.
 - [x] Pass both ThreadLocalHistogramTest cases.

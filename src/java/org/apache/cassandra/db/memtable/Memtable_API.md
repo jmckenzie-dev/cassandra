@@ -68,8 +68,11 @@ Cassandra currently comes with three memtable implementations:
     shard are synchronized.
 - `TrieMemtable` is a novel solution that organizes partitions into an in-memory trie which places the partition
   indexing structure in a buffer, off-heap if desired, which significantly improves garbage collection efficiency. It
-  also improves the memtable's space efficiency and lookup performance. Its configuration can take a single parameter
-  `shards` as above.
+  also improves the memtable's space efficiency and lookup performance. Its configuration accepts `shards` as above
+  and `lazy_initialization` (default `true`). Lazy initialization defers shard structures until the first local write.
+  Empty reads and replacement memtables after a flush do not allocate those structures. The allocator and commit-log
+  ordering state remain resident. Set `lazy_initialization: false` for eager construction. This option does not change
+  flush policy or reclaim memory from dirty idle tables.
 
 ## Memtable selection
 
