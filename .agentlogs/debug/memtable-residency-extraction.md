@@ -18,3 +18,8 @@ specific language governing permissions and limitations under the License.
 - The source rebase changed two lazy fixtures. This extraction uses the repaired
   final versions instead of the original f5f830e5d8 versions.
 - Apply patches relative to the coordinator root with the worktree prefix.
+- Final blob comparisons cover all fully owned production files and unit tests.
+- Static searches found no metric configuration or UCS hierarchy option in the
+  standalone production and test changes.
+- Validation stopped before the branch build. The shared baseline reproduced
+  `UnifiedCompactionStrategyTest.testDropExpiredSSTables` with a null task pick.

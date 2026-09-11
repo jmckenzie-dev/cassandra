@@ -17,3 +17,7 @@ specific language governing permissions and limitations under the License.
   boundary.
 - Use the final repaired lazy test blobs after the source rebase.
 - Compare blob hashes after full-file extraction to detect transcription drift.
+- Keep mixed distributed coverage by method. Leave hierarchy-specific methods
+  for integration and retain the default scheduler path on this branch.
+- Do not treat a source extraction as verified when a shared baseline defect
+  stops the build and runtime gate.

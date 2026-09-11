@@ -40,3 +40,44 @@ wrappers only. Preserve each XML report before the next test wrapper runs.
 The final test blobs retain the source rebase adaptations from 1096f47ed4. The
 production blob still defaults `lazy_initialization` to true. Retirement tests
 call the existing `forceFlush` API and add no retirement API.
+
+## Idle source manifest
+
+| Destination | Source revision | Source blob | Treatment |
+| --- | --- | --- | --- |
+| src/java/org/apache/cassandra/db/memtable/TrieMemtable.java | 319995ce5c | 55534c45a2aa | Exact final source blob |
+| src/java/org/apache/cassandra/db/memtable/Memtable_API.md | 319995ce5c | 479425586053 | Exact final source blob |
+| src/java/org/apache/cassandra/db/ColumnFamilyStore.java | 319995ce5c | bee07f11b6ff | Exact final source blob |
+| src/java/org/apache/cassandra/db/memtable/IdleMemtableFlusher.java | 319995ce5c | d35b0a9f9e97 | Exact final source blob |
+| test/unit/org/apache/cassandra/config/IdleMemtableConfigTest.java | 319995ce5c | 0059ee8224f8 | Exact final source blob |
+| test/unit/org/apache/cassandra/db/memtable/IdleFlushAdmissionBudgetPropertyTest.java | 319995ce5c | 7950fcc9f974 | Exact final source blob |
+| test/unit/org/apache/cassandra/db/memtable/IdleFlushAdmissionBudgetTest.java | 319995ce5c | 66c9cf3a8781 | Exact final source blob |
+| test/unit/org/apache/cassandra/db/memtable/IdleMemtableFlusherTest.java | 319995ce5c | 67991470fbfc | Exact final source blob |
+
+Config.java contains only the four source `memtable_idle_*` fields.
+DatabaseDescriptor.java contains only idle validation and getters. The YAML file
+keeps source defaults: timeout 0s, concurrency 2, admissions 100/s, and estimated
+throughput 16MiB/s. README.asc keeps idle policy and operator behavior. It omits
+cross-branch benchmark links, metric settings, and UCS hierarchy documentation.
+
+## Distributed test adaptation
+
+Source `IdleMemtableFlushTest` blob cad371f51a80 becomes b77ab9e6f3f3. The
+standalone file keeps five test methods. It removes these integration methods:
+
+- `smallHierarchyRetiresReactivatesAndRecovers`: move the 1KiB hierarchy case.
+  Integration must preserve idle retirement, ineligible-table state, dormant
+  reads, write reactivation, restart recovery, hierarchy persistence, and the
+  post-restart write and second retirement assertions.
+- `operatorCanAlterHierarchyAndScalingBeforeRestart`: move all three alter,
+  write, idle, and read cycles. Integration must preserve restart persistence
+  assertions for `1MiB` and `L4,T4`, plus all three recovered rows.
+
+The standalone helper removes its optional hierarchy argument and the hierarchy
+persistence assertion. It preserves every default-hierarchy lifecycle assertion.
+This is the only test-code adaptation. Production code has no extraction adapter.
+
+CommitLogTest uses SkipListMemtable explicitly. It does not exercise the changed
+Trie paths. Dedicated retirement-failure and distributed recovery tests cover the
+relevant commit-log behavior, so this branch does not add CommitLogTest to its
+targeted list.

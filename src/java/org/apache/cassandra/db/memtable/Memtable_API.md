@@ -72,7 +72,12 @@ Cassandra currently comes with three memtable implementations:
   and `lazy_initialization` (default `true`). Lazy initialization defers shard structures until the first local write.
   Empty reads and replacement memtables after a flush do not allocate those structures. The allocator and commit-log
   ordering state remain resident. Set `lazy_initialization: false` for eager construction. This option does not change
-  flush policy or reclaim memory from dirty idle tables.
+  flush policy by itself. The separate node setting `memtable_idle_timeout` defaults to `0s` (disabled).
+  A positive timeout enables bounded automatic flushing for idle user tables with lazy TrieMemtable and
+  UnifiedCompactionStrategy. Reads do not refresh the timeout or initialize a dormant replacement; later writes do.
+  `memtable_idle_flush_max_concurrent` limits outstanding idle flushes, including old memtables waiting for reader
+  reclamation. See [the idle-flush investigation](../../../../../../../research/ucs_idle_flush.md) for measurements
+  and compaction tradeoffs.
 
 ## Memtable selection
 

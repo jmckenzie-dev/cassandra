@@ -13,7 +13,7 @@ specific language governing permissions and limitations under the License.
 
 # Memtable residency source review
 
-Review status: in progress.
+Review status: source extraction complete; runtime validation blocked.
 
 The lazy extraction keeps the volatile `TrieState` publication boundary. Reads
 use the empty state without allocation. The first write initializes once before
@@ -21,3 +21,23 @@ it applies the mutation. Flush and discard paths accept an uninitialized table.
 The factory validates the boolean option and defaults it to true.
 
 Final idle review and validation evidence will follow after extraction.
+
+Idle tracking applies only to lazy, user, non-index Trie memtables under Unified
+Compaction Strategy (UCS). The first write registers a candidate. Each shard
+records its last local write. Reads do not change that time. ColumnFamilyStore
+rechecks identity, eligibility, and idle time under the memtable replacement
+lock before it flushes with the new idle reason.
+
+The flusher bounds concurrent work until reader reclamation. Separate operation
+and byte budgets cap admission. A large flush can create byte debt. Failed flush
+futures close the scheduler until restart. Shutdown and invalidation stop idle
+tracking. Local compaction changes switch an initialized memtable when its UCS
+eligibility changes.
+
+Exact final source blobs cover the fully owned production files and unit tests.
+Shared-file review found only the assigned MEM settings and methods. The mixed
+distributed fixture has the documented hierarchy-only removals.
+
+No build, Checkstyle, runtime test, or measurement result exists for this branch.
+The coordinator stopped validation after an existing UCS test failed on both a
+sibling feature branch and the frozen shared baseline.
