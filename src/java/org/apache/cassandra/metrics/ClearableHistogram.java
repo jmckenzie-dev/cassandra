@@ -25,7 +25,7 @@ import com.google.common.annotations.VisibleForTesting;
  */
 public class ClearableHistogram extends ThreadLocalHistogram
 {
-    private final DecayingEstimatedHistogramReservoir reservoirRef;
+    private final ClearableReservoir reservoirRef;
 
     /**
      * Creates a new {@link com.codahale.metrics.Histogram} with the given reservoir.
@@ -34,8 +34,12 @@ public class ClearableHistogram extends ThreadLocalHistogram
      */
     public ClearableHistogram(DecayingEstimatedHistogramReservoir reservoir)
     {
-        super(reservoir);
+        this((ClearableReservoir) reservoir);
+    }
 
+    public ClearableHistogram(ClearableReservoir reservoir)
+    {
+        super(reservoir);
         this.reservoirRef = reservoir;
     }
 

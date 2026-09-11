@@ -13,7 +13,6 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-- [ ] Resolve independent review findings and freeze the shared base.
 
 # DONE
 
@@ -22,3 +21,4 @@ specific language governing permissions and limitations under the License.
 - [x] Pass both ThreadLocalHistogramTest cases.
 - [x] Complete all five targeted test classes: 48 passed and one existing skip.
 - [x] Complete the three-table generic harness smoke test.
+- [x] Complete independent review with no findings and freeze the shared base.

@@ -85,7 +85,7 @@ import static org.apache.cassandra.config.CassandraRelevantProperties.DECAYING_E
  *
  * @see ExponentiallyDecayingReservoir
  */
-public class DecayingEstimatedHistogramReservoir implements CassandraReservoir
+public class DecayingEstimatedHistogramReservoir implements ClearableReservoir
 {
     private static final Logger logger = LoggerFactory.getLogger(DecayingEstimatedHistogramReservoir.class);
     private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 5L, TimeUnit.MINUTES);

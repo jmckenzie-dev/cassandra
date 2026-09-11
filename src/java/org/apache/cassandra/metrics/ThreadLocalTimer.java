@@ -64,6 +64,11 @@ public class ThreadLocalTimer extends OverrideTimer
 
     public ThreadLocalTimer(Meter meter, ThreadLocalHistogram histogram, MetricClock clock)
     {
+        this(meter, (OverrideHistogram) histogram, clock);
+    }
+
+    protected ThreadLocalTimer(Meter meter, OverrideHistogram histogram, MetricClock clock)
+    {
         // original Codahale meter and histogram are set to null to reduce memory footprint
         super(meter, histogram, clock);
     }
