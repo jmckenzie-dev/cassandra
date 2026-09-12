@@ -49,6 +49,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.virtual.CollectionVirtualTableAdapter;
 import org.apache.cassandra.db.virtual.VirtualTable;
 import org.apache.cassandra.db.virtual.model.CounterMetricRow;
@@ -303,6 +304,8 @@ public class CassandraMetricsRegistry extends MetricRegistry
 
     public Counter counter(MetricName... name)
     {
+        if (!DatabaseDescriptor.getMetricProfile().isEnabled(name[0]))
+            return new ThreadLocalCounter();
         String simpleMetricName = name[0].getMetricName();
         Metric metric = super.getMetrics().get(simpleMetricName);
         if (metric instanceof Counter)
@@ -316,6 +319,8 @@ public class CassandraMetricsRegistry extends MetricRegistry
 
     public Counter atomicLongCounter(MetricName... name)
     {
+        if (!DatabaseDescriptor.getMetricProfile().isEnabled(name[0]))
+            return new AtomicLongCounter();
         String simpleMetricName = name[0].getMetricName();
         Metric metric = super.getMetrics().get(simpleMetricName);
         if (metric instanceof Counter)
@@ -334,6 +339,8 @@ public class CassandraMetricsRegistry extends MetricRegistry
 
     public Meter meter(boolean gaugeCompatible, MetricName... name)
     {
+        if (!DatabaseDescriptor.getMetricProfile().isEnabled(name[0]))
+            return new ThreadLocalMeter();
         String simpleMetricName = name[0].getMetricName();
         Metric metric = super.getMetrics().get(simpleMetricName);
         if (metric instanceof Meter)
@@ -431,6 +438,9 @@ public class CassandraMetricsRegistry extends MetricRegistry
     {
         if (metric instanceof MetricSet)
             throw new IllegalArgumentException("MetricSet registration using MetricName is not supported");
+
+        if (!DatabaseDescriptor.getMetricProfile().isEnabled(name))
+            return metric;
 
         try
         {

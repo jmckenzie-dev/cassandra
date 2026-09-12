@@ -2088,6 +2088,13 @@ sstables_per_read_log_threshold: 100
 tombstone_warn_threshold: 1000
 tombstone_failure_threshold: 100000
 
+# Select table/index-table and keyspace metric exports at startup. Bare names
+# resolve on the configuration classpath; absolute paths and file: URIs are
+# also supported. Omit or set null to preserve all current metric exports.
+# Use all_metrics.yml for the full catalog, or customize a copy of either profile.
+# Required metrics and state needed by enabled aggregates remain recorded.
+metrics_config_file: simple_metrics.yml
+
 # Controls the granularity of purgeable tombstones reported to PurgeableTombstoneScannedHistogram table metric
 # Possible values:
 # 'disabled' - do not collect the metric at all
