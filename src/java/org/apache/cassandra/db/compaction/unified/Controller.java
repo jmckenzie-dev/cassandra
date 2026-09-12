@@ -68,6 +68,10 @@ public class Controller
      */
     public static final String FLUSH_SIZE_OVERRIDE_OPTION = "flush_size_override";
 
+    /** Minimum hierarchy base and rounding quantum for observed flush sizes; independent of shard splitting. */
+    public static final String MIN_HIERARCHY_SIZE_OPTION = "min_hierarchy_size";
+    public static final long DEFAULT_MIN_HIERARCHY_SIZE = 1L << 20;
+
     public static final String BASE_SHARD_COUNT_OPTION = "base_shard_count";
     /**
      * Default base shard count, used when a base count is not explicitly supplied. This value applies as long as the
@@ -165,6 +169,7 @@ public class Controller
     protected final double[] survivalFactors;
     protected volatile long minSSTableSize;
     protected final long flushSizeOverride;
+    protected final long minHierarchySize;
     protected volatile long currentFlushSize;
     protected final int maxSSTablesToCompact;
     protected final long expiredSSTableCheckFrequency;
@@ -189,6 +194,7 @@ public class Controller
                double[] survivalFactors,
                long minSSTableSize,
                long flushSizeOverride,
+               long minHierarchySize,
                int maxSSTablesToCompact,
                long expiredSSTableCheckFrequency,
                boolean ignoreOverlapsInExpirationCheck,
@@ -204,6 +210,7 @@ public class Controller
         this.survivalFactors = survivalFactors;
         this.minSSTableSize = minSSTableSize;
         this.flushSizeOverride = flushSizeOverride;
+        this.minHierarchySize = minHierarchySize;
         this.currentFlushSize = flushSizeOverride;
         this.expiredSSTableCheckFrequency = TimeUnit.MILLISECONDS.convert(expiredSSTableCheckFrequency, TimeUnit.SECONDS);
         this.baseShardCount = baseShardCount;
@@ -399,12 +406,18 @@ public class Controller
         if (flushSizeOverride > 0)
             return flushSizeOverride;
 
-        double envFlushSize = cfs.metric.flushSizeOnDisk.get();
+        return updateFlushSize(cfs.metric.flushSizeOnDisk.get());
+    }
+
+    long updateFlushSize(double envFlushSize)
+    {
         if (currentFlushSize == 0 || Math.abs(1 - (currentFlushSize / envFlushSize)) > 0.5)
         {
             // The current size is not initialized, or it differs by over 50% from the observed.
-            // Use the observed size rounded up to a whole megabyte.
-            currentFlushSize = ((long) (Math.ceil(Math.scalb(envFlushSize, -20)))) << 20;
+            // Preserve the legacy calculation when the option is absent or uses its default.
+            currentFlushSize = minHierarchySize == DEFAULT_MIN_HIERARCHY_SIZE
+                               ? ((long) (Math.ceil(Math.scalb(envFlushSize, -20)))) << 20
+                               : Math.max(0, (long) (Math.ceil(envFlushSize / minHierarchySize) * minHierarchySize));
         }
         return currentFlushSize;
     }
@@ -473,6 +486,8 @@ public class Controller
                               DEFAULT_SURVIVAL_FACTORS,
                               minSSTableSize,
                               flushSizeOverride,
+                              options.containsKey(MIN_HIERARCHY_SIZE_OPTION)
+                              ? parseMinHierarchySize(options.get(MIN_HIERARCHY_SIZE_OPTION)) : DEFAULT_MIN_HIERARCHY_SIZE,
                               maxSSTablesToCompact,
                               expiredSSTableCheckFrequency,
                               ignoreOverlapsInExpirationCheck,
@@ -487,6 +502,10 @@ public class Controller
     {
         options = new HashMap<>(options);
         String s;
+
+        s = options.remove(MIN_HIERARCHY_SIZE_OPTION);
+        if (s != null)
+            parseMinHierarchySize(s);
 
         s = options.remove(SCALING_PARAMETERS_OPTION);
         if (s != null)
@@ -679,6 +698,21 @@ public class Controller
         }
     }
 
+    private static long parseMinHierarchySize(String value)
+    {
+        try
+        {
+            long bytes = FBUtilities.parseHumanReadableBytes(value);
+            if (bytes < 1 || bytes > DEFAULT_MIN_HIERARCHY_SIZE)
+                throw new ConfigurationException(MIN_HIERARCHY_SIZE_OPTION + " must be between 1B and 1MiB: " + value);
+            return bytes;
+        }
+        catch (NumberFormatException e)
+        {
+            throw new ConfigurationException(MIN_HIERARCHY_SIZE_OPTION + " is not a valid size: " + value, e);
+        }
+    }
+
     // The methods below are implemented here (rather than directly in UCS) to aid testability.
 
     public double getBaseSstableSize(int F)
@@ -687,11 +721,11 @@ public class Controller
         // some leeway to make sure we don't overcompact when flushes end up a little smaller.
         // The leeway should be less than 1/F, though, to make sure we don't overshoot the boundary combining F-1
         // sources instead of F.
-        // Note that while we have not had flushes, the size will be 0 and we will use 1MB as the flush size. With
+        // Until the first flush, use the configured minimum (1MiB by default). With
         // fixed and positive W this should not hurt us, as the hierarchy will be in multiples of F and will still
         // result in the same buckets, but for negative W or hybrid strategies this may cause temporary overcompaction.
         // If this is a concern, the flush size override should be used to avoid it until DB-4401.
-        return Math.max(1 << 20, getFlushSizeBytes()) * (1.0 - 0.9 / F);
+        return Math.max(minHierarchySize, getFlushSizeBytes()) * (1.0 - 0.9 / F);
     }
 
     public double getMaxLevelDensity(int index, double minSize)

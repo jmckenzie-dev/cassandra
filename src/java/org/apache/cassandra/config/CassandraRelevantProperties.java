@@ -380,6 +380,9 @@ public enum CassandraRelevantProperties
     /** Experimental: defer counter IDs until a metric records its first update. Set before metric construction. */
     LAZY_METRIC_IDS("cassandra.lazy_metric_ids", "false"),
 
+    /** Defer tombstone histogram spool allocation until the first observation. */
+    LAZY_TOMBSTONE_HISTOGRAMS("cassandra.lazy_tombstone_histograms", "false"),
+
     /** startup checks properties */
     LIBJEMALLOC("cassandra.libjemalloc"),
     /** Line separator ("\n" on UNIX). */

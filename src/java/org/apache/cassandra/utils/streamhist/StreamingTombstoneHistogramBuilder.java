@@ -66,7 +66,7 @@ import org.apache.cassandra.db.rows.Cell;
  * Yael Ben-Haim and Elad Tom-Tov, "A Streaming Parallel Decision Tree Algorithm" (2010)
  * http://jmlr.csail.mit.edu/papers/volume11/ben-haim10a/ben-haim10a.pdf
  */
-public class StreamingTombstoneHistogramBuilder
+public class StreamingTombstoneHistogramBuilder implements TombstoneHistogramBuilder
 {
     // Buffer with point-value pair
     private final DataHolder bin;

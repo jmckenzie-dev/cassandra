@@ -13,7 +13,7 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-- [ ] Merge all five feature branches and restore combined fixtures.
+- [ ] Restore combined fixtures after merging all five feature branches.
 - [ ] Account for all source paths and verify production reconstruction.
 - [ ] Build and run targeted combined tests and property entrypoints.
 - [ ] Run matched measurements with verified effective controls.
@@ -31,6 +31,11 @@ specific language governing permissions and limitations under the License.
 - [x] Adapt combined test and tool assumptions to the standalone STORE branch.
 - [x] Build and run focused production, property, compatibility, and probe tests.
 - [x] Review the branch, record validation evidence, and create local commits.
+- [x] Complete the standalone build/Checkstyle and all nine planned test classes: 82 cases, no errors/failures/skips. Preserve generated traces and allocation checks.
+- [x] Record the two source/test adaptations for combined verification and prepare separate UCS and lazy tombstone commits.
+- [x] Fix the expiration-test clock-tick dependency without production changes. Build/Checkstyle and three 28-case runs passed. Commit the isolated correction as 1cfcbfab95; see the coordinator's .agentlogs/reviews/ucs-expiration-test-fix.md.
+- [x] Pass build/Checkstyle, 26 ControllerTest cases, and 2 ControllerHierarchyTest cases. Reproduce the compaction expiration failure on the frozen shared base.
+- [x] Extract UCS and lazy tombstone source/tests; record combined-test adapters.
 - [x] Extract generic tools, JaCoCo upgrade, and shared metric contracts.
 - [x] Build with JDK 21 and pass main/test Checkstyle.
 - [x] Pass both ThreadLocalHistogramTest cases.
