@@ -1,4 +1,6 @@
 conf/cassandra.yaml etc/cassandra
+conf/all_metrics.yml etc/cassandra
+conf/simple_metrics.yml etc/cassandra
 conf/cassandra-env.sh etc/cassandra
 conf/cassandra-rackdc.properties etc/cassandra
 conf/commitlog_archiving.properties etc/cassandra
