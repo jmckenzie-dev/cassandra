@@ -46,8 +46,10 @@ MemtableSwitchCount from exports. TableMetrics retains real, unregistered
 counters, and this harness reads those fields directly. Their deltas remain
 usable. Data-byte counters do not cover every SSTable component. Cross-check
 SSTable counts/disk bytes and compaction history where available.
-The old summary policy text always says cursor compaction is disabled; the
-effectiveConfiguration.cursorCompaction field is authoritative instead.
+The old summary policy text always says cursor compaction is disabled. The
+effectiveConfiguration.cursorCompaction field records the enabled setting,
+but the idle logs confirm fallback: cursor compaction requires BIG, while
+these cases use BTI. These runs do not measure cursor compaction.
 
 Lazy identifiers, compact bookkeeping, and the transient builder appear in
 recorded JVM arguments, not separate effective fields. Idle throughput and
@@ -74,3 +76,12 @@ lateness and phase duration before making any throughput claim. Idle cases do
 not scrape JMX or write tombstones; separate tests/census cover those paths.
 Census property-query timing covers queryNames only. Process success still
 requires a separate audit of requested versus effective settings and results.
+
+## Idle watchdog retry
+
+The original 1,000-table idle case exceeded its 121-second drain deadline in
+cycle four. Dirty tables continued to fall at about 98 per 15 seconds while
+compaction ran. Preserve that failed run. Use --idle-retry to repeat only
+that case with a 300-second settle watchdog (301-second idle deadline).
+The workload and Cassandra settings remain unchanged. The successful idle-off
+control retains its original watchdog; compare state, not deadline duration.

@@ -1,0 +1,887 @@
+{
+  "_license": "Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements. See NOTICE for copyright ownership. Licensed under Apache License 2.0: http://www.apache.org/licenses/LICENSE-2.0. Distributed on an AS IS BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND. See the License for permissions and limitations.",
+  "sourceRevision": "dea76d81d0",
+  "batch": "logs/20260912-003304-split-measurements---profiles",
+  "records": [
+    {
+      "summary": "logs/20260912-003304-split-measurements---profiles/profiles-1000-simple_metrics.yml/20260912-004956-residency-written-flushed-1000t/summary.json",
+      "checks": {
+        "success": true,
+        "noPhaseErrors": true,
+        "writes": true,
+        "reads": true,
+        "profile": true,
+        "legacy": true,
+        "noExportOptions": true,
+        "noMeterOrTombstone": true,
+        "noStartupOptions": true,
+        "heap": true,
+        "cpus": true,
+        "java": true,
+        "profilingOff": true,
+        "eager": true,
+        "idleOff": true,
+        "drained": true,
+        "files": true,
+        "flushes": true
+      },
+      "tables": 1000,
+      "profile": "simple_metrics.yml",
+      "writes": 16000,
+      "reads": 5000,
+      "baseline": {
+        "heapUsedBytes": 54838744,
+        "driverThreadAllocatedBytes": 1126127208,
+        "settledPostGc": true,
+        "processCpuNanos": 7199993000,
+        "live_memtables": 0,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 0,
+        "sstable_data_disk_bytes": 0,
+        "flushes": 0,
+        "bytes_flushed": 0,
+        "compaction_bytes_written": 0,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 406087,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 0
+      },
+      "created": {
+        "heapUsedBytes": 178875664,
+        "driverThreadAllocatedBytes": 1142769920,
+        "settledPostGc": true,
+        "processCpuNanos": 113339106000,
+        "live_memtables": 1000,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 0,
+        "sstable_data_disk_bytes": 0,
+        "flushes": 0,
+        "bytes_flushed": 0,
+        "compaction_bytes_written": 0,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 11017770,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 1000
+      },
+      "settled": {
+        "heapUsedBytes": 211876640,
+        "driverThreadAllocatedBytes": 1218557280,
+        "settledPostGc": true,
+        "processCpuNanos": 216209739000,
+        "live_memtables": 1000,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 1000,
+        "sstable_data_disk_bytes": 4362073,
+        "flushes": 4000,
+        "bytes_flushed": 4372000,
+        "compaction_bytes_written": 4362073,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 14127514,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 1000
+      },
+      "createdHeapDelta": 124036920,
+      "settledHeapDelta": 157037896,
+      "lateWrites": 2759,
+      "maxLatenessNanos": 37658792,
+      "phaseSeconds": [
+        {
+          "name": "00-baseline",
+          "seconds": 0.817117709
+        },
+        {
+          "name": "01-create",
+          "seconds": 341.132982417
+        },
+        {
+          "name": "02-created",
+          "seconds": 0.79845175
+        },
+        {
+          "name": "03-cycle-000",
+          "seconds": 0.401911
+        },
+        {
+          "name": "03-cycle-000-flush",
+          "seconds": 98.049328375
+        },
+        {
+          "name": "03-cycle-000-observe",
+          "seconds": 1.003448292
+        },
+        {
+          "name": "03-cycle-000-policy",
+          "seconds": 0.801120042
+        },
+        {
+          "name": "03-cycle-000-read",
+          "seconds": 0.160433209
+        },
+        {
+          "name": "03-cycle-001",
+          "seconds": 0.400434459
+        },
+        {
+          "name": "03-cycle-001-flush",
+          "seconds": 101.140681917
+        },
+        {
+          "name": "03-cycle-001-observe",
+          "seconds": 1.007946959
+        },
+        {
+          "name": "03-cycle-001-policy",
+          "seconds": 0.781107167
+        },
+        {
+          "name": "03-cycle-001-read",
+          "seconds": 0.080710125
+        },
+        {
+          "name": "03-cycle-002",
+          "seconds": 0.400434584
+        },
+        {
+          "name": "03-cycle-002-flush",
+          "seconds": 97.334238042
+        },
+        {
+          "name": "03-cycle-002-observe",
+          "seconds": 1.01060075
+        },
+        {
+          "name": "03-cycle-002-policy",
+          "seconds": 0.783923958
+        },
+        {
+          "name": "03-cycle-002-read",
+          "seconds": 0.07854875
+        },
+        {
+          "name": "03-cycle-003",
+          "seconds": 0.400421708
+        },
+        {
+          "name": "03-cycle-003-flush",
+          "seconds": 147.927797416
+        },
+        {
+          "name": "03-cycle-003-observe",
+          "seconds": 1.00642575
+        },
+        {
+          "name": "03-cycle-003-policy",
+          "seconds": 0.771167291
+        },
+        {
+          "name": "03-cycle-003-read",
+          "seconds": 0.162817542
+        },
+        {
+          "name": "04-hold",
+          "seconds": 2.010660125
+        },
+        {
+          "name": "05-policy",
+          "seconds": 0.007618084
+        },
+        {
+          "name": "06-settled",
+          "seconds": 0.771505041
+        },
+        {
+          "name": "07-verify",
+          "seconds": 0.070207625
+        },
+        {
+          "name": "08-close",
+          "seconds": 9.974414833
+        }
+      ]
+    },
+    {
+      "summary": "logs/20260912-003304-split-measurements---profiles/profiles-100-all_metrics.yml/20260912-003305-residency-written-flushed-100t/summary.json",
+      "checks": {
+        "success": true,
+        "noPhaseErrors": true,
+        "writes": true,
+        "reads": true,
+        "profile": true,
+        "legacy": true,
+        "noExportOptions": true,
+        "noMeterOrTombstone": true,
+        "noStartupOptions": true,
+        "heap": true,
+        "cpus": true,
+        "java": true,
+        "profilingOff": true,
+        "eager": true,
+        "idleOff": true,
+        "drained": true,
+        "files": true,
+        "flushes": true
+      },
+      "tables": 100,
+      "profile": "all_metrics.yml",
+      "writes": 1600,
+      "reads": 500,
+      "baseline": {
+        "heapUsedBytes": 71191080,
+        "driverThreadAllocatedBytes": 1127358784,
+        "settledPostGc": true,
+        "processCpuNanos": 7688403000,
+        "live_memtables": 0,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 0,
+        "sstable_data_disk_bytes": 0,
+        "flushes": 0,
+        "bytes_flushed": 0,
+        "compaction_bytes_written": 0,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 406087,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 0
+      },
+      "created": {
+        "heapUsedBytes": 111266608,
+        "driverThreadAllocatedBytes": 1142274184,
+        "settledPostGc": true,
+        "processCpuNanos": 20137444000,
+        "live_memtables": 100,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 0,
+        "sstable_data_disk_bytes": 0,
+        "flushes": 0,
+        "bytes_flushed": 0,
+        "compaction_bytes_written": 0,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 1096597,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 100
+      },
+      "settled": {
+        "heapUsedBytes": 116784680,
+        "driverThreadAllocatedBytes": 1152372064,
+        "settledPostGc": true,
+        "processCpuNanos": 33983861000,
+        "live_memtables": 100,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 100,
+        "sstable_data_disk_bytes": 436168,
+        "flushes": 400,
+        "bytes_flushed": 436826,
+        "compaction_bytes_written": 436168,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 1414205,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 100
+      },
+      "createdHeapDelta": 40075528,
+      "settledHeapDelta": 45593600,
+      "lateWrites": 404,
+      "maxLatenessNanos": 16010083,
+      "phaseSeconds": [
+        {
+          "name": "00-baseline",
+          "seconds": 0.788419583
+        },
+        {
+          "name": "01-create",
+          "seconds": 32.939627
+        },
+        {
+          "name": "02-created",
+          "seconds": 0.736347667
+        },
+        {
+          "name": "03-cycle-000",
+          "seconds": 0.05710075
+        },
+        {
+          "name": "03-cycle-000-flush",
+          "seconds": 9.801282458
+        },
+        {
+          "name": "03-cycle-000-observe",
+          "seconds": 1.011213333
+        },
+        {
+          "name": "03-cycle-000-policy",
+          "seconds": 0.774043708
+        },
+        {
+          "name": "03-cycle-000-read",
+          "seconds": 0.04621125
+        },
+        {
+          "name": "03-cycle-001",
+          "seconds": 0.041054042
+        },
+        {
+          "name": "03-cycle-001-flush",
+          "seconds": 9.555911583
+        },
+        {
+          "name": "03-cycle-001-observe",
+          "seconds": 1.003221458
+        },
+        {
+          "name": "03-cycle-001-policy",
+          "seconds": 0.734674375
+        },
+        {
+          "name": "03-cycle-001-read",
+          "seconds": 0.041232458
+        },
+        {
+          "name": "03-cycle-002",
+          "seconds": 0.040646333
+        },
+        {
+          "name": "03-cycle-002-flush",
+          "seconds": 9.426133375
+        },
+        {
+          "name": "03-cycle-002-observe",
+          "seconds": 1.010096583
+        },
+        {
+          "name": "03-cycle-002-policy",
+          "seconds": 0.758100292
+        },
+        {
+          "name": "03-cycle-002-read",
+          "seconds": 0.034004333
+        },
+        {
+          "name": "03-cycle-003",
+          "seconds": 0.04088725
+        },
+        {
+          "name": "03-cycle-003-flush",
+          "seconds": 14.281423125
+        },
+        {
+          "name": "03-cycle-003-observe",
+          "seconds": 1.009704
+        },
+        {
+          "name": "03-cycle-003-policy",
+          "seconds": 0.765281917
+        },
+        {
+          "name": "03-cycle-003-read",
+          "seconds": 0.023459084
+        },
+        {
+          "name": "04-hold",
+          "seconds": 2.010297375
+        },
+        {
+          "name": "05-policy",
+          "seconds": 0.000845875
+        },
+        {
+          "name": "06-settled",
+          "seconds": 0.76022075
+        },
+        {
+          "name": "07-verify",
+          "seconds": 0.026410959
+        },
+        {
+          "name": "08-close",
+          "seconds": 9.3673615
+        }
+      ]
+    },
+    {
+      "summary": "logs/20260912-003304-split-measurements---profiles/profiles-1000-all_metrics.yml/20260912-003631-residency-written-flushed-1000t/summary.json",
+      "checks": {
+        "success": true,
+        "noPhaseErrors": true,
+        "writes": true,
+        "reads": true,
+        "profile": true,
+        "legacy": true,
+        "noExportOptions": true,
+        "noMeterOrTombstone": true,
+        "noStartupOptions": true,
+        "heap": true,
+        "cpus": true,
+        "java": true,
+        "profilingOff": true,
+        "eager": true,
+        "idleOff": true,
+        "drained": true,
+        "files": true,
+        "flushes": true
+      },
+      "tables": 1000,
+      "profile": "all_metrics.yml",
+      "writes": 16000,
+      "reads": 5000,
+      "baseline": {
+        "heapUsedBytes": 70995040,
+        "driverThreadAllocatedBytes": 1127139152,
+        "settledPostGc": true,
+        "processCpuNanos": 7592005000,
+        "live_memtables": 0,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 0,
+        "sstable_data_disk_bytes": 0,
+        "flushes": 0,
+        "bytes_flushed": 0,
+        "compaction_bytes_written": 0,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 406087,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 0
+      },
+      "created": {
+        "heapUsedBytes": 523871784,
+        "driverThreadAllocatedBytes": 1143596800,
+        "settledPostGc": true,
+        "processCpuNanos": 114469775000,
+        "live_memtables": 1000,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 0,
+        "sstable_data_disk_bytes": 0,
+        "flushes": 0,
+        "bytes_flushed": 0,
+        "compaction_bytes_written": 0,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 11016666,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 1000
+      },
+      "settled": {
+        "heapUsedBytes": 573668128,
+        "driverThreadAllocatedBytes": 1218745536,
+        "settledPostGc": true,
+        "processCpuNanos": 225924238000,
+        "live_memtables": 1000,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 1000,
+        "sstable_data_disk_bytes": 4361327,
+        "flushes": 4000,
+        "bytes_flushed": 4372000,
+        "compaction_bytes_written": 4361327,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 14125322,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 1000
+      },
+      "createdHeapDelta": 452876744,
+      "settledHeapDelta": 502673088,
+      "lateWrites": 2642,
+      "maxLatenessNanos": 20325125,
+      "phaseSeconds": [
+        {
+          "name": "00-baseline",
+          "seconds": 0.815708458
+        },
+        {
+          "name": "01-create",
+          "seconds": 340.152677792
+        },
+        {
+          "name": "02-created",
+          "seconds": 0.823302083
+        },
+        {
+          "name": "03-cycle-000",
+          "seconds": 0.402293625
+        },
+        {
+          "name": "03-cycle-000-flush",
+          "seconds": 95.369965875
+        },
+        {
+          "name": "03-cycle-000-observe",
+          "seconds": 1.011130083
+        },
+        {
+          "name": "03-cycle-000-policy",
+          "seconds": 0.826559875
+        },
+        {
+          "name": "03-cycle-000-read",
+          "seconds": 0.129142208
+        },
+        {
+          "name": "03-cycle-001",
+          "seconds": 0.400489167
+        },
+        {
+          "name": "03-cycle-001-flush",
+          "seconds": 96.986894
+        },
+        {
+          "name": "03-cycle-001-observe",
+          "seconds": 1.010415708
+        },
+        {
+          "name": "03-cycle-001-policy",
+          "seconds": 0.818906416
+        },
+        {
+          "name": "03-cycle-001-read",
+          "seconds": 0.083687458
+        },
+        {
+          "name": "03-cycle-002",
+          "seconds": 0.400432667
+        },
+        {
+          "name": "03-cycle-002-flush",
+          "seconds": 96.038910458
+        },
+        {
+          "name": "03-cycle-002-observe",
+          "seconds": 1.005925208
+        },
+        {
+          "name": "03-cycle-002-policy",
+          "seconds": 0.819180834
+        },
+        {
+          "name": "03-cycle-002-read",
+          "seconds": 0.210031709
+        },
+        {
+          "name": "03-cycle-003",
+          "seconds": 0.400453458
+        },
+        {
+          "name": "03-cycle-003-flush",
+          "seconds": 146.594651834
+        },
+        {
+          "name": "03-cycle-003-observe",
+          "seconds": 1.008651292
+        },
+        {
+          "name": "03-cycle-003-policy",
+          "seconds": 0.816948583
+        },
+        {
+          "name": "03-cycle-003-read",
+          "seconds": 0.162402584
+        },
+        {
+          "name": "04-hold",
+          "seconds": 2.009763542
+        },
+        {
+          "name": "05-policy",
+          "seconds": 0.008043708
+        },
+        {
+          "name": "06-settled",
+          "seconds": 0.816736167
+        },
+        {
+          "name": "07-verify",
+          "seconds": 0.065428125
+        },
+        {
+          "name": "08-close",
+          "seconds": 10.24819675
+        }
+      ]
+    },
+    {
+      "summary": "logs/20260912-003304-split-measurements---profiles/profiles-100-simple_metrics.yml/20260912-003448-residency-written-flushed-100t/summary.json",
+      "checks": {
+        "success": true,
+        "noPhaseErrors": true,
+        "writes": true,
+        "reads": true,
+        "profile": true,
+        "legacy": true,
+        "noExportOptions": true,
+        "noMeterOrTombstone": true,
+        "noStartupOptions": true,
+        "heap": true,
+        "cpus": true,
+        "java": true,
+        "profilingOff": true,
+        "eager": true,
+        "idleOff": true,
+        "drained": true,
+        "files": true,
+        "flushes": true
+      },
+      "tables": 100,
+      "profile": "simple_metrics.yml",
+      "writes": 1600,
+      "reads": 500,
+      "baseline": {
+        "heapUsedBytes": 54823048,
+        "driverThreadAllocatedBytes": 1127082984,
+        "settledPostGc": true,
+        "processCpuNanos": 7276112000,
+        "live_memtables": 0,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 0,
+        "sstable_data_disk_bytes": 0,
+        "flushes": 0,
+        "bytes_flushed": 0,
+        "compaction_bytes_written": 0,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 406087,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 0
+      },
+      "created": {
+        "heapUsedBytes": 62512616,
+        "driverThreadAllocatedBytes": 1142001160,
+        "settledPostGc": true,
+        "processCpuNanos": 19728868000,
+        "live_memtables": 100,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 0,
+        "sstable_data_disk_bytes": 0,
+        "flushes": 0,
+        "bytes_flushed": 0,
+        "compaction_bytes_written": 0,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 1096437,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 100
+      },
+      "settled": {
+        "heapUsedBytes": 62609480,
+        "driverThreadAllocatedBytes": 1151939496,
+        "settledPostGc": true,
+        "processCpuNanos": 32177186000,
+        "live_memtables": 100,
+        "dirty_memtables": 0,
+        "flushing_memtables": 0,
+        "memtable_data_bytes": 0,
+        "memtable_accounted_heap_bytes": 0,
+        "memtable_accounted_offheap_bytes": 0,
+        "pending_flushes": 0,
+        "sstables": 100,
+        "sstable_data_disk_bytes": 436426,
+        "flushes": 400,
+        "bytes_flushed": 436879,
+        "compaction_bytes_written": 436426,
+        "compacting_sstables": 0,
+        "pending_compactions": 0,
+        "node_pool_heap_bytes": 1414237,
+        "node_pool_offheap_bytes": 0,
+        "node_pool_reclaiming_heap_bytes": 0,
+        "node_pool_reclaiming_offheap_bytes": 0,
+        "initialized_trie_memtables": 100
+      },
+      "createdHeapDelta": 7689568,
+      "settledHeapDelta": 7786432,
+      "lateWrites": 399,
+      "maxLatenessNanos": 27735041,
+      "phaseSeconds": [
+        {
+          "name": "00-baseline",
+          "seconds": 0.815001417
+        },
+        {
+          "name": "01-create",
+          "seconds": 33.215767084
+        },
+        {
+          "name": "02-created",
+          "seconds": 0.7758505
+        },
+        {
+          "name": "03-cycle-000",
+          "seconds": 0.069423959
+        },
+        {
+          "name": "03-cycle-000-flush",
+          "seconds": 9.168013833
+        },
+        {
+          "name": "03-cycle-000-observe",
+          "seconds": 1.011049291
+        },
+        {
+          "name": "03-cycle-000-policy",
+          "seconds": 0.764190042
+        },
+        {
+          "name": "03-cycle-000-read",
+          "seconds": 0.032890917
+        },
+        {
+          "name": "03-cycle-001",
+          "seconds": 0.040405167
+        },
+        {
+          "name": "03-cycle-001-flush",
+          "seconds": 9.523756
+        },
+        {
+          "name": "03-cycle-001-observe",
+          "seconds": 1.010589875
+        },
+        {
+          "name": "03-cycle-001-policy",
+          "seconds": 0.76569775
+        },
+        {
+          "name": "03-cycle-001-read",
+          "seconds": 0.028570833
+        },
+        {
+          "name": "03-cycle-002",
+          "seconds": 0.040458333
+        },
+        {
+          "name": "03-cycle-002-flush",
+          "seconds": 9.497024458
+        },
+        {
+          "name": "03-cycle-002-observe",
+          "seconds": 1.011241333
+        },
+        {
+          "name": "03-cycle-002-policy",
+          "seconds": 0.750643917
+        },
+        {
+          "name": "03-cycle-002-read",
+          "seconds": 0.027974166
+        },
+        {
+          "name": "03-cycle-003",
+          "seconds": 0.040690667
+        },
+        {
+          "name": "03-cycle-003-flush",
+          "seconds": 14.440455208
+        },
+        {
+          "name": "03-cycle-003-observe",
+          "seconds": 1.010835625
+        },
+        {
+          "name": "03-cycle-003-policy",
+          "seconds": 0.763607459
+        },
+        {
+          "name": "03-cycle-003-read",
+          "seconds": 0.027612041
+        },
+        {
+          "name": "04-hold",
+          "seconds": 2.008181542
+        },
+        {
+          "name": "05-policy",
+          "seconds": 0.00152025
+        },
+        {
+          "name": "06-settled",
+          "seconds": 0.748306916
+        },
+        {
+          "name": "07-verify",
+          "seconds": 0.014008958
+        },
+        {
+          "name": "08-close",
+          "seconds": 9.34761925
+        }
+      ]
+    }
+  ]
+}

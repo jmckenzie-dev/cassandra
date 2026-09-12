@@ -52,5 +52,31 @@ Logs: logs/20260912-002601-validate-many-tables-split.log and the five
 This is targeted validation, not the full Cassandra suite. No numerical code
 coverage percentage is claimed. Boundary and property executions complement
 the unit/distributed cases; they are not added to the JUnit case total.
-The combined build and tests ran before measurements. Measurements remain
-pending and must use the frozen binaries without competing build/test work.
+The combined build and tests ran before measurements. All matched measurements
+subsequently completed with the frozen binaries and no competing build/test
+work. See integration-measurements.md for results and limits.
+
+## Independent verification review
+
+The independent coverage review approved extraction and correctness at
+eeb3e6957e, with no blocking or major finding. It checked all 57 XML reports,
+the nested cases, alternate-builder configurations, boundaries, source diffs,
+and the frozen JAR hash. No combined assertion was lost. Measurements remain
+outside this gate.
+
+Minor finding COV-001: the alternate-builder raw log lacks the command and
+class names. Its recorded builder property, ten node configurations, and
+successful result support the claim. The actual invocation was:
+
+```sh
+env JAVA_HOME=/opt/homebrew/Cellar/openjdk@21/21.0.12.1/libexec/openjdk.jdk/Contents/Home \
+    PATH=/opt/homebrew/opt/openjdk@21/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+    PROFILE_SKIP_BUILD=true PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore \
+    PROFILE_TRANSIENT_JMX=true .build/sh/ai-profile-many-tables \
+    org.apache.cassandra.distributed.test.MetricProfileConfigurationMatrixTest \
+    org.apache.cassandra.distributed.test.MetricProfileRegistrationTest
+```
+
+Future generic launches should print their class list and effective command.
+The measurement runner already records its residency commands and bytecode
+hashes. This note does not change the historical raw log.

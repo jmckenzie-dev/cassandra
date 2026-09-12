@@ -15,10 +15,12 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-- [ ] Run matched measurements with verified effective controls.
+No open tasks.
 
 # DONE
 
+- [x] Complete all 18 matched measurement cells and six heap analyses. Preserve the original idle timeout and pass the watchdog-only retry. Audit controls and record limits.
+- [x] Record final branch heads, independent measurement audits, and the remaining-work inventory.
 - [x] Build and pass 337 combined tests, with one existing skip, plus generator, heap analyzer, and boundary checks.
 - [x] Verify all-versus-simple profiles with legacy storage and repeat the ten profile cases with the transient MBean server builder.
 - [x] Restore combined fixtures after merging all five feature branches.

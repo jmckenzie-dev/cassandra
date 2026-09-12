@@ -1,0 +1,1690 @@
+{
+  "_license": "Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements. See NOTICE for copyright ownership. Licensed under Apache License 2.0: http://www.apache.org/licenses/LICENSE-2.0. Distributed on an AS IS BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND. See the License for permissions and limitations.",
+  "sourceRevision": "dea76d81d0",
+  "batch": "logs/20260912-014627-split-measurements---census",
+  "analysisCommand": "/usr/bin/python3 .build/sh/analyze-heap-ownership.py <heap> --expected-tables 100",
+  "limits": [
+    "Both cases use compact registration, transient names, lazy identifiers, and compact bookkeeping; standard refers only to histogram history.",
+    "Synthetic actual metric updates, not a query/write workload. All user memtables remain empty and uninitialized.",
+    "Shallow array bytes are not a complete retained-size or dominator result. Bounded ownership claims can overlap; do not sum them.",
+    "Class histograms and live heaps are separate instants. Layout defaults match recorded compressed-pointer and alignment options.",
+    "Single fixed-order sample per case. Whole-JVM heap varies with background state; no stable effect-size or throughput claim.",
+    "Six live heaps and six histograms were captured per case; created, scraped and rescraped were analyzed. The baseline and one/eight-worker intermediate heaps remain available."
+  ],
+  "records": [
+    {
+      "history": "standard",
+      "summary": "logs/20260912-014627-split-measurements---census/census-100-standard/20260912-014628-heap-ownership-100t/summary.json",
+      "checks": {
+        "success": true,
+        "settings": true,
+        "profile": true,
+        "history": true,
+        "heap": true,
+        "lazy": true,
+        "layout": true,
+        "profilingOff": true,
+        "java": true,
+        "startup": true,
+        "checkpoints": true,
+        "workers": true,
+        "observations": true,
+        "scrapes": true
+      },
+      "effective": {
+        "stock": false,
+        "productionCodeSource": "file:/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/build/apache-cassandra-7.0-SNAPSHOT.jar",
+        "optimizedMetricsEnabled": true,
+        "metricsConfigFile": "simple_metrics.yml",
+        "adaptiveJmxHistogramHistoryEnabled": false,
+        "compactJmxRegistrationEnabled": true,
+        "memtableParameters": {
+          "lazy_initialization": "true"
+        },
+        "heapMaxBytes": 8589934592,
+        "processors": 8,
+        "jvmArguments": [
+          "-ea",
+          "-Xms512m",
+          "-Xmx8g",
+          "-XX:ActiveProcessorCount=8",
+          "-javaagent:/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/build/lib/jars/jamm-0.4.0.jar",
+          "-Djava.io.tmpdir=/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/tmp",
+          "-Dcassandra.testtag=manytables",
+          "-Djava.awt.headless=true",
+          "-Djava.security.egd=file:/dev/urandom",
+          "-XX:SoftRefLRUPolicyMSPerMB=0",
+          "-Djdk.attach.allowAttachSelf=true",
+          "-Djavax.management.builder.initial=org.apache.cassandra.utils.TransientMBeanServerBuilder",
+          "-Dcassandra.lazy_metric_ids=true",
+          "-Dcassandra.compact_table_metric_bookkeeping=true",
+          "-Djava.security.manager=allow",
+          "--add-exports=java.base/java.lang.ref=ALL-UNNAMED",
+          "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED",
+          "--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED",
+          "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
+          "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
+          "--add-exports=java.management.rmi/com.sun.jmx.remote.internal.rmi=ALL-UNNAMED",
+          "--add-exports=java.rmi/sun.rmi.registry=ALL-UNNAMED",
+          "--add-exports=java.rmi/sun.rmi.server=ALL-UNNAMED",
+          "--add-exports=java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED",
+          "--add-exports=java.sql/java.sql=ALL-UNNAMED",
+          "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
+          "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
+          "--add-exports=jdk.attach/sun.tools.attach=ALL-UNNAMED",
+          "--add-opens=java.base/java.io=ALL-UNNAMED",
+          "--add-opens=java.base/java.lang=ALL-UNNAMED",
+          "--add-opens=java.base/java.lang.module=ALL-UNNAMED",
+          "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+          "--add-opens=java.base/java.math=ALL-UNNAMED",
+          "--add-opens=java.base/java.net=ALL-UNNAMED",
+          "--add-opens=java.base/java.nio=ALL-UNNAMED",
+          "--add-opens=java.base/java.util=ALL-UNNAMED",
+          "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
+          "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED",
+          "--add-opens=java.base/jdk.internal.loader=ALL-UNNAMED",
+          "--add-opens=java.base/jdk.internal.math=ALL-UNNAMED",
+          "--add-opens=java.base/jdk.internal.module=ALL-UNNAMED",
+          "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED",
+          "--add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED",
+          "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+          "--add-opens=java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED",
+          "--add-opens=jdk.management/com.sun.management=ALL-UNNAMED"
+        ],
+        "UseCompressedOops": "true",
+        "UseCompressedClassPointers": "true",
+        "ObjectAlignmentInBytes": "8"
+      },
+      "checkpoints": {
+        "baseline": {
+          "tables": 0,
+          "mBeanCount": 3922,
+          "activeWorkers": 0,
+          "workerStates": [
+            {
+              "name": "census-worker-0",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 99
+            },
+            {
+              "name": "census-worker-1",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 100
+            },
+            {
+              "name": "census-worker-2",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 101
+            },
+            {
+              "name": "census-worker-3",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 102
+            },
+            {
+              "name": "census-worker-4",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 103
+            },
+            {
+              "name": "census-worker-5",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 104
+            },
+            {
+              "name": "census-worker-6",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 105
+            },
+            {
+              "name": "census-worker-7",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 106
+            }
+          ],
+          "distinctWorkerMetricStores": 0,
+          "verifiedEmptyUserMemtables": 0,
+          "verifiedUninitializedTrieMemtables": 0,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 0,
+          "recordedObservationsPerMetricPerTable": {
+            "TotalRowsRead": 0,
+            "ReadLatency": 0,
+            "ReadRepairRequests": 0,
+            "SSTablesPerReadHistogram": 0
+          },
+          "observationsPerSelectedKeyspaceAggregate": 0,
+          "heapUsedBytes": 42847856,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        },
+        "created": {
+          "tables": 100,
+          "mBeanCount": 7155,
+          "activeWorkers": 0,
+          "workerStates": [
+            {
+              "name": "census-worker-0",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 99
+            },
+            {
+              "name": "census-worker-1",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 100
+            },
+            {
+              "name": "census-worker-2",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 101
+            },
+            {
+              "name": "census-worker-3",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 102
+            },
+            {
+              "name": "census-worker-4",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 103
+            },
+            {
+              "name": "census-worker-5",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 104
+            },
+            {
+              "name": "census-worker-6",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 105
+            },
+            {
+              "name": "census-worker-7",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 106
+            }
+          ],
+          "distinctWorkerMetricStores": 0,
+          "verifiedEmptyUserMemtables": 100,
+          "verifiedUninitializedTrieMemtables": 100,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 0,
+          "recordedObservationsPerMetricPerTable": {
+            "TotalRowsRead": 0,
+            "ReadLatency": 0,
+            "ReadRepairRequests": 0,
+            "SSTablesPerReadHistogram": 0
+          },
+          "observationsPerSelectedKeyspaceAggregate": 0,
+          "verifiedUserMetricMBeans": 3033,
+          "verifiedUserRegistryMetrics": 3033,
+          "heapUsedBytes": 48148576,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        },
+        "scraped": {
+          "tables": 100,
+          "mBeanCount": 7155,
+          "activeWorkers": 0,
+          "workerStates": [
+            {
+              "name": "census-worker-0",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 99
+            },
+            {
+              "name": "census-worker-1",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 100
+            },
+            {
+              "name": "census-worker-2",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 101
+            },
+            {
+              "name": "census-worker-3",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 102
+            },
+            {
+              "name": "census-worker-4",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 103
+            },
+            {
+              "name": "census-worker-5",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 104
+            },
+            {
+              "name": "census-worker-6",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 105
+            },
+            {
+              "name": "census-worker-7",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 106
+            }
+          ],
+          "distinctWorkerMetricStores": 0,
+          "verifiedEmptyUserMemtables": 100,
+          "verifiedUninitializedTrieMemtables": 100,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 0,
+          "recordedObservationsPerMetricPerTable": {
+            "TotalRowsRead": 0,
+            "ReadLatency": 0,
+            "ReadRepairRequests": 0,
+            "SSTablesPerReadHistogram": 0
+          },
+          "observationsPerSelectedKeyspaceAggregate": 0,
+          "verifiedUserMetricMBeans": 3033,
+          "verifiedUserRegistryMetrics": 3033,
+          "heapUsedBytes": 46208872,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        },
+        "worker-1": {
+          "tables": 100,
+          "mBeanCount": 7155,
+          "activeWorkers": 1,
+          "workerStates": [
+            {
+              "name": "census-worker-0",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 99
+            },
+            {
+              "name": "census-worker-1",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 100
+            },
+            {
+              "name": "census-worker-2",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 101
+            },
+            {
+              "name": "census-worker-3",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 102
+            },
+            {
+              "name": "census-worker-4",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 103
+            },
+            {
+              "name": "census-worker-5",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 104
+            },
+            {
+              "name": "census-worker-6",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 105
+            },
+            {
+              "name": "census-worker-7",
+              "hasMetricStorage": false,
+              "recordedTables": 0,
+              "threadId": 106
+            }
+          ],
+          "distinctWorkerMetricStores": 1,
+          "verifiedEmptyUserMemtables": 100,
+          "verifiedUninitializedTrieMemtables": 100,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 1,
+          "recordedObservationsPerMetricPerTable": {
+            "TotalRowsRead": 1,
+            "ReadLatency": 1,
+            "ReadRepairRequests": 0,
+            "SSTablesPerReadHistogram": 1
+          },
+          "observationsPerSelectedKeyspaceAggregate": 100,
+          "verifiedUserMetricMBeans": 3033,
+          "verifiedUserRegistryMetrics": 3033,
+          "heapUsedBytes": 50568496,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        },
+        "workers-8": {
+          "tables": 100,
+          "mBeanCount": 7155,
+          "activeWorkers": 8,
+          "workerStates": [
+            {
+              "name": "census-worker-0",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 99
+            },
+            {
+              "name": "census-worker-1",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 100
+            },
+            {
+              "name": "census-worker-2",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 101
+            },
+            {
+              "name": "census-worker-3",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 102
+            },
+            {
+              "name": "census-worker-4",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 103
+            },
+            {
+              "name": "census-worker-5",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 104
+            },
+            {
+              "name": "census-worker-6",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 105
+            },
+            {
+              "name": "census-worker-7",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 106
+            }
+          ],
+          "distinctWorkerMetricStores": 8,
+          "verifiedEmptyUserMemtables": 100,
+          "verifiedUninitializedTrieMemtables": 100,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 8,
+          "recordedObservationsPerMetricPerTable": {
+            "TotalRowsRead": 8,
+            "ReadLatency": 8,
+            "ReadRepairRequests": 0,
+            "SSTablesPerReadHistogram": 8
+          },
+          "observationsPerSelectedKeyspaceAggregate": 800,
+          "verifiedUserMetricMBeans": 3033,
+          "verifiedUserRegistryMetrics": 3033,
+          "heapUsedBytes": 46466712,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        },
+        "rescraped": {
+          "tables": 100,
+          "mBeanCount": 7155,
+          "activeWorkers": 8,
+          "workerStates": [
+            {
+              "name": "census-worker-0",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 99
+            },
+            {
+              "name": "census-worker-1",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 100
+            },
+            {
+              "name": "census-worker-2",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 101
+            },
+            {
+              "name": "census-worker-3",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 102
+            },
+            {
+              "name": "census-worker-4",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 103
+            },
+            {
+              "name": "census-worker-5",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 104
+            },
+            {
+              "name": "census-worker-6",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 105
+            },
+            {
+              "name": "census-worker-7",
+              "hasMetricStorage": true,
+              "recordedTables": 100,
+              "threadId": 106
+            }
+          ],
+          "distinctWorkerMetricStores": 8,
+          "verifiedEmptyUserMemtables": 100,
+          "verifiedUninitializedTrieMemtables": 100,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 8,
+          "recordedObservationsPerMetricPerTable": {
+            "TotalRowsRead": 8,
+            "ReadLatency": 8,
+            "ReadRepairRequests": 0,
+            "SSTablesPerReadHistogram": 8
+          },
+          "observationsPerSelectedKeyspaceAggregate": 800,
+          "verifiedUserMetricMBeans": 3033,
+          "verifiedUserRegistryMetrics": 3033,
+          "heapUsedBytes": 46458008,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        }
+      },
+      "scrapes": [
+        {
+          "phase": "scraped",
+          "inspectNameProperties": true,
+          "metricMBeans": 6790,
+          "userKeyspaceMBeans": 3033,
+          "successfulAttributes": 41875,
+          "recentAttributes": 1991,
+          "failedAttributes": 0,
+          "failures": [],
+          "propertyQueries": [
+            {
+              "matches": 30,
+              "pattern": "org.apache.cassandra.metrics:keyspace=heap_census,scope=t000000,*",
+              "allocatedBytes": 435160,
+              "elapsedNanos": 4050666
+            },
+            {
+              "matches": 180,
+              "pattern": "org.apache.cassandra.metrics:type=ThreadPools,*",
+              "allocatedBytes": 727832,
+              "elapsedNanos": 2265292
+            },
+            {
+              "matches": 0,
+              "pattern": "org.apache.cassandra.metrics:keyspace=missing,*",
+              "allocatedBytes": 350464,
+              "elapsedNanos": 1169958
+            }
+          ]
+        },
+        {
+          "phase": "rescraped",
+          "inspectNameProperties": true,
+          "metricMBeans": 6790,
+          "userKeyspaceMBeans": 3033,
+          "successfulAttributes": 41875,
+          "recentAttributes": 1991,
+          "failedAttributes": 0,
+          "failures": [],
+          "propertyQueries": [
+            {
+              "matches": 30,
+              "pattern": "org.apache.cassandra.metrics:keyspace=heap_census,scope=t000000,*",
+              "allocatedBytes": 413264,
+              "elapsedNanos": 2236292
+            },
+            {
+              "matches": 180,
+              "pattern": "org.apache.cassandra.metrics:type=ThreadPools,*",
+              "allocatedBytes": 727832,
+              "elapsedNanos": 1386959
+            },
+            {
+              "matches": 0,
+              "pattern": "org.apache.cassandra.metrics:keyspace=missing,*",
+              "allocatedBytes": 350464,
+              "elapsedNanos": 830208
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "history": "adaptive",
+      "summary": "logs/20260912-014627-split-measurements---census/census-100-adaptive/20260912-014723-heap-ownership-100t/summary.json",
+      "checks": {
+        "success": true,
+        "settings": true,
+        "profile": true,
+        "history": true,
+        "heap": true,
+        "lazy": true,
+        "layout": true,
+        "profilingOff": true,
+        "java": true,
+        "startup": true,
+        "checkpoints": true,
+        "workers": true,
+        "observations": true,
+        "scrapes": true
+      },
+      "effective": {
+        "stock": false,
+        "productionCodeSource": "file:/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/build/apache-cassandra-7.0-SNAPSHOT.jar",
+        "optimizedMetricsEnabled": true,
+        "metricsConfigFile": "simple_metrics.yml",
+        "adaptiveJmxHistogramHistoryEnabled": true,
+        "compactJmxRegistrationEnabled": true,
+        "memtableParameters": {
+          "lazy_initialization": "true"
+        },
+        "heapMaxBytes": 8589934592,
+        "processors": 8,
+        "jvmArguments": [
+          "-ea",
+          "-Xms512m",
+          "-Xmx8g",
+          "-XX:ActiveProcessorCount=8",
+          "-javaagent:/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/build/lib/jars/jamm-0.4.0.jar",
+          "-Djava.io.tmpdir=/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/tmp",
+          "-Dcassandra.testtag=manytables",
+          "-Djava.awt.headless=true",
+          "-Djava.security.egd=file:/dev/urandom",
+          "-XX:SoftRefLRUPolicyMSPerMB=0",
+          "-Djdk.attach.allowAttachSelf=true",
+          "-Djavax.management.builder.initial=org.apache.cassandra.utils.TransientMBeanServerBuilder",
+          "-Dcassandra.lazy_metric_ids=true",
+          "-Dcassandra.compact_table_metric_bookkeeping=true",
+          "-Djava.security.manager=allow",
+          "--add-exports=java.base/java.lang.ref=ALL-UNNAMED",
+          "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED",
+          "--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED",
+          "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
+          "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
+          "--add-exports=java.management.rmi/com.sun.jmx.remote.internal.rmi=ALL-UNNAMED",
+          "--add-exports=java.rmi/sun.rmi.registry=ALL-UNNAMED",
+          "--add-exports=java.rmi/sun.rmi.server=ALL-UNNAMED",
+          "--add-exports=java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED",
+          "--add-exports=java.sql/java.sql=ALL-UNNAMED",
+          "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
+          "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
+          "--add-exports=jdk.attach/sun.tools.attach=ALL-UNNAMED",
+          "--add-opens=java.base/java.io=ALL-UNNAMED",
+          "--add-opens=java.base/java.lang=ALL-UNNAMED",
+          "--add-opens=java.base/java.lang.module=ALL-UNNAMED",
+          "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+          "--add-opens=java.base/java.math=ALL-UNNAMED",
+          "--add-opens=java.base/java.net=ALL-UNNAMED",
+          "--add-opens=java.base/java.nio=ALL-UNNAMED",
+          "--add-opens=java.base/java.util=ALL-UNNAMED",
+          "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
+          "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED",
+          "--add-opens=java.base/jdk.internal.loader=ALL-UNNAMED",
+          "--add-opens=java.base/jdk.internal.math=ALL-UNNAMED",
+          "--add-opens=java.base/jdk.internal.module=ALL-UNNAMED",
+          "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED",
+          "--add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED",
+          "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+          "--add-opens=java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED",
+          "--add-opens=jdk.management/com.sun.management=ALL-UNNAMED"
+        ],
+        "UseCompressedOops": "true",
+        "UseCompressedClassPointers": "true",
+        "ObjectAlignmentInBytes": "8"
+      },
+      "checkpoints": {
+        "baseline": {
+          "tables": 0,
+          "mBeanCount": 3922,
+          "activeWorkers": 0,
+          "workerStates": [
+            {
+              "threadId": 99,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-0"
+            },
+            {
+              "threadId": 100,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-1"
+            },
+            {
+              "threadId": 101,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-2"
+            },
+            {
+              "threadId": 102,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-3"
+            },
+            {
+              "threadId": 103,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-4"
+            },
+            {
+              "threadId": 104,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-5"
+            },
+            {
+              "threadId": 105,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-6"
+            },
+            {
+              "threadId": 106,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-7"
+            }
+          ],
+          "distinctWorkerMetricStores": 0,
+          "verifiedEmptyUserMemtables": 0,
+          "verifiedUninitializedTrieMemtables": 0,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 0,
+          "recordedObservationsPerMetricPerTable": {
+            "SSTablesPerReadHistogram": 0,
+            "ReadRepairRequests": 0,
+            "ReadLatency": 0,
+            "TotalRowsRead": 0
+          },
+          "observationsPerSelectedKeyspaceAggregate": 0,
+          "heapUsedBytes": 46976184,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        },
+        "created": {
+          "tables": 100,
+          "mBeanCount": 7155,
+          "activeWorkers": 0,
+          "workerStates": [
+            {
+              "threadId": 99,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-0"
+            },
+            {
+              "threadId": 100,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-1"
+            },
+            {
+              "threadId": 101,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-2"
+            },
+            {
+              "threadId": 102,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-3"
+            },
+            {
+              "threadId": 103,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-4"
+            },
+            {
+              "threadId": 104,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-5"
+            },
+            {
+              "threadId": 105,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-6"
+            },
+            {
+              "threadId": 106,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-7"
+            }
+          ],
+          "distinctWorkerMetricStores": 0,
+          "verifiedEmptyUserMemtables": 100,
+          "verifiedUninitializedTrieMemtables": 100,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 0,
+          "recordedObservationsPerMetricPerTable": {
+            "SSTablesPerReadHistogram": 0,
+            "ReadRepairRequests": 0,
+            "ReadLatency": 0,
+            "TotalRowsRead": 0
+          },
+          "observationsPerSelectedKeyspaceAggregate": 0,
+          "verifiedUserRegistryMetrics": 3033,
+          "verifiedUserMetricMBeans": 3033,
+          "heapUsedBytes": 48098888,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        },
+        "scraped": {
+          "tables": 100,
+          "mBeanCount": 7155,
+          "activeWorkers": 0,
+          "workerStates": [
+            {
+              "threadId": 99,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-0"
+            },
+            {
+              "threadId": 100,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-1"
+            },
+            {
+              "threadId": 101,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-2"
+            },
+            {
+              "threadId": 102,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-3"
+            },
+            {
+              "threadId": 103,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-4"
+            },
+            {
+              "threadId": 104,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-5"
+            },
+            {
+              "threadId": 105,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-6"
+            },
+            {
+              "threadId": 106,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-7"
+            }
+          ],
+          "distinctWorkerMetricStores": 0,
+          "verifiedEmptyUserMemtables": 100,
+          "verifiedUninitializedTrieMemtables": 100,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 0,
+          "recordedObservationsPerMetricPerTable": {
+            "SSTablesPerReadHistogram": 0,
+            "ReadRepairRequests": 0,
+            "ReadLatency": 0,
+            "TotalRowsRead": 0
+          },
+          "observationsPerSelectedKeyspaceAggregate": 0,
+          "verifiedUserRegistryMetrics": 3033,
+          "verifiedUserMetricMBeans": 3033,
+          "heapUsedBytes": 44022664,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        },
+        "worker-1": {
+          "tables": 100,
+          "mBeanCount": 7155,
+          "activeWorkers": 1,
+          "workerStates": [
+            {
+              "threadId": 99,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-0"
+            },
+            {
+              "threadId": 100,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-1"
+            },
+            {
+              "threadId": 101,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-2"
+            },
+            {
+              "threadId": 102,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-3"
+            },
+            {
+              "threadId": 103,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-4"
+            },
+            {
+              "threadId": 104,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-5"
+            },
+            {
+              "threadId": 105,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-6"
+            },
+            {
+              "threadId": 106,
+              "recordedTables": 0,
+              "hasMetricStorage": false,
+              "name": "census-worker-7"
+            }
+          ],
+          "distinctWorkerMetricStores": 1,
+          "verifiedEmptyUserMemtables": 100,
+          "verifiedUninitializedTrieMemtables": 100,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 1,
+          "recordedObservationsPerMetricPerTable": {
+            "SSTablesPerReadHistogram": 1,
+            "ReadRepairRequests": 0,
+            "ReadLatency": 1,
+            "TotalRowsRead": 1
+          },
+          "observationsPerSelectedKeyspaceAggregate": 100,
+          "verifiedUserRegistryMetrics": 3033,
+          "verifiedUserMetricMBeans": 3033,
+          "heapUsedBytes": 44185488,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        },
+        "workers-8": {
+          "tables": 100,
+          "mBeanCount": 7155,
+          "activeWorkers": 8,
+          "workerStates": [
+            {
+              "threadId": 99,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-0"
+            },
+            {
+              "threadId": 100,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-1"
+            },
+            {
+              "threadId": 101,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-2"
+            },
+            {
+              "threadId": 102,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-3"
+            },
+            {
+              "threadId": 103,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-4"
+            },
+            {
+              "threadId": 104,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-5"
+            },
+            {
+              "threadId": 105,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-6"
+            },
+            {
+              "threadId": 106,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-7"
+            }
+          ],
+          "distinctWorkerMetricStores": 8,
+          "verifiedEmptyUserMemtables": 100,
+          "verifiedUninitializedTrieMemtables": 100,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 8,
+          "recordedObservationsPerMetricPerTable": {
+            "SSTablesPerReadHistogram": 8,
+            "ReadRepairRequests": 0,
+            "ReadLatency": 8,
+            "TotalRowsRead": 8
+          },
+          "observationsPerSelectedKeyspaceAggregate": 800,
+          "verifiedUserRegistryMetrics": 3033,
+          "verifiedUserMetricMBeans": 3033,
+          "heapUsedBytes": 44278216,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        },
+        "rescraped": {
+          "tables": 100,
+          "mBeanCount": 7155,
+          "activeWorkers": 8,
+          "workerStates": [
+            {
+              "threadId": 99,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-0"
+            },
+            {
+              "threadId": 100,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-1"
+            },
+            {
+              "threadId": 101,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-2"
+            },
+            {
+              "threadId": 102,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-3"
+            },
+            {
+              "threadId": 103,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-4"
+            },
+            {
+              "threadId": 104,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-5"
+            },
+            {
+              "threadId": 105,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-6"
+            },
+            {
+              "threadId": 106,
+              "recordedTables": 100,
+              "hasMetricStorage": true,
+              "name": "census-worker-7"
+            }
+          ],
+          "distinctWorkerMetricStores": 8,
+          "verifiedEmptyUserMemtables": 100,
+          "verifiedUninitializedTrieMemtables": 100,
+          "userSSTables": 0,
+          "attemptedObservationsPerSelectedMetricPerTable": 8,
+          "recordedObservationsPerMetricPerTable": {
+            "SSTablesPerReadHistogram": 8,
+            "ReadRepairRequests": 0,
+            "ReadLatency": 8,
+            "TotalRowsRead": 8
+          },
+          "observationsPerSelectedKeyspaceAggregate": 800,
+          "verifiedUserRegistryMetrics": 3033,
+          "verifiedUserMetricMBeans": 3033,
+          "heapUsedBytes": 44316128,
+          "heapCommittedBytes": 536870912,
+          "settledPostGc": true,
+          "liveHeapDump": true
+        }
+      },
+      "scrapes": [
+        {
+          "phase": "scraped",
+          "inspectNameProperties": true,
+          "metricMBeans": 6790,
+          "userKeyspaceMBeans": 3033,
+          "successfulAttributes": 41875,
+          "recentAttributes": 1991,
+          "failedAttributes": 0,
+          "failures": [],
+          "propertyQueries": [
+            {
+              "elapsedNanos": 4004708,
+              "allocatedBytes": 435128,
+              "pattern": "org.apache.cassandra.metrics:keyspace=heap_census,scope=t000000,*",
+              "matches": 30
+            },
+            {
+              "elapsedNanos": 2323208,
+              "allocatedBytes": 727832,
+              "pattern": "org.apache.cassandra.metrics:type=ThreadPools,*",
+              "matches": 180
+            },
+            {
+              "elapsedNanos": 1247125,
+              "allocatedBytes": 350464,
+              "pattern": "org.apache.cassandra.metrics:keyspace=missing,*",
+              "matches": 0
+            }
+          ]
+        },
+        {
+          "phase": "rescraped",
+          "inspectNameProperties": true,
+          "metricMBeans": 6790,
+          "userKeyspaceMBeans": 3033,
+          "successfulAttributes": 41875,
+          "recentAttributes": 1991,
+          "failedAttributes": 0,
+          "failures": [],
+          "propertyQueries": [
+            {
+              "elapsedNanos": 1183750,
+              "allocatedBytes": 413264,
+              "pattern": "org.apache.cassandra.metrics:keyspace=heap_census,scope=t000000,*",
+              "matches": 30
+            },
+            {
+              "elapsedNanos": 1295708,
+              "allocatedBytes": 727832,
+              "pattern": "org.apache.cassandra.metrics:type=ThreadPools,*",
+              "matches": 180
+            },
+            {
+              "elapsedNanos": 734625,
+              "allocatedBytes": 350464,
+              "pattern": "org.apache.cassandra.metrics:keyspace=missing,*",
+              "matches": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "analyses": [
+    {
+      "analysis": "logs/20260912-014837-523240-created-heap-ownership.json",
+      "heap": "/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/logs/20260912-014627-split-measurements---census/census-100-standard/20260912-014628-heap-ownership-100t/created.hprof",
+      "tableCount": 100,
+      "layout": {
+        "referenceBytes": 4,
+        "classPointerBytes": 4,
+        "alignment": 8,
+        "markWordBytes": 8,
+        "arrayHeaderBytes": 16,
+        "byteOrder": "little",
+        "source": "explicit arguments; not auto-detected"
+      },
+      "elapsedSeconds": 3.6012724580000004,
+      "census": {
+        "objects": 641246,
+        "shallowBytes": 42034176,
+        "sizeCoverage": {
+          "array_layout": {
+            "objects": 163606,
+            "shallowBytes": 26902784,
+            "objectFraction": 0.2551376538801022,
+            "byteFraction": 0.6400216814051499
+          },
+          "histogram_calibrated": {
+            "objects": 465140,
+            "shallowBytes": 14915208,
+            "objectFraction": 0.7253690471363564,
+            "byteFraction": 0.35483526547540745
+          },
+          "estimated_field_layout": {
+            "objects": 12500,
+            "shallowBytes": 216184,
+            "objectFraction": 0.019493298983541418,
+            "byteFraction": 0.005143053119442617
+          }
+        }
+      },
+      "jmxUserKeyspaceWrappers": 3033,
+      "jmxUserKeyspaceWrappersWithoutTableScope": 33,
+      "jmxNamedOwnerConflicts": [],
+      "jmxWrappersWithLastValues": 0,
+      "jmxHistoryWrappersByType": {
+        "null": 1991
+      },
+      "objectNamePropertyLists": {
+        "objectNamesWithCache": 1,
+        "uniqueMaps": 1,
+        "objects": 1,
+        "shallowBytes": 24,
+        "classes": {
+          "java.util.Collections$EmptyMap": {
+            "count": 1,
+            "shallowBytes": 24
+          }
+        }
+      },
+      "jmxTableTotals": {
+        "wrapperObjects": 3000,
+        "wrapperShallowBytes": 88000,
+        "lastArrays": 0,
+        "lastArrayPayloadBytes": 0,
+        "lastArrayShallowBytes": 0,
+        "lastByteArrays": 0,
+        "lastShortArrays": 0,
+        "lastIntArrays": 0,
+        "lastLongArrays": 0,
+        "nullHistoryWrappers": 800,
+        "objectNamePropertyMaps": 0,
+        "propertyMapGraphObjects": 0,
+        "propertyMapGraphShallowBytes": 0
+      },
+      "limits": [
+        "Shallow bytes are not retained size. Bounded field reachability is not proof of exclusive GC ownership.",
+        "The disjoint census covers indexed instance and array records. CLASS_DUMP mirrors and native/metaspace bytes are excluded.",
+        "Instance sizes use homogeneous class histogram averages where available; otherwise compressed fields plus header/alignment are estimates that omit VM padding such as Contended.",
+        "Histogram and HPROF can be separate instants. Per-class count/byte differences are reported rather than hidden.",
+        "Ownership groups overlap; only ownershipPartition and class categories are disjoint.",
+        "Per-table exclusive means exclusive among these bounded claims, not among all incoming heap references.",
+        "Traversal excludes back-references, reference referents, clocks, executors, class loaders, and unapproved classes; frontier counts report depth limits.",
+        "Thread-local and meter arrays remain shared. Whole arrays are never charged independently to each table."
+      ]
+    },
+    {
+      "analysis": "logs/20260912-014929-153913-scraped-heap-ownership.json",
+      "heap": "/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/logs/20260912-014627-split-measurements---census/census-100-standard/20260912-014628-heap-ownership-100t/scraped.hprof",
+      "tableCount": 100,
+      "layout": {
+        "referenceBytes": 4,
+        "classPointerBytes": 4,
+        "alignment": 8,
+        "markWordBytes": 8,
+        "arrayHeaderBytes": 16,
+        "byteOrder": "little",
+        "source": "explicit arguments; not auto-detected"
+      },
+      "elapsedSeconds": 3.7011825419999997,
+      "census": {
+        "objects": 644425,
+        "shallowBytes": 44271936,
+        "sizeCoverage": {
+          "array_layout": {
+            "objects": 166175,
+            "shallowBytes": 29122112,
+            "objectFraction": 0.2578655390464367,
+            "byteFraction": 0.6578007340812925
+          },
+          "histogram_calibrated": {
+            "objects": 465722,
+            "shallowBytes": 14933200,
+            "objectFraction": 0.7226938743841409,
+            "byteFraction": 0.337306233908542
+          },
+          "estimated_field_layout": {
+            "objects": 12528,
+            "shallowBytes": 216624,
+            "objectFraction": 0.019440586569422352,
+            "byteFraction": 0.004893032010165537
+          }
+        }
+      },
+      "jmxUserKeyspaceWrappers": 3033,
+      "jmxUserKeyspaceWrappersWithoutTableScope": 33,
+      "jmxNamedOwnerConflicts": [],
+      "jmxWrappersWithLastValues": 1965,
+      "jmxHistoryWrappersByType": {
+        "long": 1965,
+        "null": 26
+      },
+      "objectNamePropertyLists": {
+        "objectNamesWithCache": 1,
+        "uniqueMaps": 1,
+        "objects": 1,
+        "shallowBytes": 24,
+        "classes": {
+          "java.util.Collections$EmptyMap": {
+            "count": 1,
+            "shallowBytes": 24
+          }
+        }
+      },
+      "jmxTableTotals": {
+        "wrapperObjects": 3000,
+        "wrapperShallowBytes": 88000,
+        "lastArrays": 800,
+        "lastArrayPayloadBytes": 879200,
+        "lastArrayShallowBytes": 892000,
+        "lastByteArrays": 0,
+        "lastShortArrays": 0,
+        "lastIntArrays": 0,
+        "lastLongArrays": 800,
+        "nullHistoryWrappers": 0,
+        "objectNamePropertyMaps": 0,
+        "propertyMapGraphObjects": 0,
+        "propertyMapGraphShallowBytes": 0
+      },
+      "limits": [
+        "Shallow bytes are not retained size. Bounded field reachability is not proof of exclusive GC ownership.",
+        "The disjoint census covers indexed instance and array records. CLASS_DUMP mirrors and native/metaspace bytes are excluded.",
+        "Instance sizes use homogeneous class histogram averages where available; otherwise compressed fields plus header/alignment are estimates that omit VM padding such as Contended.",
+        "Histogram and HPROF can be separate instants. Per-class count/byte differences are reported rather than hidden.",
+        "Ownership groups overlap; only ownershipPartition and class categories are disjoint.",
+        "Per-table exclusive means exclusive among these bounded claims, not among all incoming heap references.",
+        "Traversal excludes back-references, reference referents, clocks, executors, class loaders, and unapproved classes; frontier counts report depth limits.",
+        "Thread-local and meter arrays remain shared. Whole arrays are never charged independently to each table."
+      ]
+    },
+    {
+      "analysis": "logs/20260912-014933-341743-rescraped-heap-ownership.json",
+      "heap": "/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/logs/20260912-014627-split-measurements---census/census-100-standard/20260912-014628-heap-ownership-100t/rescraped.hprof",
+      "tableCount": 100,
+      "layout": {
+        "referenceBytes": 4,
+        "classPointerBytes": 4,
+        "alignment": 8,
+        "markWordBytes": 8,
+        "arrayHeaderBytes": 16,
+        "byteOrder": "little",
+        "source": "explicit arguments; not auto-detected"
+      },
+      "elapsedSeconds": 3.755501375,
+      "census": {
+        "objects": 647627,
+        "shallowBytes": 44520352,
+        "sizeCoverage": {
+          "array_layout": {
+            "objects": 167120,
+            "shallowBytes": 29307416,
+            "objectFraction": 0.25804977247705857,
+            "byteFraction": 0.6582925489897294
+          },
+          "histogram_calibrated": {
+            "objects": 467971,
+            "shallowBytes": 14996184,
+            "objectFraction": 0.7225934063897892,
+            "byteFraction": 0.33683884619780186
+          },
+          "estimated_field_layout": {
+            "objects": 12536,
+            "shallowBytes": 216752,
+            "objectFraction": 0.019356821133152263,
+            "byteFraction": 0.004868604812468688
+          }
+        }
+      },
+      "jmxUserKeyspaceWrappers": 3033,
+      "jmxUserKeyspaceWrappersWithoutTableScope": 33,
+      "jmxNamedOwnerConflicts": [],
+      "jmxWrappersWithLastValues": 1965,
+      "jmxHistoryWrappersByType": {
+        "long": 1965,
+        "null": 26
+      },
+      "objectNamePropertyLists": {
+        "objectNamesWithCache": 1,
+        "uniqueMaps": 1,
+        "objects": 1,
+        "shallowBytes": 24,
+        "classes": {
+          "java.util.Collections$EmptyMap": {
+            "count": 1,
+            "shallowBytes": 24
+          }
+        }
+      },
+      "jmxTableTotals": {
+        "wrapperObjects": 3000,
+        "wrapperShallowBytes": 88000,
+        "lastArrays": 800,
+        "lastArrayPayloadBytes": 879200,
+        "lastArrayShallowBytes": 892000,
+        "lastByteArrays": 0,
+        "lastShortArrays": 0,
+        "lastIntArrays": 0,
+        "lastLongArrays": 800,
+        "nullHistoryWrappers": 0,
+        "objectNamePropertyMaps": 0,
+        "propertyMapGraphObjects": 0,
+        "propertyMapGraphShallowBytes": 0
+      },
+      "limits": [
+        "Shallow bytes are not retained size. Bounded field reachability is not proof of exclusive GC ownership.",
+        "The disjoint census covers indexed instance and array records. CLASS_DUMP mirrors and native/metaspace bytes are excluded.",
+        "Instance sizes use homogeneous class histogram averages where available; otherwise compressed fields plus header/alignment are estimates that omit VM padding such as Contended.",
+        "Histogram and HPROF can be separate instants. Per-class count/byte differences are reported rather than hidden.",
+        "Ownership groups overlap; only ownershipPartition and class categories are disjoint.",
+        "Per-table exclusive means exclusive among these bounded claims, not among all incoming heap references.",
+        "Traversal excludes back-references, reference referents, clocks, executors, class loaders, and unapproved classes; frontier counts report depth limits.",
+        "Thread-local and meter arrays remain shared. Whole arrays are never charged independently to each table."
+      ]
+    },
+    {
+      "analysis": "logs/20260912-014937-241604-created-heap-ownership.json",
+      "heap": "/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/logs/20260912-014627-split-measurements---census/census-100-adaptive/20260912-014723-heap-ownership-100t/created.hprof",
+      "tableCount": 100,
+      "layout": {
+        "referenceBytes": 4,
+        "classPointerBytes": 4,
+        "alignment": 8,
+        "markWordBytes": 8,
+        "arrayHeaderBytes": 16,
+        "byteOrder": "little",
+        "source": "explicit arguments; not auto-detected"
+      },
+      "elapsedSeconds": 3.464859208,
+      "census": {
+        "objects": 640369,
+        "shallowBytes": 41991176,
+        "sizeCoverage": {
+          "array_layout": {
+            "objects": 162757,
+            "shallowBytes": 26860608,
+            "objectFraction": 0.2541612726412428,
+            "byteFraction": 0.6396726778978516
+          },
+          "histogram_calibrated": {
+            "objects": 465112,
+            "shallowBytes": 14914384,
+            "objectFraction": 0.7263187318561641,
+            "byteFraction": 0.3551790023694502
+          },
+          "estimated_field_layout": {
+            "objects": 12500,
+            "shallowBytes": 216184,
+            "objectFraction": 0.019519995502593035,
+            "byteFraction": 0.005148319732698127
+          }
+        }
+      },
+      "jmxUserKeyspaceWrappers": 3033,
+      "jmxUserKeyspaceWrappersWithoutTableScope": 33,
+      "jmxNamedOwnerConflicts": [],
+      "jmxWrappersWithLastValues": 0,
+      "jmxHistoryWrappersByType": {
+        "null": 1991
+      },
+      "objectNamePropertyLists": {
+        "objectNamesWithCache": 1,
+        "uniqueMaps": 1,
+        "objects": 1,
+        "shallowBytes": 24,
+        "classes": {
+          "java.util.Collections$EmptyMap": {
+            "count": 1,
+            "shallowBytes": 24
+          }
+        }
+      },
+      "jmxTableTotals": {
+        "wrapperObjects": 3000,
+        "wrapperShallowBytes": 88000,
+        "lastArrays": 0,
+        "lastArrayPayloadBytes": 0,
+        "lastArrayShallowBytes": 0,
+        "lastByteArrays": 0,
+        "lastShortArrays": 0,
+        "lastIntArrays": 0,
+        "lastLongArrays": 0,
+        "nullHistoryWrappers": 800,
+        "objectNamePropertyMaps": 0,
+        "propertyMapGraphObjects": 0,
+        "propertyMapGraphShallowBytes": 0
+      },
+      "limits": [
+        "Shallow bytes are not retained size. Bounded field reachability is not proof of exclusive GC ownership.",
+        "The disjoint census covers indexed instance and array records. CLASS_DUMP mirrors and native/metaspace bytes are excluded.",
+        "Instance sizes use homogeneous class histogram averages where available; otherwise compressed fields plus header/alignment are estimates that omit VM padding such as Contended.",
+        "Histogram and HPROF can be separate instants. Per-class count/byte differences are reported rather than hidden.",
+        "Ownership groups overlap; only ownershipPartition and class categories are disjoint.",
+        "Per-table exclusive means exclusive among these bounded claims, not among all incoming heap references.",
+        "Traversal excludes back-references, reference referents, clocks, executors, class loaders, and unapproved classes; frontier counts report depth limits.",
+        "Thread-local and meter arrays remain shared. Whole arrays are never charged independently to each table."
+      ]
+    },
+    {
+      "analysis": "logs/20260912-014941-222938-scraped-heap-ownership.json",
+      "heap": "/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/logs/20260912-014627-split-measurements---census/census-100-adaptive/20260912-014723-heap-ownership-100t/scraped.hprof",
+      "tableCount": 100,
+      "layout": {
+        "referenceBytes": 4,
+        "classPointerBytes": 4,
+        "alignment": 8,
+        "markWordBytes": 8,
+        "arrayHeaderBytes": 16,
+        "byteOrder": "little",
+        "source": "explicit arguments; not auto-detected"
+      },
+      "elapsedSeconds": 3.557821833,
+      "census": {
+        "objects": 641466,
+        "shallowBytes": 42085208,
+        "sizeCoverage": {
+          "array_layout": {
+            "objects": 163247,
+            "shallowBytes": 26936240,
+            "objectFraction": 0.2544904952094109,
+            "byteFraction": 0.6400405577180467
+          },
+          "histogram_calibrated": {
+            "objects": 465691,
+            "shallowBytes": 14932344,
+            "objectFraction": 0.7259792413003963,
+            "byteFraction": 0.35481217058497133
+          },
+          "estimated_field_layout": {
+            "objects": 12528,
+            "shallowBytes": 216624,
+            "objectFraction": 0.019530263490192778,
+            "byteFraction": 0.00514727169698199
+          }
+        }
+      },
+      "jmxUserKeyspaceWrappers": 3033,
+      "jmxUserKeyspaceWrappersWithoutTableScope": 33,
+      "jmxNamedOwnerConflicts": [],
+      "jmxWrappersWithLastValues": 108,
+      "jmxHistoryWrappersByType": {
+        "null": 1883,
+        "byte": 98,
+        "short": 10
+      },
+      "objectNamePropertyLists": {
+        "objectNamesWithCache": 1,
+        "uniqueMaps": 1,
+        "objects": 1,
+        "shallowBytes": 24,
+        "classes": {
+          "java.util.Collections$EmptyMap": {
+            "count": 1,
+            "shallowBytes": 24
+          }
+        }
+      },
+      "jmxTableTotals": {
+        "wrapperObjects": 3000,
+        "wrapperShallowBytes": 88000,
+        "lastArrays": 0,
+        "lastArrayPayloadBytes": 0,
+        "lastArrayShallowBytes": 0,
+        "lastByteArrays": 0,
+        "lastShortArrays": 0,
+        "lastIntArrays": 0,
+        "lastLongArrays": 0,
+        "nullHistoryWrappers": 800,
+        "objectNamePropertyMaps": 0,
+        "propertyMapGraphObjects": 0,
+        "propertyMapGraphShallowBytes": 0
+      },
+      "limits": [
+        "Shallow bytes are not retained size. Bounded field reachability is not proof of exclusive GC ownership.",
+        "The disjoint census covers indexed instance and array records. CLASS_DUMP mirrors and native/metaspace bytes are excluded.",
+        "Instance sizes use homogeneous class histogram averages where available; otherwise compressed fields plus header/alignment are estimates that omit VM padding such as Contended.",
+        "Histogram and HPROF can be separate instants. Per-class count/byte differences are reported rather than hidden.",
+        "Ownership groups overlap; only ownershipPartition and class categories are disjoint.",
+        "Per-table exclusive means exclusive among these bounded claims, not among all incoming heap references.",
+        "Traversal excludes back-references, reference referents, clocks, executors, class loaders, and unapproved classes; frontier counts report depth limits.",
+        "Thread-local and meter arrays remain shared. Whole arrays are never charged independently to each table."
+      ]
+    },
+    {
+      "analysis": "logs/20260912-014945-252766-rescraped-heap-ownership.json",
+      "heap": "/Users/joshua.mckenzie/src/cassandra/cassandra/wt_moar_integration/logs/20260912-014627-split-measurements---census/census-100-adaptive/20260912-014723-heap-ownership-100t/rescraped.hprof",
+      "tableCount": 100,
+      "layout": {
+        "referenceBytes": 4,
+        "classPointerBytes": 4,
+        "alignment": 8,
+        "markWordBytes": 8,
+        "arrayHeaderBytes": 16,
+        "byteOrder": "little",
+        "source": "explicit arguments; not auto-detected"
+      },
+      "elapsedSeconds": 3.595840375,
+      "census": {
+        "objects": 644738,
+        "shallowBytes": 42378128,
+        "sizeCoverage": {
+          "array_layout": {
+            "objects": 164367,
+            "shallowBytes": 27169072,
+            "objectFraction": 0.25493611358412255,
+            "byteFraction": 0.6411107163582119
+          },
+          "histogram_calibrated": {
+            "objects": 467835,
+            "shallowBytes": 14992304,
+            "objectFraction": 0.7256203294981838,
+            "byteFraction": 0.3537745697497539
+          },
+          "estimated_field_layout": {
+            "objects": 12536,
+            "shallowBytes": 216752,
+            "objectFraction": 0.0194435569176937,
+            "byteFraction": 0.0051147138920341175
+          }
+        }
+      },
+      "jmxUserKeyspaceWrappers": 3033,
+      "jmxUserKeyspaceWrappersWithoutTableScope": 33,
+      "jmxNamedOwnerConflicts": [],
+      "jmxWrappersWithLastValues": 310,
+      "jmxHistoryWrappersByType": {
+        "null": 1681,
+        "byte": 297,
+        "short": 13
+      },
+      "objectNamePropertyLists": {
+        "objectNamesWithCache": 1,
+        "uniqueMaps": 1,
+        "objects": 1,
+        "shallowBytes": 24,
+        "classes": {
+          "java.util.Collections$EmptyMap": {
+            "count": 1,
+            "shallowBytes": 24
+          }
+        }
+      },
+      "jmxTableTotals": {
+        "wrapperObjects": 3000,
+        "wrapperShallowBytes": 88000,
+        "lastArrays": 200,
+        "lastArrayPayloadBytes": 29400,
+        "lastArrayShallowBytes": 32800,
+        "lastByteArrays": 200,
+        "lastShortArrays": 0,
+        "lastIntArrays": 0,
+        "lastLongArrays": 0,
+        "nullHistoryWrappers": 600,
+        "objectNamePropertyMaps": 0,
+        "propertyMapGraphObjects": 0,
+        "propertyMapGraphShallowBytes": 0
+      },
+      "limits": [
+        "Shallow bytes are not retained size. Bounded field reachability is not proof of exclusive GC ownership.",
+        "The disjoint census covers indexed instance and array records. CLASS_DUMP mirrors and native/metaspace bytes are excluded.",
+        "Instance sizes use homogeneous class histogram averages where available; otherwise compressed fields plus header/alignment are estimates that omit VM padding such as Contended.",
+        "Histogram and HPROF can be separate instants. Per-class count/byte differences are reported rather than hidden.",
+        "Ownership groups overlap; only ownershipPartition and class categories are disjoint.",
+        "Per-table exclusive means exclusive among these bounded claims, not among all incoming heap references.",
+        "Traversal excludes back-references, reference referents, clocks, executors, class loaders, and unapproved classes; frontier counts report depth limits.",
+        "Thread-local and meter arrays remain shared. Whole arrays are never charged independently to each table."
+      ]
+    }
+  ]
+}

@@ -79,16 +79,24 @@ case "${1:---smoke}" in
             done
         done
         ;;
-    --idle)
+    --idle|--idle-retry)
         export PROFILE_TRANSIENT_JMX=true PROFILE_LAZY_METRIC_IDS=true PROFILE_COMPACT_BOOKKEEPING=true
-        for tables in 100 1000; do
-            for policy in off idle; do
+        table_counts=(100 1000)
+        policies=(off idle)
+        settle_seconds=120
+        if [[ $1 == --idle-retry ]]; then
+            table_counts=(1000)
+            policies=(idle)
+            settle_seconds=300
+        fi
+        for tables in "${table_counts[@]}"; do
+            for policy in "${policies[@]}"; do
                 extra=()
                 if [[ $policy == idle ]]; then extra+=(--idle-flush-ms 1000); fi
                 run_residency "combined-$tables-$policy" "${common[@]}" \
                     --scenario idle-reactivate --tables "$tables" --active-tables "$tables" \
                     --rows-per-table 4 --cycles 4 --rate 10000 --idle-ms 1000 \
-                    --hold-ms 2000 --sample-ms 250 --settle-seconds 120 \
+                    --hold-ms 2000 --sample-ms 250 --settle-seconds "$settle_seconds" \
                     --ucs-scaling T4 --ucs-min-size 100MiB --metrics-profile all_metrics.yml \
                     --compact-jmx --cursor-compaction --lazy-tombstone-histograms \
                     --geometric-meter-arrays --settle-each-cycle \
@@ -108,6 +116,6 @@ case "${1:---smoke}" in
             printf 'PASS census-100-%s\n' "$history"
         done
         ;;
-    *) echo "Usage: $0 [--smoke|--profiles|--idle|--census]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [--smoke|--profiles|--idle|--idle-retry|--census]" >&2; exit 2 ;;
 esac
 printf 'Batch complete: %s\n' "$batch"
