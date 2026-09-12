@@ -15,4 +15,6 @@ specific language governing permissions and limitations under the License.
 
 Extracted final-source export hunks onto the corrected shared base.
 Removed storage-only fixture controls so this branch compiles independently.
-Validation is pending.
+Build and Checkstyle passed. Targeted tests passed 28 unique cases, including
+the nested registration properties. Boundary probes passed. Isolated measurements
+and independent extraction review remain pending.

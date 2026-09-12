@@ -13,12 +13,16 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
+- [ ] Run isolated history and retained-name measurements.
+- [ ] Complete independent extraction review.
+- [ ] Validate cross-feature combinations in integration.
 
 # DONE
 
-- [x] Extract generic tools, JaCoCo upgrade, and shared metric contracts.
-- [x] Build with JDK 21 and pass main/test Checkstyle.
-- [x] Pass both ThreadLocalHistogramTest cases.
-- [x] Complete all five targeted test classes: 48 passed and one existing skip.
-- [x] Complete the three-table generic harness smoke test.
-- [x] Complete independent review with no findings and freeze the shared base.
+- [x] Extract export code onto the corrected shared base.
+- [x] Keep all switches opt-in and exclude storage and profile dependencies.
+- [x] Adapt mixed tests to legacy storage and record integration assertions.
+- [x] Build and pass main/test Checkstyle.
+- [x] Pass 28 unique test cases, including the nested registration properties.
+- [x] Run name and server boundary diagnostics.
+- [x] Split production changes into three review units.

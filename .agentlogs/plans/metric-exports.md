@@ -19,6 +19,7 @@ Base: f7d5a7e2c0fcf769293ee27073630a3574584b06.
 Review units: adaptive scrape history; compact metric registration;
 transient ObjectName handling. Keep all switches opt-in.
 
-Build with Java 21 using ai-build. Run six test classes using run_tests.sh.
+Build with Java 21 using ai-build. Run seven test classes using run_tests.sh.
+Run the nested registration properties with run_property_tests.sh.
 Preserve XML reports. Run boundary diagnostics and isolated benchmarks.
 Do not run timing measurements alongside other builds or tests.
