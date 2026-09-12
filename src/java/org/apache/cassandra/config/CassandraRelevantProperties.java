@@ -275,6 +275,7 @@ public enum CassandraRelevantProperties
     /** Used when running in Client mode and the system and schema keyspaces need to be initialized outside of their normal initialization path **/
     FORCE_LOAD_LOCAL_KEYSPACES("cassandra.schema.force_load_local_keyspaces"),
     FORCE_PAXOS_STATE_REBUILD("cassandra.force_paxos_state_rebuild"),
+    GEOMETRIC_METER_ARRAYS("cassandra.geometric_meter_arrays", "false"),
     GIT_SHA("cassandra.gitSHA"),
     /**
      * Gossip quarantine delay is used while evaluating membership changes and should only be changed with extreme care.

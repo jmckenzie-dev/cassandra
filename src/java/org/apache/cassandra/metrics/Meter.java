@@ -20,11 +20,19 @@ package org.apache.cassandra.metrics;
 
 import com.codahale.metrics.Metered;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.GEOMETRIC_METER_ARRAYS;
+
 /**
  * An interface which mimics {@link com.codahale.metrics.Meter} API and allows alternative implementations
  */
 public interface Meter extends Metered
 {
+    /** Creates a meter that also extends {@link com.codahale.metrics.Meter}. */
+    static Meter create()
+    {
+        return GEOMETRIC_METER_ARRAYS.getBoolean() ? new GeometricThreadLocalMeter() : new ThreadLocalMeter();
+    }
+
     void mark(long n);
     void mark();
 }
