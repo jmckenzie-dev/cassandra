@@ -347,6 +347,9 @@ public class CassandraMetricsRegistry extends MetricRegistry
 
     public OverrideHistogram histogram(MetricName name, boolean considerZeroes)
     {
+        Metric existing = super.getMetrics().get(name.getMetricName());
+        if (existing instanceof OverrideHistogram)
+            return register(name, (OverrideHistogram) existing);
         return register(name, new ClearableHistogram(createHistogramReservoir(considerZeroes)));
     }
 
@@ -405,6 +408,9 @@ public class CassandraMetricsRegistry extends MetricRegistry
 
     private SnapshottingTimer timer(MetricName name, TimeUnit durationUnit)
     {
+        Metric existing = super.getMetrics().get(name.getMetricName());
+        if (existing instanceof SnapshottingTimer)
+            return register(name, (SnapshottingTimer) existing);
         return register(name, new SnapshottingTimer(CassandraMetricsRegistry.createReservoir(durationUnit)));
     }
 
