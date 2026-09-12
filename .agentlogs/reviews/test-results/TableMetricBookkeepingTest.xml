@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.TableMetricBookkeepingTest-_jdk21" skipped="0" tests="1" time="0.12" timestamp="2026-09-12T02:32:24">
+  <testcase classname="org.apache.cassandra.metrics.TableMetricBookkeepingTest" name="lateGrowthReplacementNoOpsAndClear-_jdk21" time="0.083" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

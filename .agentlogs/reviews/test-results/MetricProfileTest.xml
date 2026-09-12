@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.MetricProfileTest-_jdk21" skipped="0" tests="14" time="5.474" timestamp="2026-09-12T02:31:03">
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="omittedNamesAreDisabledAndScopesAreIndependent-_jdk21" time="0.025" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="deprecatedAliasesFollowTheirCanonicalSelection-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="explicitMissingLocationsFail-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="rejectsInvalidAliasOptions-_jdk21" time="0.005" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="rejectsYamlDuplicateKeysAndWrongTypes-_jdk21" time="0.005" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="loadsProfileFromClasspath-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="shippedProfilesLoad-_jdk21" time="0.005" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="requiredMetricsCannotBeOmittedDisabledOrReclassified-_jdk21" time="0.004" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="rejectsMissingAndUnexpectedSections-_jdk21" time="0.002" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="metricNamesFilterTableAndKeyspaceScopesOnly-_jdk21" time="0.008" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="loadsAbsolutePathsAndFileUris-_jdk21" time="0.01" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="rejectsUnknownDuplicateAndOverlappingMetricNames-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="omittedConfigurationEnablesAllMetrics-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfileTest" name="aliasOptionDefaultsToCompatibilityAndFiltersOnlyLegacyExports-_jdk21" time="0.002" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
