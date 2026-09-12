@@ -152,6 +152,8 @@ public enum CassandraRelevantProperties
      * If only keyspaces are specified, mutations for all tables in such keyspace will be replayed
      * */
     COMMIT_LOG_REPLAY_LIST("cassandra.replayList"),
+    /** Store per-table metric release bookkeeping in an array-backed list. */
+    COMPACT_TABLE_METRIC_BOOKKEEPING("cassandra.compact_table_metric_bookkeeping", "false"),
     /**
      * This property indicates the location for the access file. If com.sun.management.jmxremote.authenticate is false,
      * then this property and the password and access files, are ignored. Otherwise, the access file must exist and

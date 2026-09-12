@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
@@ -104,5 +105,35 @@ public class LatencyMetricsTest
         assertEquals(mean, parent.latency.getSnapshot().getMean(), 50D);
 
         parent.release();
+    }
+
+    @Test
+    public void releaseOnlyMergesTheRemovedChildOnce()
+    {
+        LatencyMetrics parent = new LatencyMetrics(ClientRequestMetrics.TYPE_NAME, "releaseMultiple");
+        LatencyMetrics first = new LatencyMetrics(factory, "releaseMultipleFirst", parent);
+        LatencyMetrics second = new LatencyMetrics(factory, "releaseMultipleSecond", parent);
+        try
+        {
+            first.addNano(1000);
+            second.addNano(1000000);
+            second.addNano(1000000);
+            long[] values = parent.latency.getSnapshot().getValues();
+            first.release();
+            first.release();
+            assertEquals(3, parent.latency.getCount());
+            assertEquals(2001, parent.totalLatency.getCount());
+            assertArrayEquals(values, parent.latency.getSnapshot().getValues());
+            second.release();
+            assertEquals(3, parent.latency.getCount());
+            assertEquals(2001, parent.totalLatency.getCount());
+            assertArrayEquals(values, parent.latency.getSnapshot().getValues());
+        }
+        finally
+        {
+            first.release();
+            second.release();
+            parent.release();
+        }
     }
 }

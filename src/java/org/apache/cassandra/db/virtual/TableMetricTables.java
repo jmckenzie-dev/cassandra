@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableList;
 
 import org.apache.commons.math3.util.Precision;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -41,6 +42,7 @@ import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.LocalPartitioner;
+import org.apache.cassandra.metrics.MetricProfile;
 import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.schema.TableMetadata;
 
@@ -69,20 +71,20 @@ public class TableMetricTables
     public static Collection<VirtualTable> getAll(String name)
     {
         return ImmutableList.of(
-            new LatencyTableMetric(name, "local_read_latency", t -> t.readLatency.latency),
-            new LatencyTableMetric(name, "local_scan_latency", t -> t.rangeLatency.latency),
-            new LatencyTableMetric(name, "coordinator_read_latency", t -> t.coordinatorReadLatency),
-            new LatencyTableMetric(name, "coordinator_scan_latency", t -> t.coordinatorScanLatency),
-            new LatencyTableMetric(name, "local_write_latency", t -> t.writeLatency.latency),
-            new LatencyTableMetric(name, "coordinator_write_latency", t -> t.coordinatorWriteLatency),
-            new HistogramTableMetric(name, "tombstones_per_read", t -> t.tombstoneScannedHistogram.cf),
-            new HistogramTableMetric(name, "purgeable_tombstones_per_read", t -> t.purgeableTombstoneScannedHistogram.cf),
-            new HistogramTableMetric(name, "rows_per_read", t -> t.liveScannedHistogram.cf),
-            new HistogramTableMetric(name, "rows_per_write", t -> t.rowsMutatedPerWriteHistogram.cf),
-            new StorageTableMetric(name, "disk_usage", (TableMetrics t) -> t.totalDiskSpaceUsed),
-            new StorageTableMetric(name, "max_partition_size", (TableMetrics t) -> t.maxPartitionSize),
-            new StorageTableMetric(name, "max_sstable_size", (TableMetrics t) -> t.maxSSTableSize),
-            new TableMetricTable(name, "max_sstable_duration", t -> t.maxSSTableDuration, "max_sstable_duration", LongType.instance, ""));
+            new LatencyTableMetric(name, "local_read_latency", "ReadLatency", t -> t.readLatency.latency),
+            new LatencyTableMetric(name, "local_scan_latency", "RangeLatency", t -> t.rangeLatency.latency),
+            new LatencyTableMetric(name, "coordinator_read_latency", "CoordinatorReadLatency", t -> t.coordinatorReadLatency),
+            new LatencyTableMetric(name, "coordinator_scan_latency", "CoordinatorScanLatency", t -> t.coordinatorScanLatency),
+            new LatencyTableMetric(name, "local_write_latency", "WriteLatency", t -> t.writeLatency.latency),
+            new LatencyTableMetric(name, "coordinator_write_latency", "CoordinatorWriteLatency", t -> t.coordinatorWriteLatency),
+            new HistogramTableMetric(name, "tombstones_per_read", "TombstoneScannedHistogram", t -> t.tombstoneScannedHistogram.cf),
+            new HistogramTableMetric(name, "purgeable_tombstones_per_read", "PurgeableTombstoneScannedHistogram", t -> t.purgeableTombstoneScannedHistogram.cf),
+            new HistogramTableMetric(name, "rows_per_read", "LiveScannedHistogram", t -> t.liveScannedHistogram.cf),
+            new HistogramTableMetric(name, "rows_per_write", "RowsMutatedPerWriteHistogram", t -> t.rowsMutatedPerWriteHistogram.cf),
+            new StorageTableMetric(name, "disk_usage", "TotalDiskSpaceUsed", (TableMetrics t) -> t.totalDiskSpaceUsed),
+            new StorageTableMetric(name, "max_partition_size", "MaxPartitionSize", (TableMetrics t) -> t.maxPartitionSize),
+            new StorageTableMetric(name, "max_sstable_size", "MaxSSTableSize", (TableMetrics t) -> t.maxSSTableSize),
+            new TableMetricTable(name, "max_sstable_duration", "MaxSSTableDuration", t -> t.maxSSTableDuration, "max_sstable_duration", LongType.instance, ""));
     }
 
     /**
@@ -93,14 +95,14 @@ public class TableMetricTables
         interface GaugeFunction extends Function<TableMetrics, Gauge<Long>> {}
         interface CountingFunction<M extends Metric & Counting> extends Function<TableMetrics, M> {}
 
-        <M extends Metric & Counting> StorageTableMetric(String keyspace, String table, CountingFunction<M> func)
+        <M extends Metric & Counting> StorageTableMetric(String keyspace, String table, String metricName, CountingFunction<M> func)
         {
-            super(keyspace, table, func, "mebibytes", LongType.instance, "");
+            super(keyspace, table, metricName, func, "mebibytes", LongType.instance, "");
         }
 
-        StorageTableMetric(String keyspace, String table, GaugeFunction func)
+        StorageTableMetric(String keyspace, String table, String metricName, GaugeFunction func)
         {
-            super(keyspace, table, func, "mebibytes", LongType.instance, "");
+            super(keyspace, table, metricName, func, "mebibytes", LongType.instance, "");
         }
 
         /**
@@ -117,14 +119,14 @@ public class TableMetricTables
      */
     private static class HistogramTableMetric extends TableMetricTable
     {
-        <M extends Metric & Sampling> HistogramTableMetric(String keyspace, String table, Function<TableMetrics, M> func)
+        <M extends Metric & Sampling> HistogramTableMetric(String keyspace, String table, String metricName, Function<TableMetrics, M> func)
         {
-            this(keyspace, table, func, "");
+            this(keyspace, table, metricName, func, "");
         }
 
-        <M extends Metric & Sampling> HistogramTableMetric(String keyspace, String table, Function<TableMetrics, M> func, String suffix)
+        <M extends Metric & Sampling> HistogramTableMetric(String keyspace, String table, String metricName, Function<TableMetrics, M> func, String suffix)
         {
-            super(keyspace, table, func, "count", LongType.instance, suffix);
+            super(keyspace, table, metricName, func, "count", LongType.instance, suffix);
         }
 
         /**
@@ -142,9 +144,9 @@ public class TableMetricTables
      */
     private static class LatencyTableMetric extends HistogramTableMetric
     {
-        <M extends Metric & Sampling> LatencyTableMetric(String keyspace, String table, Function<TableMetrics, M> func)
+        <M extends Metric & Sampling> LatencyTableMetric(String keyspace, String table, String metricName, Function<TableMetrics, M> func)
         {
-            super(keyspace, table, func, "_ms");
+            super(keyspace, table, metricName, func, "_ms");
         }
 
         /**
@@ -166,14 +168,16 @@ public class TableMetricTables
     private static class TableMetricTable extends AbstractVirtualTable
     {
         final Function<TableMetrics, ? extends Metric> func;
+        final String metricName;
         final String columnName;
         final String suffix;
 
-        TableMetricTable(String keyspace, String table, Function<TableMetrics, ? extends Metric> func,
+        TableMetricTable(String keyspace, String table, String metricName, Function<TableMetrics, ? extends Metric> func,
                                 String colName, AbstractType colType, String suffix)
         {
             super(buildMetadata(keyspace, table, func, colName, colType, suffix));
             this.func = func;
+            this.metricName = metricName;
             this.columnName = colName;
             this.suffix = suffix;
         }
@@ -191,6 +195,8 @@ public class TableMetricTables
         public DataSet data()
         {
             SimpleDataSet result = new SimpleDataSet(metadata());
+            if (!DatabaseDescriptor.getMetricProfile().isEnabled(MetricProfile.Scope.TABLE, metricName))
+                return result;
 
             // Iterate over all tables and get metric by function
             for (ColumnFamilyStore cfs : ColumnFamilyStore.all())
