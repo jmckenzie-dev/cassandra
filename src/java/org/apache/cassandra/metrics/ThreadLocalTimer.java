@@ -36,7 +36,7 @@ public class ThreadLocalTimer extends OverrideTimer
      */
     public ThreadLocalTimer()
     {
-        this(new DecayingEstimatedHistogramReservoir());
+        this(CassandraMetricsRegistry.createHistogramReservoir(false));
     }
 
     /**

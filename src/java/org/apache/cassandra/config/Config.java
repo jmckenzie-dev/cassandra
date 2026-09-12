@@ -249,6 +249,8 @@ public class Config
 
     public volatile double phi_convict_threshold = 8.0;
 
+    public boolean optimized_metrics_enabled = true;
+
     public int concurrent_reads = 32;
     public int concurrent_writes = 32;
     public int concurrent_counter_writes = 32;

@@ -347,7 +347,21 @@ public class CassandraMetricsRegistry extends MetricRegistry
 
     public OverrideHistogram histogram(MetricName name, boolean considerZeroes)
     {
-        return register(name, new ClearableHistogram(new DecayingEstimatedHistogramReservoir(considerZeroes)));
+        return register(name, new ClearableHistogram(createHistogramReservoir(considerZeroes)));
+    }
+
+    public static ClearableReservoir createHistogramReservoir(boolean considerZeroes)
+    {
+        return createHistogramReservoir(considerZeroes, DecayingEstimatedHistogramReservoir.DEFAULT_BUCKET_COUNT);
+    }
+
+    private static ClearableReservoir createHistogramReservoir(boolean considerZeroes, int bucketCount)
+    {
+        return DatabaseDescriptor.getOptimizedMetricsEnabled()
+               ? new CompactDecayingEstimatedHistogramReservoir(considerZeroes, bucketCount,
+                                                                DecayingEstimatedHistogramReservoir.DEFAULT_STRIPE_COUNT)
+               : new DecayingEstimatedHistogramReservoir(considerZeroes, bucketCount,
+                                                         DecayingEstimatedHistogramReservoir.DEFAULT_STRIPE_COUNT);
     }
 
     public OverrideHistogram histogram(MetricName name, MetricName alias, boolean considerZeroes)
@@ -406,9 +420,8 @@ public class CassandraMetricsRegistry extends MetricRegistry
         CassandraReservoir reservoir;
         if (durationUnit != TimeUnit.NANOSECONDS)
         {
-            CassandraReservoir underlying = new DecayingEstimatedHistogramReservoir(DecayingEstimatedHistogramReservoir.DEFAULT_ZERO_CONSIDERATION,
-                                                                                    DecayingEstimatedHistogramReservoir.LOW_BUCKET_COUNT,
-                                                                                    DecayingEstimatedHistogramReservoir.DEFAULT_STRIPE_COUNT);
+            CassandraReservoir underlying = createHistogramReservoir(DecayingEstimatedHistogramReservoir.DEFAULT_ZERO_CONSIDERATION,
+                                                                     DecayingEstimatedHistogramReservoir.LOW_BUCKET_COUNT);
             // fewer buckets should suffice if timer is not based on nanos
             reservoir = new ScalingReservoir(underlying,
                                              // timer update values in nanos.
@@ -417,7 +430,7 @@ public class CassandraMetricsRegistry extends MetricRegistry
         else
         {
             // Use more buckets if timer is created with nanos resolution.
-            reservoir = new DecayingEstimatedHistogramReservoir();
+            reservoir = createHistogramReservoir(DecayingEstimatedHistogramReservoir.DEFAULT_ZERO_CONSIDERATION);
         }
         return reservoir;
     }
