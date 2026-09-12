@@ -13,8 +13,12 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-
 # DONE
+
+- [x] Extract metric recording and storage changes from source commit 319995ce5c.
+- [x] Adapt combined test and tool assumptions to the standalone STORE branch.
+- [x] Build and run focused production, property, compatibility, and probe tests.
+- [x] Review the branch, record validation evidence, and create local commits.
 
 - [x] Extract generic tools, JaCoCo upgrade, and shared metric contracts.
 - [x] Build with JDK 21 and pass main/test Checkstyle.

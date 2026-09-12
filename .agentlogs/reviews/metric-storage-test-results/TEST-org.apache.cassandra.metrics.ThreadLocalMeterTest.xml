@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.ThreadLocalMeterTest-_jdk21" skipped="0" tests="6" time="15.275" timestamp="2026-09-12T02:34:43">
+  <testcase classname="org.apache.cassandra.metrics.ThreadLocalMeterTest" name="marksEventsAndUpdatesRatesAndCount-_jdk21" time="0.093" />
+  <testcase classname="org.apache.cassandra.metrics.ThreadLocalMeterTest" name="pseudoRandomRateSimulation-_jdk21" time="0.007" />
+  <testcase classname="org.apache.cassandra.metrics.ThreadLocalMeterTest" name="testAllocationAndDestroy-_jdk21" time="15.136" />
+  <testcase classname="org.apache.cassandra.metrics.ThreadLocalMeterTest" name="constantRate-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.ThreadLocalMeterTest" name="checkNoMark-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.ThreadLocalMeterTest" name="testMaxTicks-_jdk21" time="0.0" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

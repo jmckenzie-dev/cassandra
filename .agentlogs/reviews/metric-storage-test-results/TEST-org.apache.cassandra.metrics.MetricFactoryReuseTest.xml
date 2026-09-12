@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.MetricFactoryReuseTest-_jdk21" skipped="0" tests="4" time="0.208" timestamp="2026-09-12T02:31:58">
+  <testcase classname="org.apache.cassandra.metrics.MetricFactoryReuseTest" name="concurrentFactoriesReturnRegisteredWinner-_jdk21" time="0.069" />
+  <testcase classname="org.apache.cassandra.metrics.MetricFactoryReuseTest" name="incompatibleExistingTypeRetainsFactoryFailure-_jdk21" time="0.006" />
+  <testcase classname="org.apache.cassandra.metrics.MetricFactoryReuseTest" name="repeatedFactoriesAvoidCounterIdsAndRegisterNewAliases-_jdk21" time="0.004" />
+  <testcase classname="org.apache.cassandra.metrics.MetricFactoryReuseTest" name="reusedMetricsRestoreMissingAndCustomMBeans-_jdk21" time="0.001" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

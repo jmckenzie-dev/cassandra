@@ -49,6 +49,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.virtual.CollectionVirtualTableAdapter;
 import org.apache.cassandra.db.virtual.VirtualTable;
 import org.apache.cassandra.db.virtual.model.CounterMetricRow;

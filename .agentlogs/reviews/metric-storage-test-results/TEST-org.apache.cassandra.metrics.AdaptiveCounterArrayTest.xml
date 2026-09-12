@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.AdaptiveCounterArrayTest-_jdk21" skipped="0" tests="8" time="0.957" timestamp="2026-09-12T02:27:52">
+  <testcase classname="org.apache.cassandra.metrics.AdaptiveCounterArrayTest" name="writeContentionWidensBeforeIntegerOverflow-_jdk21" time="0.042" />
+  <testcase classname="org.apache.cassandra.metrics.AdaptiveCounterArrayTest" name="failedCompareAndSetDoesNotWiden-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.AdaptiveCounterArrayTest" name="migrationCannotFailAnUnchangedCompareAndSetOrLoseSet-_jdk21" time="0.015" />
+  <testcase classname="org.apache.cassandra.metrics.AdaptiveCounterArrayTest" name="concurrentCompareAndSetUpdatesSurviveMultiplePromotionRequests-_jdk21" time="0.002" />
+  <testcase classname="org.apache.cassandra.metrics.AdaptiveCounterArrayTest" name="nonnegativeIntValuesStayNarrowUntilOverflow-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.AdaptiveCounterArrayTest" name="invalidIndicesFailBeforePromotion-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.AdaptiveCounterArrayTest" name="concurrentIncrementsAndReadsSurvivePromotion-_jdk21" time="0.006" />
+  <testcase classname="org.apache.cassandra.metrics.AdaptiveCounterArrayTest" name="negativeValuesAndLongOverflowRetainSignedArithmetic-_jdk21" time="0.0" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

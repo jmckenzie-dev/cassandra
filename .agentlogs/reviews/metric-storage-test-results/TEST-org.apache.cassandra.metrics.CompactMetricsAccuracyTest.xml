@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.CompactMetricsAccuracyTest-_jdk21" skipped="0" tests="2" time="0.373" timestamp="2026-09-12T02:29:29">
+  <testcase classname="org.apache.cassandra.metrics.CompactMetricsAccuracyTest" name="halfLifeRoundingIsBoundedWhileLifetimeCountsAndRecentTailsRemainExact-_jdk21" time="0.093" />
+  <testcase classname="org.apache.cassandra.metrics.CompactMetricsAccuracyTest" name="millionRawEventsPreserveMedianAndRareTailBuckets-_jdk21" time="0.173" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

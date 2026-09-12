@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.LazyMetricIdTest-_jdk21" skipped="0" tests="8" time="0.604" timestamp="2026-09-12T02:31:30">
+  <testcase classname="org.apache.cassandra.metrics.LazyMetricIdTest" name="untouchedReadsResetsSnapshotsAndTicksDoNotAllocate-_jdk21" time="0.017" />
+  <testcase classname="org.apache.cassandra.metrics.LazyMetricIdTest" name="racingFirstUseGrowthResetAndWorkerExit-_jdk21" time="0.019" />
+  <testcase classname="org.apache.cassandra.metrics.LazyMetricIdTest" name="collectedIdsAreClearedBeforeReuse-_jdk21" time="0.131" />
+  <testcase classname="org.apache.cassandra.metrics.LazyMetricIdTest" name="lazyLatencyCounterUsesSelectedImplementation-_jdk21" time="0.047" />
+  <testcase classname="org.apache.cassandra.metrics.LazyMetricIdTest" name="lazyClearableHistogramClearsCountAndReservoir-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.LazyMetricIdTest" name="collectedMetersReleaseBothIdsAndRateGroup-_jdk21" time="0.241" />
+  <testcase classname="org.apache.cassandra.metrics.LazyMetricIdTest" name="resetSubtractionPreservesConcurrentUpdates-_jdk21" time="0.004" />
+  <testcase classname="org.apache.cassandra.metrics.LazyMetricIdTest" name="configurationIsCapturedAtConstruction-_jdk21" time="0.0" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

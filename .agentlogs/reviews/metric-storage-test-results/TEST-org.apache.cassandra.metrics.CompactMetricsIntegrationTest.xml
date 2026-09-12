@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.CompactMetricsIntegrationTest-_jdk21" skipped="0" tests="4" time="0.394" timestamp="2026-09-12T02:29:50">
+  <testcase classname="org.apache.cassandra.metrics.CompactMetricsIntegrationTest" name="bootstrapUsesLegacyUntilConfigurationIsAvailable-_jdk21" time="0.166" />
+  <testcase classname="org.apache.cassandra.metrics.CompactMetricsIntegrationTest" name="yamlDefaultAndExplicitSelectionReachFactory-_jdk21" time="0.102" />
+  <testcase classname="org.apache.cassandra.metrics.CompactMetricsIntegrationTest" name="speculativeRetryUsesMicrosecondPercentilesFromEitherImplementation-_jdk21" time="0.063" />
+  <testcase classname="org.apache.cassandra.metrics.CompactMetricsIntegrationTest" name="registeredHistogramsPreserveExportsAndClear-_jdk21" time="0.019" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
