@@ -75,7 +75,10 @@ standalone file keeps five test methods. It removes these integration methods:
 
 The standalone helper removes its optional hierarchy argument and the hierarchy
 persistence assertion. It preserves every default-hierarchy lifecycle assertion.
-This is the only test-code adaptation. Production code has no extraction adapter.
+The standalone test fixtures also use subnet 0 instead of source subnets 144 and
+146. macOS exposes 127.0.0.1 but did not accept those high loopback aliases. Both
+fixtures create one node and tests run serially, so this changes only address
+provisioning. Production code has no extraction adapter.
 
 CommitLogTest uses SkipListMemtable explicitly. It does not exercise the changed
 Trie paths. Dedicated retirement-failure and distributed recovery tests cover the

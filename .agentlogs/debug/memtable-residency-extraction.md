@@ -23,3 +23,7 @@ specific language governing permissions and limitations under the License.
   standalone production and test changes.
 - Validation stopped before the branch build. The shared baseline reproduced
   `UnifiedCompactionStrategyTest.testDropExpiredSSTables` with a null task pick.
+- The first distributed recovery run failed before test logic because macOS
+  could not bind the source fixture address 127.0.144.1. Both fixtures create
+  one node. Use subnet 0 and serialized execution to bind 127.0.0.1 without
+  changing host network aliases. Preserve the first XML report and log.

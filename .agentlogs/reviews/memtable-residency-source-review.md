@@ -38,6 +38,6 @@ Exact final source blobs cover the fully owned production files and unit tests.
 Shared-file review found only the assigned MEM settings and methods. The mixed
 distributed fixture has the documented hierarchy-only removals.
 
-No build, Checkstyle, runtime test, or measurement result exists for this branch.
-The coordinator stopped validation after an existing UCS test failed on both a
-sibling feature branch and the frozen shared baseline.
+The corrected shared base resolved the unrelated UCS test timing failure. Build,
+Checkstyle, and all 14 planned test classes now pass. The test-only loopback
+adapter and pending measurements are recorded in the validation report.

@@ -196,7 +196,7 @@ public class IdleMemtableFlushTest extends TestBaseImpl
 
     private Cluster newCluster(String timeout, int maxPerSecond, String throughput) throws Throwable
     {
-        return init(Cluster.build(1).withSubnet(146).withConfig(config -> {
+        return init(Cluster.build(1).withSubnet(0).withConfig(config -> {
             config.set("memtable", Map.of("configurations", Map.of(
                 "trie", Map.of("class_name", "TrieMemtable", "parameters", Map.of("lazy_initialization", "true")),
                 "eager", Map.of("class_name", "TrieMemtable", "parameters", Map.of("lazy_initialization", "false")),

@@ -21,3 +21,6 @@ specific language governing permissions and limitations under the License.
   for integration and retain the default scheduler path on this branch.
 - Do not treat a source extraction as verified when a shared baseline defect
   stops the build and runtime gate.
+- macOS distributed fixtures need configured loopback addresses. For these two
+  serialized single-node tests, subnet 0 avoids host alias changes.
+- Preserve generated trace counts separately from JUnit case counts.

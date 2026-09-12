@@ -13,12 +13,12 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-- [ ] Build and run all planned targeted tests with JDK 21.
 - [ ] Run small never-written and idle/reactivation measurements.
 - [ ] Record validation, review, and source-independence evidence.
 
 # DONE
 
+- [x] Build and run all planned targeted tests with JDK 21.
 - [x] Extract final idle flushing and bounded admission behavior.
 - [x] Split the mixed distributed idle-flush fixture for standalone use.
 - [x] Extract lazy Trie memtable initialization and retirement coverage.
