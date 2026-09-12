@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements. See the NOTICE file for copyright ownership.
+# Licensed under the Apache License, Version 2.0. You may obtain a copy at
+# http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software is
+# distributed on an AS IS BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
+# See the License for permissions and limitations under the License.
+
+set -euo pipefail
+project_root="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$project_root"
+mkdir -p logs
+batch="logs/$(date +%Y%m%d-%H%M%S)-split-measurements-${1:---smoke}"
+mkdir -p "$batch"
+exec > >(tee "$batch/driver.log") 2>&1
+export PROFILE_SKIP_BUILD=true MANY_TABLES_XMX=8g MANY_TABLES_CPUS=8
+export PROFILE_TRANSIENT_JMX=false PROFILE_LAZY_METRIC_IDS=false PROFILE_COMPACT_BOOKKEEPING=false
+git rev-parse HEAD
+java -version
+shasum -a 256 build/apache-cassandra-7.0-SNAPSHOT.jar
+
+run_residency() {
+    local label="$1"
+    shift
+    printf 'CASE %s\nCOMMAND' "$label"
+    printf ' %q' .build/sh/ai-profile-memtable-residency "$@" --out "$batch/$label"
+    printf '\n'
+    .build/sh/ai-profile-memtable-residency "$@" --out "$batch/$label"
+    printf 'PASS %s\n' "$label"
+}
+
+common=(--subnet 0 --no-profile --payload-bytes 256 --memtable-heap-mib 256)
+case "${1:---smoke}" in
+    --smoke)
+        for profile in all_metrics.yml simple_metrics.yml; do
+            for storage in legacy compact; do
+                extra=()
+                if [[ $storage == legacy ]]; then extra+=(--legacy-metrics); fi
+                run_residency "profile-$profile-$storage-3" "${common[@]}" \
+                    --scenario written-flushed --tables 3 --active-tables 2 \
+                    --rows-per-table 2 --cycles 2 --rate 100 --idle-ms 30 \
+                    --hold-ms 30 --sample-ms 10 --settle-seconds 60 \
+                    --metrics-profile "$profile" "${extra[@]}"
+            done
+        done
+        for policy in off idle small-hierarchy; do
+            extra=()
+            if [[ $policy != off ]]; then extra+=(--idle-flush-ms 300); fi
+            if [[ $policy == small-hierarchy ]]; then extra+=(--ucs-min-hierarchy 1KiB); fi
+            run_residency "legacy-$policy-3" "${common[@]}" \
+                --scenario idle-reactivate --tables 3 --active-tables 3 \
+                --rows-per-table 4 --cycles 6 --rate 100 --idle-ms 500 \
+                --hold-ms 500 --sample-ms 100 --settle-seconds 60 \
+                --ucs-scaling T4 --ucs-min-size 100MiB --metrics-profile all_metrics.yml \
+                --cursor-compaction --legacy-metrics --settle-each-cycle \
+                --idle-flush-max-concurrent 2 "${extra[@]}"
+        done
+        run_residency never-written-3 "${common[@]}" --scenario never-written \
+            --tables 3 --cycles 1 --hold-ms 100 --sample-ms 100 --settle-seconds 60 \
+            --metrics-profile all_metrics.yml --legacy-metrics
+        ;;
+    --profiles)
+        for tables in 100 1000; do
+            for profile in all_metrics.yml simple_metrics.yml; do
+                run_residency "profiles-$tables-$profile" "${common[@]}" \
+                    --scenario written-flushed --tables "$tables" --active-tables "$tables" \
+                    --rows-per-table 4 --cycles 4 --rate 10000 --idle-ms 1000 \
+                    --hold-ms 2000 --sample-ms 250 --settle-seconds 120 \
+                    --metrics-profile "$profile" --legacy-metrics --eager-memtable \
+                    --settle-each-cycle
+            done
+        done
+        ;;
+    --idle)
+        export PROFILE_TRANSIENT_JMX=true PROFILE_LAZY_METRIC_IDS=true PROFILE_COMPACT_BOOKKEEPING=true
+        for tables in 100 1000; do
+            for policy in off idle; do
+                extra=()
+                if [[ $policy == idle ]]; then extra+=(--idle-flush-ms 1000); fi
+                run_residency "combined-$tables-$policy" "${common[@]}" \
+                    --scenario idle-reactivate --tables "$tables" --active-tables "$tables" \
+                    --rows-per-table 4 --cycles 4 --rate 10000 --idle-ms 1000 \
+                    --hold-ms 2000 --sample-ms 250 --settle-seconds 120 \
+                    --ucs-scaling T4 --ucs-min-size 100MiB --metrics-profile all_metrics.yml \
+                    --compact-jmx --cursor-compaction --lazy-tombstone-histograms \
+                    --geometric-meter-arrays --settle-each-cycle \
+                    --idle-flush-max-concurrent 2 "${extra[@]}"
+            done
+        done
+        ;;
+    --census)
+        export PROFILE_TRANSIENT_JMX=true PROFILE_LAZY_METRIC_IDS=true PROFILE_COMPACT_BOOKKEEPING=true
+        for history in standard adaptive; do
+            extra=()
+            if [[ $history == adaptive ]]; then extra+=(--adaptive-jmx-history); fi
+            printf 'CASE census-100-%s\n' "$history"
+            .build/sh/ai-profile-heap-ownership --tables 100 --subnet 0 \
+                --metrics-config simple_metrics.yml --compact-jmx-registration \
+                --property-queries "${extra[@]}" --out "$batch/census-100-$history"
+            printf 'PASS census-100-%s\n' "$history"
+        done
+        ;;
+    *) echo "Usage: $0 [--smoke|--profiles|--idle|--census]" >&2; exit 2 ;;
+esac
+printf 'Batch complete: %s\n' "$batch"
