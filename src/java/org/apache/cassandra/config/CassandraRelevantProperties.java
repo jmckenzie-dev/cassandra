@@ -374,6 +374,8 @@ public enum CassandraRelevantProperties
      */
     JUNIT_STORAGE_COMPATIBILITY_MODE("cassandra.junit_storage_compatibility_mode", StorageCompatibilityMode.CASSANDRA_4.toString()),
 
+    /** Defer tombstone histogram spool allocation until the first observation. */
+    LAZY_TOMBSTONE_HISTOGRAMS("cassandra.lazy_tombstone_histograms", "false"),
     /** startup checks properties */
     LIBJEMALLOC("cassandra.libjemalloc"),
     /** Line separator ("\n" on UNIX). */
