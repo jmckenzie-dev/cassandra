@@ -13,14 +13,12 @@ specific language governing permissions and limitations under the License.
 
 # Memtable residency source review
 
-Review status: source extraction complete; runtime validation blocked.
+Review status: source extraction and focused runtime validation complete.
 
 The lazy extraction keeps the volatile `TrieState` publication boundary. Reads
 use the empty state without allocation. The first write initializes once before
 it applies the mutation. Flush and discard paths accept an uninitialized table.
 The factory validates the boolean option and defaults it to true.
-
-Final idle review and validation evidence will follow after extraction.
 
 Idle tracking applies only to lazy, user, non-index Trie memtables under Unified
 Compaction Strategy (UCS). The first write registers a candidate. Each shard
@@ -39,5 +37,7 @@ Shared-file review found only the assigned MEM settings and methods. The mixed
 distributed fixture has the documented hierarchy-only removals.
 
 The corrected shared base resolved the unrelated UCS test timing failure. Build,
-Checkstyle, and all 14 planned test classes now pass. The test-only loopback
-adapter and pending measurements are recorded in the validation report.
+Checkstyle, and all 14 planned test classes pass. The final parity audit found
+no cross-feature production hunks. The test-only loopback adapter, observed
+correctness assertions, and deferred integration measurements are recorded in
+the validation report.

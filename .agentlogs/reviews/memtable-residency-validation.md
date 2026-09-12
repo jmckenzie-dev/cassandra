@@ -13,7 +13,7 @@ specific language governing permissions and limitations under the License.
 
 # Memtable residency validation
 
-State: build and focused tests passed; measurements pending.
+State: build, focused tests, and source-parity checks passed.
 
 The first validation attempt stopped when an existing Unified Compaction Strategy
 expiration test failed on both a sibling branch and the frozen base. The corrected
@@ -23,8 +23,12 @@ Checkstyle run passed. Log: logs/20260911-222728-ai-build.log. The earlier build
 also passed before the portable fixture adapter. Log:
 logs/20260911-221507-ai-build.log.
 
-Static checks confirmed the recorded source blobs before validation. A final
-source-independence and parity audit remains pending.
+The final static audit confirmed exact final-source blobs for all 12 fully owned
+production and unit-test files. The two distributed fixtures differ only by the
+recorded method split and subnet adapters. Shared files contain only the assigned
+MEM configuration, documentation, and lifecycle hunks. `git diff --check` passed.
+Added-line searches found no metric-profile, metric-storage, or UCS hierarchy
+option dependencies.
 
 ## Focused tests
 
@@ -59,4 +63,23 @@ logic ran because macOS could not bind 127.0.144.1. Log:
 logs/20260911-222226-ai-ci-test.log. Its XML is preserved under attempt-1. Both
 single-node fixtures now use subnet 0 and run serially. The retry passed.
 
-Small correctness measurements and the final parity audit remain pending.
+## Observed correctness assertions
+
+The passing focused tests establish these branch-local results without a second
+test run:
+
+- A never-written lazy Trie memtable remains dormant after reads and empty
+  flushes. Clean retirement creates no SSTable.
+- The first and concurrent writes preserve all rows. Dirty retirement reclaims
+  storage, and a later write activates the replacement memtable.
+- Idle flushing retires eligible tables, leaves ineligible tables active, and
+  preserves rows across reactivation and restart.
+- Admission drains all candidates under the configured operation limit. Byte
+  debt delays later admission, and forced flushes retain their existing path.
+- Reader pinning delays completion until reclamation. Failed submission stops
+  later idle admission without discarding data.
+
+These checks assert behavior and estimated-live-data admission accounting. They
+do not measure retained heap, SSTable output bytes, compaction bytes, or drain
+throughput. The combined integration harness must measure memory, compaction,
+and drain behavior with the legacy controls and other feature branches restored.

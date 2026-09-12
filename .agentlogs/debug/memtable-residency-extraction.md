@@ -21,8 +21,11 @@ specific language governing permissions and limitations under the License.
 - Final blob comparisons cover all fully owned production files and unit tests.
 - Static searches found no metric configuration or UCS hierarchy option in the
   standalone production and test changes.
-- Validation stopped before the branch build. The shared baseline reproduced
+- Historical stopping point: validation first stopped before the branch build
+  when the shared baseline reproduced
   `UnifiedCompactionStrategyTest.testDropExpiredSSTables` with a null task pick.
+  The corrected shared base fixed the clock-tick dependence before final build
+  and focused validation.
 - The first distributed recovery run failed before test logic because macOS
   could not bind the source fixture address 127.0.144.1. Both fixtures create
   one node. Use subnet 0 and serialized execution to bind 127.0.0.1 without

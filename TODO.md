@@ -13,11 +13,13 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-- [ ] Run small never-written and idle/reactivation measurements.
-- [ ] Record validation, review, and source-independence evidence.
+No open branch tasks.
 
 # DONE
 
+- [x] Record never-written, retirement, idle, reactivation, and admission assertions.
+- [x] Defer quantitative memory, compaction, and drain measurements to integration.
+- [x] Record validation, review, and source-independence evidence.
 - [x] Build and run all planned targeted tests with JDK 21.
 - [x] Extract final idle flushing and bounded admission behavior.
 - [x] Split the mixed distributed idle-flush fixture for standalone use.

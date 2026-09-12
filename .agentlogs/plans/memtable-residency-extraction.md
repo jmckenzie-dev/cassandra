@@ -62,8 +62,9 @@ cross-branch benchmark links, metric settings, and UCS hierarchy documentation.
 
 ## Distributed test adaptation
 
-Source `IdleMemtableFlushTest` blob cad371f51a80 becomes b77ab9e6f3f3. The
-standalone file keeps five test methods. It removes these integration methods:
+Source `IdleMemtableFlushTest` blob cad371f51a80 becomes 9f53bfb29c3a after
+the method split and subnet adapter. The standalone file keeps five test
+methods. It removes these integration methods:
 
 - `smallHierarchyRetiresReactivatesAndRecovers`: move the 1KiB hierarchy case.
   Integration must preserve idle retirement, ineligible-table state, dormant

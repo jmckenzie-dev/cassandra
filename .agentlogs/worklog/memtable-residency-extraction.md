@@ -24,3 +24,6 @@ specific language governing permissions and limitations under the License.
 - macOS distributed fixtures need configured loopback addresses. For these two
   serialized single-node tests, subnet 0 avoids host alias changes.
 - Preserve generated trace counts separately from JUnit case counts.
+- Use passing correctness assertions for the standalone branch. Leave retained
+  memory, compaction-byte, and drain-rate measurements to the combined harness,
+  where the legacy controls and other feature branches are available.
