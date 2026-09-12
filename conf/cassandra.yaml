@@ -2093,6 +2093,10 @@ tombstone_failure_threshold: 100000
 # Applies at startup, independently of recording storage and metric selection.
 adaptive_jmx_histogram_history_enabled: false
 
+# Avoid a persistent JDK adapter for each metric MBean. This creates
+# temporary adapters during reads. Non-metric MBeans retain their current registrations.
+compact_jmx_registration_enabled: false
+
 # Controls the granularity of purgeable tombstones reported to PurgeableTombstoneScannedHistogram table metric
 # Possible values:
 # 'disabled' - do not collect the metric at all

@@ -34,8 +34,10 @@ import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
 import javax.annotation.Nullable;
+import javax.management.MBeanInfo;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
+import javax.management.StandardMBean;
 
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.Gauge;
@@ -552,29 +554,36 @@ public class CassandraMetricsRegistry extends MetricRegistry
 
     public void registerMBean(Metric metric, ObjectName name, MBeanWrapper mBeanServer, boolean gaugeCompatible)
     {
+        registerMBean(metric, name, mBeanServer, gaugeCompatible, DatabaseDescriptor.getCompactJmxRegistrationEnabled());
+    }
+
+    @VisibleForTesting
+    void registerMBean(Metric metric, ObjectName name, MBeanWrapper mBeanServer, boolean gaugeCompatible, boolean compact)
+    {
         AbstractBean mbean;
 
         if (metric instanceof Gauge)
-            mbean = new JmxGauge((Gauge<?>) metric, name);
+            mbean = compact ? new DynamicJmxGauge((Gauge<?>) metric, name) : new JmxGauge((Gauge<?>) metric, name);
         else if (metric instanceof Counter)
-            mbean = new JmxCounter((Counter) metric, name);
+            mbean = compact ? new DynamicJmxCounter((Counter) metric, name) : new JmxCounter((Counter) metric, name);
         else if (metric instanceof OverrideHistogram)
-            mbean = new JmxHistogram((OverrideHistogram) metric, name);
+            mbean = compact ? new DynamicJmxHistogram((OverrideHistogram) metric, name) : new JmxHistogram((OverrideHistogram) metric, name);
         else if (metric instanceof Histogram)
             throw new UnsupportedOperationException("Must supply a CassandraHistogram");
         else if (metric instanceof Timer)
-            mbean = new JmxTimer((Timer) metric, name, TimeUnit.SECONDS, DEFAULT_TIMER_UNIT);
+            mbean = compact ? new DynamicJmxTimer((Timer) metric, name) : new JmxTimer((Timer) metric, name, TimeUnit.SECONDS, DEFAULT_TIMER_UNIT);
         else if (metric instanceof Metered)
         {
             // If a gauge compatible meter is requested, create a special implementation which
             // also yields a 'Value' attribute for backwards compatibility.
             if (gaugeCompatible)
             {
-                mbean = new JmxMeterGaugeCompatible((Metered) metric, name, TimeUnit.SECONDS);
+                mbean = compact ? new DynamicJmxMeterGaugeCompatible((Metered) metric, name)
+                                : new JmxMeterGaugeCompatible((Metered) metric, name, TimeUnit.SECONDS);
             }
             else
             {
-                mbean = new JmxMeter((Metered) metric, name, TimeUnit.SECONDS);
+                mbean = compact ? new DynamicJmxMeter((Metered) metric, name) : new JmxMeter((Metered) metric, name, TimeUnit.SECONDS);
             }
         }
         else
@@ -631,6 +640,28 @@ public class CassandraMetricsRegistry extends MetricRegistry
         Object getValue();
     }
 
+    private static final class DynamicJmxGauge extends JmxGauge implements TransientMetricMBean
+    {
+        private static final MBeanInfo INFO = new StandardMBean(new JmxGauge(null, null), JmxGaugeMBean.class, false).getMBeanInfo();
+
+        private DynamicJmxGauge(Gauge<?> metric, ObjectName objectName)
+        {
+            super(metric, objectName);
+        }
+
+        @Override
+        public StandardMBean standardView()
+        {
+            return new StandardMBean(this, JmxGaugeMBean.class, false);
+        }
+
+        @Override
+        public MBeanInfo getMBeanInfo()
+        {
+            return INFO;
+        }
+    }
+
     private static class JmxGauge extends AbstractBean implements JmxGaugeMBean
     {
         private final Gauge<?> metric;
@@ -685,6 +716,28 @@ public class CassandraMetricsRegistry extends MetricRegistry
         long[] rawBuckets(int count);
 
         long[] rawValues();
+    }
+
+    private static final class DynamicJmxHistogram extends JmxHistogram implements TransientMetricMBean
+    {
+        private static final MBeanInfo INFO = new StandardMBean(new JmxHistogram(null, null), JmxHistogramMBean.class, false).getMBeanInfo();
+
+        private DynamicJmxHistogram(OverrideHistogram metric, ObjectName objectName)
+        {
+            super(metric, objectName);
+        }
+
+        @Override
+        public StandardMBean standardView()
+        {
+            return new StandardMBean(this, JmxHistogramMBean.class, false);
+        }
+
+        @Override
+        public MBeanInfo getMBeanInfo()
+        {
+            return INFO;
+        }
     }
 
     private static class JmxHistogram extends AbstractBean implements JmxHistogramMBean
@@ -824,6 +877,28 @@ public class CassandraMetricsRegistry extends MetricRegistry
         long getCount();
     }
 
+    private static final class DynamicJmxCounter extends JmxCounter implements TransientMetricMBean
+    {
+        private static final MBeanInfo INFO = new StandardMBean(new JmxCounter(null, null), JmxCounterMBean.class, false).getMBeanInfo();
+
+        private DynamicJmxCounter(Counter metric, ObjectName objectName)
+        {
+            super(metric, objectName);
+        }
+
+        @Override
+        public StandardMBean standardView()
+        {
+            return new StandardMBean(this, JmxCounterMBean.class, false);
+        }
+
+        @Override
+        public MBeanInfo getMBeanInfo()
+        {
+            return INFO;
+        }
+    }
+
     private static class JmxCounter extends AbstractBean implements JmxCounterMBean
     {
         private final Counter metric;
@@ -864,6 +939,28 @@ public class CassandraMetricsRegistry extends MetricRegistry
      * Exports a timer as a JMX MBean, check corresponding {@link org.apache.cassandra.db.virtual.model.TimerMetricRow}
      * for the same functionality for virtual tables.
      */
+    private static final class DynamicJmxMeter extends JmxMeter implements TransientMetricMBean
+    {
+        private static final MBeanInfo INFO = new StandardMBean(new JmxMeter(null, null, TimeUnit.SECONDS), JmxMeterMBean.class, false).getMBeanInfo();
+
+        private DynamicJmxMeter(Metered metric, ObjectName objectName)
+        {
+            super(metric, objectName, TimeUnit.SECONDS, true);
+        }
+
+        @Override
+        public StandardMBean standardView()
+        {
+            return new StandardMBean(this, JmxMeterMBean.class, false);
+        }
+
+        @Override
+        public MBeanInfo getMBeanInfo()
+        {
+            return INFO;
+        }
+    }
+
     private static class JmxMeter extends AbstractBean implements JmxMeterMBean
     {
         private final Metered metric;
@@ -872,10 +969,15 @@ public class CassandraMetricsRegistry extends MetricRegistry
 
         private JmxMeter(Metered metric, ObjectName objectName, TimeUnit rateUnit)
         {
+            this(metric, objectName, rateUnit, false);
+        }
+
+        private JmxMeter(Metered metric, ObjectName objectName, TimeUnit rateUnit, boolean compact)
+        {
             super(objectName);
             this.metric = metric;
             this.rateFactor = rateUnit.toSeconds(1);
-            this.rateUnit = "events/" + calculateRateUnit(rateUnit);
+            this.rateUnit = compact && rateUnit == TimeUnit.SECONDS ? "events/second" : "events/" + calculateRateUnit(rateUnit);
         }
 
         @Override
@@ -923,6 +1025,28 @@ public class CassandraMetricsRegistry extends MetricRegistry
 
     public interface JmxMeterGaugeCompatibleMBean extends JmxMeterMBean, JmxGaugeMBean {}
 
+    private static final class DynamicJmxMeterGaugeCompatible extends JmxMeterGaugeCompatible implements TransientMetricMBean
+    {
+        private static final MBeanInfo INFO = new StandardMBean(new JmxMeterGaugeCompatible(null, null, TimeUnit.SECONDS), JmxMeterGaugeCompatibleMBean.class, false).getMBeanInfo();
+
+        private DynamicJmxMeterGaugeCompatible(Metered metric, ObjectName objectName)
+        {
+            super(metric, objectName, TimeUnit.SECONDS, true);
+        }
+
+        @Override
+        public StandardMBean standardView()
+        {
+            return new StandardMBean(this, JmxMeterGaugeCompatibleMBean.class, false);
+        }
+
+        @Override
+        public MBeanInfo getMBeanInfo()
+        {
+            return INFO;
+        }
+    }
+
     /**
      * An implementation of {@link JmxMeter} that is compatible with {@link JmxGaugeMBean} in that it also
      * implements {@link JmxGaugeMBean}.  This is useful for metrics that were migrated from {@link JmxGauge}
@@ -935,6 +1059,11 @@ public class CassandraMetricsRegistry extends MetricRegistry
         private JmxMeterGaugeCompatible(Metered metric, ObjectName objectName, TimeUnit rateUnit)
         {
             super(metric, objectName, rateUnit);
+        }
+
+        private JmxMeterGaugeCompatible(Metered metric, ObjectName objectName, TimeUnit rateUnit, boolean compact)
+        {
+            super(metric, objectName, rateUnit, compact);
         }
 
         @Override
@@ -983,6 +1112,28 @@ public class CassandraMetricsRegistry extends MetricRegistry
         long[] rawValues();
     }
 
+    private static final class DynamicJmxTimer extends JmxTimer implements TransientMetricMBean
+    {
+        private static final MBeanInfo INFO = new StandardMBean(new JmxTimer(null, null, TimeUnit.SECONDS, DEFAULT_TIMER_UNIT), JmxTimerMBean.class, false).getMBeanInfo();
+
+        private DynamicJmxTimer(Timer metric, ObjectName objectName)
+        {
+            super(metric, objectName, TimeUnit.SECONDS, DEFAULT_TIMER_UNIT, true);
+        }
+
+        @Override
+        public StandardMBean standardView()
+        {
+            return new StandardMBean(this, JmxTimerMBean.class, false);
+        }
+
+        @Override
+        public MBeanInfo getMBeanInfo()
+        {
+            return INFO;
+        }
+    }
+
     static class JmxTimer extends JmxMeter implements JmxTimerMBean
     {
         private final Timer metric;
@@ -995,7 +1146,12 @@ public class CassandraMetricsRegistry extends MetricRegistry
                          TimeUnit rateUnit,
                          TimeUnit durationUnit)
         {
-            super(metric, objectName, rateUnit);
+            this(metric, objectName, rateUnit, durationUnit, false);
+        }
+
+        private JmxTimer(Timer metric, ObjectName objectName, TimeUnit rateUnit, TimeUnit durationUnit, boolean compact)
+        {
+            super(metric, objectName, rateUnit, compact);
             this.metric = metric;
             this.durationUnit = toLowerCaseLocalized(durationUnit.toString());
         }
