@@ -17,8 +17,15 @@ exec > >(tee "$batch/driver.log") 2>&1
 export PROFILE_SKIP_BUILD=true MANY_TABLES_XMX=8g MANY_TABLES_CPUS=8
 export PROFILE_TRANSIENT_JMX=false PROFILE_LAZY_METRIC_IDS=false PROFILE_COMPACT_BOOKKEEPING=false
 git rev-parse HEAD
-java -version
+git status --short
+java_version="$(java -version 2>&1)"
+printf '%s\n' "$java_version"
+if [[ $java_version != *'version "21.'* ]]; then
+    echo 'Use Java 21 for the matched measurement batches.' >&2
+    exit 2
+fi
 shasum -a 256 build/apache-cassandra-7.0-SNAPSHOT.jar
+shasum -a 256 build/test/classes/org/apache/cassandra/distributed/test/{MemtableResidencyProfileHarness,HeapOwnershipCensusHarness,ProfiledClusterHarness,ResourceProfiler}*.class
 
 run_residency() {
     local label="$1"

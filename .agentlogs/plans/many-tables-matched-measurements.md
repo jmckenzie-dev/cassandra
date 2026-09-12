@@ -41,9 +41,11 @@ allocator-owned memtable bytes from whole-process post-GC heap. Compare matched
 workloads; resulting SSTable counts can differ because idle flushing is the
 variable under test. In the profile pair, verify real SSTable state separately.
 
-The simple profile disables BytesFlushed, CompactionBytesWritten, and
-MemtableSwitchCount. Their zero values do not mean no disk work occurred.
-Use SSTable counts/disk bytes and compaction history where available.
+The simple profile hides BytesFlushed, CompactionBytesWritten, and
+MemtableSwitchCount from exports. TableMetrics retains real, unregistered
+counters, and this harness reads those fields directly. Their deltas remain
+usable. Data-byte counters do not cover every SSTable component. Cross-check
+SSTable counts/disk bytes and compaction history where available.
 The old summary policy text always says cursor compaction is disabled; the
 effectiveConfiguration.cursorCompaction field is authoritative instead.
 
@@ -60,3 +62,15 @@ These fixed-order, single-process samples establish behavior and observational
 memory/cost tradeoffs. They do not establish confidence intervals, production
 capacity, or a stable performance effect size. Allocation counters cover only
 the harness thread. Preserve raw heaps and logs for later repeated experiments.
+
+All batches disable profiling. JSON profileEnabled=false is authoritative;
+old summary text that mentions unavailable or JDK-only recordings is stale.
+No Java Flight Recorder files are expected. The driver records both the main
+JAR and harness class hashes and rejects a Java major version other than 21.
+
+All comparisons use the combined branch; legacy names a storage control, not
+the shared-base revision. Fixed-count writes run synchronously. Inspect write
+lateness and phase duration before making any throughput claim. Idle cases do
+not scrape JMX or write tombstones; separate tests/census cover those paths.
+Census property-query timing covers queryNames only. Process success still
+requires a separate audit of requested versus effective settings and results.

@@ -58,10 +58,9 @@ UnifiedCompactionStrategyTest. It changes mock timing only.
 
 ## Verification status
 
-Static production reconstruction and the Java 21 build with Checkstyle passed.
-The five new matrix cases passed. Remaining combined tests and matched
-measurements are running or pending. Standalone results do not substitute for
-combined verification.
+Static production reconstruction, the Java 21 build with Checkstyle, and all
+targeted combined tests passed. See integration-validation.md for counts and
+raw evidence. Matched measurements remain pending.
 
 ## Path accounting
 
@@ -79,7 +78,7 @@ TrieMemtableLazyRecoveryTest, and UnifiedCompactionStrategyTest.
 The JMX probe script intentionally has executable mode 100755 because its
 portable instructions call it directly. The audit also found lost executable
 modes on both reservoir analyzers. Storage commit 3e8478f751 restores those
-original modes; integration must include that commit before the final gate.
+original modes; integration merge 52aa4cc814 includes that correction.
 
 ## Exact moved methods
 

@@ -15,12 +15,12 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-- [ ] Build and run targeted combined tests and property entrypoints.
 - [ ] Run matched measurements with verified effective controls.
-- [ ] Verify all-versus-simple profiles with legacy storage in integration.
 
 # DONE
 
+- [x] Build and pass 337 combined tests, with one existing skip, plus generator, heap analyzer, and boundary checks.
+- [x] Verify all-versus-simple profiles with legacy storage and repeat the ten profile cases with the transient MBean server builder.
 - [x] Restore combined fixtures after merging all five feature branches.
 - [x] Account for all source paths and verify production reconstruction.
 - [x] Record never-written, retirement, idle, reactivation, and admission assertions.

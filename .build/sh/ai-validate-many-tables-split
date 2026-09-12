@@ -84,8 +84,8 @@ case "${1:---all}" in
   --matrix) tests=("${matrix[@]}") ;;
   --unit) tests=("${unit[@]}") ;;
   --distributed) tests=("${distributed[@]}") ;;
-  --nested) tests=() ;;
-  *) echo "Usage: $0 [--all|--matrix|--unit|--distributed|--nested]" >&2; exit 2 ;;
+  --nested|--boundaries) tests=() ;;
+  *) echo "Usage: $0 [--all|--matrix|--unit|--distributed|--nested|--boundaries]" >&2; exit 2 ;;
 esac
 if [[ $# -gt 1 ]]; then
   echo "Expected at most one selector" >&2
@@ -117,4 +117,11 @@ if [[ ${1:---all} == --all || ${1:---all} == --nested ]]; then
     'org.apache.cassandra.metrics.NoOpMetricsTest$Properties' \
     'org.apache.cassandra.metrics.TableMetricBookkeepingTest$Properties' \
     'org.apache.cassandra.metrics.CompactJmxRegistrationTest$Properties'
+fi
+if [[ ${1:---all} == --all || ${1:---all} == --boundaries ]]; then
+  .build/sh/ai-probe-jmx-names --property-only
+  .build/sh/ai-probe-jmx-names --boundaries 10
+  .build/sh/ai-probe-jmx-names --boundaries --protected 10
+  .build/sh/ai-probe-jmx-names --boundaries --late
+  .build/sh/ai-probe-jmx-names --boundaries --properties
 fi

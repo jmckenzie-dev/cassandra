@@ -1,0 +1,65 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements. See the NOTICE file for copyright ownership.
+# Licensed under the Apache License, Version 2.0. You may obtain a copy at
+# http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software is
+# distributed on an AS IS BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
+# See the License for permissions and limitations under the License.
+class	tests	errors	failures	skipped	seconds
+org.apache.cassandra.auth.jmx.TransientMBeanServerAuthorizationTest-_jdk21	1	0	0	0	0.999
+org.apache.cassandra.config.IdleMemtableConfigTest-_jdk21	2	0	0	0	0.176
+org.apache.cassandra.db.compaction.unified.ControllerHierarchyTest-_jdk21	2	0	0	0	2.343
+org.apache.cassandra.db.compaction.unified.ControllerTest-_jdk21	26	0	0	0	1.343
+org.apache.cassandra.db.compaction.unified.ShardedMultiWriterTest-_jdk21	3	0	0	0	3.436
+org.apache.cassandra.db.compaction.UnifiedCompactionStrategyTest-_jdk21	28	0	0	0	16.285
+org.apache.cassandra.db.memtable.IdleFlushAdmissionBudgetPropertyTest-_jdk21	1	0	0	0	0.051
+org.apache.cassandra.db.memtable.IdleFlushAdmissionBudgetTest-_jdk21	5	0	0	0	0.052
+org.apache.cassandra.db.memtable.IdleMemtableFlusherTest-_jdk21	13	0	0	0	13.063
+org.apache.cassandra.db.memtable.MemtableSizeHeapBuffersTest-_jdk21	3	0	0	0	11.154
+org.apache.cassandra.db.memtable.NonSplittablePartitionerTrieMemtableFlushSetTest-_jdk21	4	0	0	0	3.247
+org.apache.cassandra.db.memtable.SplittablePartitionerTrieMemtableFlushSetTest-_jdk21	4	0	0	0	3.525
+org.apache.cassandra.db.memtable.TrieMemtableLazyPropertyTest-_jdk21	1	0	0	0	4.541
+org.apache.cassandra.db.memtable.TrieMemtableLazyTest-_jdk21	7	0	0	0	3.607
+org.apache.cassandra.db.memtable.TrieMemtableRetirementFailureTest-_jdk21	1	0	0	0	1.837
+org.apache.cassandra.db.memtable.TrieMemtableRetirementTest-_jdk21	5	0	0	0	4.183
+org.apache.cassandra.db.virtual.SettingsTableTest-_jdk21	13	0	0	0	3.16
+org.apache.cassandra.distributed.test.HeapOwnershipCensusHarnessTest-_jdk21	8	0	0	0	0.104
+org.apache.cassandra.distributed.test.IdleMemtableFlushTest-_jdk21	7	0	0	0	52.978
+org.apache.cassandra.distributed.test.MemtableResidencyConfigTest-_jdk21	9	0	0	0	2.953
+org.apache.cassandra.distributed.test.MemtableResidencyHarnessTest-_jdk21	5	0	0	0	236.359
+org.apache.cassandra.distributed.test.MetricProfileConfigurationMatrixTest-_jdk21	5	0	0	0	41.857
+org.apache.cassandra.distributed.test.MetricProfileRecordingTest-_jdk21	3	0	0	0	17.297
+org.apache.cassandra.distributed.test.MetricProfileRegistrationTest-_jdk21	5	0	0	0	33.712
+org.apache.cassandra.distributed.test.TrieMemtableLazyRecoveryTest-_jdk21	2	0	0	0	26.957
+org.apache.cassandra.io.sstable.metadata.MetadataCollectorHistogramTest-_jdk21	3	0	0	0	1.061
+org.apache.cassandra.metrics.AdaptiveCounterArrayPropertyTest-_jdk21	1	0	0	0	0.128
+org.apache.cassandra.metrics.AdaptiveCounterArrayTest-_jdk21	8	0	0	0	0.097
+org.apache.cassandra.metrics.AdaptiveHistogramHistoryPropertyTest-_jdk21	1	0	0	0	0.067
+org.apache.cassandra.metrics.AdaptiveHistogramHistoryTest-_jdk21	7	0	0	0	0.04
+org.apache.cassandra.metrics.AdaptiveJmxHistogramHistoryTest-_jdk21	4	0	0	0	0.282
+org.apache.cassandra.metrics.CassandraMetricsRegistryTest-_jdk21	9	0	0	0	0.208
+org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirPropertyTest-_jdk21	1	0	0	0	0.392
+org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest-_jdk21	13	0	0	0	0.257
+org.apache.cassandra.metrics.CompactJmxRegistrationTest-_jdk21	3	0	0	0	0.251
+org.apache.cassandra.metrics.CompactMetricsAccuracyTest-_jdk21	2	0	0	0	0.328
+org.apache.cassandra.metrics.CompactMetricsIntegrationTest-_jdk21	6	0	0	0	0.269
+org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest-_jdk21	29	0	0	1	73.191
+org.apache.cassandra.metrics.GeometricThreadLocalMeterPropertyTest-_jdk21	1	0	0	0	0.174
+org.apache.cassandra.metrics.GeometricThreadLocalMeterTest-_jdk21	6	0	0	0	0.247
+org.apache.cassandra.metrics.JmxVirtualTableMetricsTest-_jdk21	3	0	0	0	3.37
+org.apache.cassandra.metrics.LatencyMetricsTest-_jdk21	4	0	0	0	0.177
+org.apache.cassandra.metrics.LazyMetricIdPropertyTest-_jdk21	2	0	0	0	0.196
+org.apache.cassandra.metrics.LazyMetricIdTest-_jdk21	8	0	0	0	0.575
+org.apache.cassandra.metrics.MetricFactoryReuseTest-_jdk21	5	0	0	0	0.208
+org.apache.cassandra.metrics.MetricProfilePropertyTest-_jdk21	2	0	0	0	0.292
+org.apache.cassandra.metrics.MetricProfileTest-_jdk21	14	0	0	0	0.1
+org.apache.cassandra.metrics.NoOpMetricsTest-_jdk21	7	0	0	0	0.174
+org.apache.cassandra.metrics.TableMetricBookkeepingLifecycleTest-_jdk21	1	0	0	0	2.02
+org.apache.cassandra.metrics.TableMetricBookkeepingTest-_jdk21	1	0	0	0	0.113
+org.apache.cassandra.metrics.ThreadLocalHistogramTest-_jdk21	2	0	0	0	0.129
+org.apache.cassandra.metrics.ThreadLocalMeterTest-_jdk21	6	0	0	0	15.191
+org.apache.cassandra.utils.ObjectNamePropertyPatternTest-_jdk21	1	0	0	0	0.039
+org.apache.cassandra.utils.streamhist.LazyTombstoneHistogramBuilderPropertyTest-_jdk21	1	0	0	0	0.22
+org.apache.cassandra.utils.streamhist.LazyTombstoneHistogramBuilderTest-_jdk21	7	0	0	0	0.149
+org.apache.cassandra.utils.streamhist.StreamingTombstoneHistogramBuilderTest-_jdk21	11	0	0	0	0.797
+org.apache.cassandra.utils.streamhist.TombstoneHistogramAllocationTest-_jdk21	1	0	0	0	0.157
