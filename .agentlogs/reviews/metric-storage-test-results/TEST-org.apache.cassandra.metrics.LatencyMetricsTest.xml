@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.LatencyMetricsTest-_jdk21" skipped="0" tests="3" time="0.18" timestamp="2026-09-12T02:35:23">
+  <testcase classname="org.apache.cassandra.metrics.LatencyMetricsTest" name="testGetRecentLatency-_jdk21" time="0.141" />
+  <testcase classname="org.apache.cassandra.metrics.LatencyMetricsTest" name="testReadMerging-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.LatencyMetricsTest" name="testRelease-_jdk21" time="0.001" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

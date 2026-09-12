@@ -39,8 +39,8 @@ public class KeyCache
     private final static Logger logger = LoggerFactory.getLogger(KeyCache.class);
 
     private final InstrumentingCache<KeyCacheKey, AbstractRowIndexEntry> cache;
-    private final ThreadLocalCounter hits = new ThreadLocalCounter();
-    private final ThreadLocalCounter requests = new ThreadLocalCounter();
+    private final ThreadLocalCounter hits = ThreadLocalCounter.create();
+    private final ThreadLocalCounter requests = ThreadLocalCounter.create();
 
     public KeyCache(@Nullable InstrumentingCache<KeyCacheKey, AbstractRowIndexEntry> cache)
     {

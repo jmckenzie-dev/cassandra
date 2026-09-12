@@ -305,13 +305,13 @@ public class CassandraMetricsRegistry extends MetricRegistry
     public Counter counter(MetricName... name)
     {
         if (!DatabaseDescriptor.getMetricProfile().isEnabled(name[0]))
-            return new ThreadLocalCounter();
+            return ThreadLocalCounter.create();
         String simpleMetricName = name[0].getMetricName();
         Metric metric = super.getMetrics().get(simpleMetricName);
         if (metric instanceof Counter)
             return (Counter) metric;
 
-        Counter counter = new ThreadLocalCounter();
+        Counter counter = ThreadLocalCounter.create();
         super.register(simpleMetricName, counter);
         Stream.of(name).forEach(n -> register(n, counter));
         return counter;
@@ -340,13 +340,13 @@ public class CassandraMetricsRegistry extends MetricRegistry
     public Meter meter(boolean gaugeCompatible, MetricName... name)
     {
         if (!DatabaseDescriptor.getMetricProfile().isEnabled(name[0]))
-            return new ThreadLocalMeter();
+            return (Meter) org.apache.cassandra.metrics.Meter.create();
         String simpleMetricName = name[0].getMetricName();
         Metric metric = super.getMetrics().get(simpleMetricName);
         if (metric instanceof Meter)
             return (Meter) metric;
 
-        Meter meter = new ThreadLocalMeter();
+        Meter meter = (Meter) org.apache.cassandra.metrics.Meter.create();
         super.register(simpleMetricName, meter);
         Stream.of(name).forEach(n -> register(gaugeCompatible, n, meter));
         return meter;
@@ -354,7 +354,27 @@ public class CassandraMetricsRegistry extends MetricRegistry
 
     public OverrideHistogram histogram(MetricName name, boolean considerZeroes)
     {
-        return register(name, new ClearableHistogram(new DecayingEstimatedHistogramReservoir(considerZeroes)));
+        if (DatabaseDescriptor.getMetricProfile().isEnabled(name))
+        {
+            Metric existing = super.getMetrics().get(name.getMetricName());
+            if (existing instanceof OverrideHistogram)
+                return register(name, (OverrideHistogram) existing);
+        }
+        return register(name, ClearableHistogram.create(createHistogramReservoir(considerZeroes)));
+    }
+
+    public static ClearableReservoir createHistogramReservoir(boolean considerZeroes)
+    {
+        return createHistogramReservoir(considerZeroes, DecayingEstimatedHistogramReservoir.DEFAULT_BUCKET_COUNT);
+    }
+
+    private static ClearableReservoir createHistogramReservoir(boolean considerZeroes, int bucketCount)
+    {
+        return DatabaseDescriptor.getOptimizedMetricsEnabled()
+               ? new CompactDecayingEstimatedHistogramReservoir(considerZeroes, bucketCount,
+                                                                DecayingEstimatedHistogramReservoir.DEFAULT_STRIPE_COUNT)
+               : new DecayingEstimatedHistogramReservoir(considerZeroes, bucketCount,
+                                                         DecayingEstimatedHistogramReservoir.DEFAULT_STRIPE_COUNT);
     }
 
     public OverrideHistogram histogram(MetricName name, MetricName alias, boolean considerZeroes)
@@ -398,6 +418,12 @@ public class CassandraMetricsRegistry extends MetricRegistry
 
     private SnapshottingTimer timer(MetricName name, TimeUnit durationUnit)
     {
+        if (DatabaseDescriptor.getMetricProfile().isEnabled(name))
+        {
+            Metric existing = super.getMetrics().get(name.getMetricName());
+            if (existing instanceof SnapshottingTimer)
+                return register(name, (SnapshottingTimer) existing);
+        }
         return register(name, new SnapshottingTimer(CassandraMetricsRegistry.createReservoir(durationUnit)));
     }
 
@@ -413,9 +439,8 @@ public class CassandraMetricsRegistry extends MetricRegistry
         CassandraReservoir reservoir;
         if (durationUnit != TimeUnit.NANOSECONDS)
         {
-            CassandraReservoir underlying = new DecayingEstimatedHistogramReservoir(DecayingEstimatedHistogramReservoir.DEFAULT_ZERO_CONSIDERATION,
-                                                                                    DecayingEstimatedHistogramReservoir.LOW_BUCKET_COUNT,
-                                                                                    DecayingEstimatedHistogramReservoir.DEFAULT_STRIPE_COUNT);
+            CassandraReservoir underlying = createHistogramReservoir(DecayingEstimatedHistogramReservoir.DEFAULT_ZERO_CONSIDERATION,
+                                                                     DecayingEstimatedHistogramReservoir.LOW_BUCKET_COUNT);
             // fewer buckets should suffice if timer is not based on nanos
             reservoir = new ScalingReservoir(underlying,
                                              // timer update values in nanos.
@@ -424,7 +449,7 @@ public class CassandraMetricsRegistry extends MetricRegistry
         else
         {
             // Use more buckets if timer is created with nanos resolution.
-            reservoir = new DecayingEstimatedHistogramReservoir();
+            reservoir = createHistogramReservoir(DecayingEstimatedHistogramReservoir.DEFAULT_ZERO_CONSIDERATION);
         }
         return reservoir;
     }

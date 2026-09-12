@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest-_jdk21" skipped="1" tests="29" time="70.865" timestamp="2026-09-12T02:32:19">
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testDecayingPercentile[normal]-_jdk21" time="0.502" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testStriping[normal]-_jdk21" time="2.01" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testPercentile[normal]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testMean[normal]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testSize[normal]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testFindingCorrectBuckets[normal]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testConcurrentUpdateAndRescale[normal]-_jdk21" time="31.555" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testAggregation[normal]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testDecayingMean[normal]-_jdk21" time="0.139" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testOverflow[normal]-_jdk21" time="0.009" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testMinMax[normal]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testSimple[normal]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testStdDev[normal]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testDecayingPercentile[decaying buckets]-_jdk21" time="0.51" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testStriping[decaying buckets]-_jdk21" time="1.522" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testPercentile[decaying buckets]-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testMean[decaying buckets]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testSize[decaying buckets]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testFindingCorrectBuckets[decaying buckets]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testConcurrentUpdateAndRescale[decaying buckets]-_jdk21" time="31.539" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testAggregation[decaying buckets]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testDecayingMean[decaying buckets]-_jdk21" time="0.168" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testOverflow[decaying buckets]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testMinMax[decaying buckets]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testSimple[decaying buckets]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$ParameterizedTests" name="testStdDev[decaying buckets]-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$NonParameterizedTests" name="showHistogramOffsetOverflow-_jdk21" time="0.0">
+    <skipped />
+  </testcase>
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$NonParameterizedTests" name="testFindIndex-_jdk21" time="1.503" />
+  <testcase classname="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest$NonParameterizedTests" name="showEstimationWorks-_jdk21" time="1.359" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

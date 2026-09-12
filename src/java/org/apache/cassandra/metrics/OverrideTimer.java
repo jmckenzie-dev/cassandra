@@ -47,7 +47,7 @@ public class OverrideTimer extends com.codahale.metrics.Timer implements Timer
      */
     public OverrideTimer()
     {
-        this(new DecayingEstimatedHistogramReservoir());
+        this(CassandraMetricsRegistry.createHistogramReservoir(false));
     }
 
     /**

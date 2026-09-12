@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.GeometricThreadLocalMeterTest-_jdk21" skipped="0" tests="6" time="0.291" timestamp="2026-09-12T02:30:19">
+  <testcase classname="org.apache.cassandra.metrics.GeometricThreadLocalMeterTest" name="growthArithmeticDoesNotOverflow-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.GeometricThreadLocalMeterTest" name="collectedMeterReleasesAndReusesRateStorage-_jdk21" time="0.072" />
+  <testcase classname="org.apache.cassandra.metrics.GeometricThreadLocalMeterTest" name="factorySelectsRegistryAndTimerMeters-_jdk21" time="0.073" />
+  <testcase classname="org.apache.cassandra.metrics.GeometricThreadLocalMeterTest" name="exactTickBoundariesAndLongIdle-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.GeometricThreadLocalMeterTest" name="growthPreservesEarlierRates-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.GeometricThreadLocalMeterTest" name="concurrentRegistrationMarkingAndTicking-_jdk21" time="0.014" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

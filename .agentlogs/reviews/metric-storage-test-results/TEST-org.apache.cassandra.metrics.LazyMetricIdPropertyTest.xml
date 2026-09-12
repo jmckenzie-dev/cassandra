@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.LazyMetricIdPropertyTest-_jdk21" skipped="0" tests="2" time="8.727" timestamp="2026-09-12T02:31:00">
+  <testcase classname="org.apache.cassandra.metrics.LazyMetricIdPropertyTest" name="generatedSignedUpdatesResetsAndZeroCountsPreserveIds-_jdk21" time="0.038" />
+  <testcase classname="org.apache.cassandra.metrics.LazyMetricIdPropertyTest" name="generatedMeterTicksMatchEveryRateBit-_jdk21" time="0.028" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.CassandraMetricsRegistryTest-_jdk21" skipped="0" tests="9" time="0.192" timestamp="2026-09-12T02:33:54">
+  <testcase classname="org.apache.cassandra.metrics.CassandraMetricsRegistryTest" name="testJvmMetricsRegistration-_jdk21" time="0.109" />
+  <testcase classname="org.apache.cassandra.metrics.CassandraMetricsRegistryTest" name="testMetricName-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.CassandraMetricsRegistryTest" name="testTimer-_jdk21" time="0.026" />
+  <testcase classname="org.apache.cassandra.metrics.CassandraMetricsRegistryTest" name="testMetricAliasesRegistration-_jdk21" time="0.008" />
+  <testcase classname="org.apache.cassandra.metrics.CassandraMetricsRegistryTest" name="testMetricSetRegistration-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.CassandraMetricsRegistryTest" name="testMetricAliasesRemoveByCondition-_jdk21" time="0.008" />
+  <testcase classname="org.apache.cassandra.metrics.CassandraMetricsRegistryTest" name="testDeltaBaseCase-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.CassandraMetricsRegistryTest" name="testDeltaHistogramSizeChange-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.CassandraMetricsRegistryTest" name="testChooseType-_jdk21" time="0.0" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.ThreadLocalHistogramTest-_jdk21" skipped="0" tests="2" time="0.132" timestamp="2026-09-12T02:34:14">
+  <testcase classname="org.apache.cassandra.metrics.ThreadLocalHistogramTest" name="testReset-_jdk21" time="0.092" />
+  <testcase classname="org.apache.cassandra.metrics.ThreadLocalHistogramTest" name="testBasicOperations-_jdk21" time="0.0" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

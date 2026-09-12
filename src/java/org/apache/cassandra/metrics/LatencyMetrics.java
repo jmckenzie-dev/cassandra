@@ -137,7 +137,8 @@ public class LatencyMetrics
         this.namePrefix = namePrefix;
 
         LatencyMetricsTimer timer = new LatencyMetrics.LatencyMetricsTimer(CassandraMetricsRegistry.createReservoir(TimeUnit.MICROSECONDS));
-        Counter counter = new LatencyMetricsCounter();
+        Counter counter = org.apache.cassandra.config.CassandraRelevantProperties.LAZY_METRIC_IDS.getBoolean()
+                          ? new LazyLatencyMetricsCounter() : new LatencyMetricsCounter();
 
         if (aliasFactory == null)
         {
@@ -318,6 +319,20 @@ public class LatencyMetrics
     }
 
     class LatencyMetricsCounter extends ThreadLocalCounter
+    {
+        @Override
+        public long getCount()
+        {
+            long count = super.getCount();
+            for (LatencyMetrics child : children)
+            {
+                count += child.totalLatency.getCount();
+            }
+            return count;
+        }
+    }
+
+    class LazyLatencyMetricsCounter extends LazyThreadLocalCounter
     {
         @Override
         public long getCount()

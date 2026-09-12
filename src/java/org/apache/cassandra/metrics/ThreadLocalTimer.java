@@ -36,7 +36,7 @@ public class ThreadLocalTimer extends OverrideTimer
      */
     public ThreadLocalTimer()
     {
-        this(new DecayingEstimatedHistogramReservoir());
+        this(CassandraMetricsRegistry.createHistogramReservoir(false));
     }
 
     /**
@@ -59,7 +59,7 @@ public class ThreadLocalTimer extends OverrideTimer
     {
         // the precise clock is intentionally not propagated to ThreadLocalMeter
         // we do not need a precise and more expensive time within the meter
-        this(new ThreadLocalMeter(), new ThreadLocalHistogram(reservoir), clock);
+        this(Meter.create(), ThreadLocalHistogram.create(reservoir), clock);
     }
 
     public ThreadLocalTimer(Meter meter, ThreadLocalHistogram histogram, MetricClock clock)

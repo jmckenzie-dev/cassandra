@@ -277,6 +277,7 @@ public enum CassandraRelevantProperties
     /** Used when running in Client mode and the system and schema keyspaces need to be initialized outside of their normal initialization path **/
     FORCE_LOAD_LOCAL_KEYSPACES("cassandra.schema.force_load_local_keyspaces"),
     FORCE_PAXOS_STATE_REBUILD("cassandra.force_paxos_state_rebuild"),
+    GEOMETRIC_METER_ARRAYS("cassandra.geometric_meter_arrays", "false"),
     GIT_SHA("cassandra.gitSHA"),
     /**
      * Gossip quarantine delay is used while evaluating membership changes and should only be changed with extreme care.
@@ -375,6 +376,9 @@ public enum CassandraRelevantProperties
      * This is a dev/CI only property. Do not use otherwise.
      */
     JUNIT_STORAGE_COMPATIBILITY_MODE("cassandra.junit_storage_compatibility_mode", StorageCompatibilityMode.CASSANDRA_4.toString()),
+
+    /** Experimental: defer counter IDs until a metric records its first update. Set before metric construction. */
+    LAZY_METRIC_IDS("cassandra.lazy_metric_ids", "false"),
 
     /** startup checks properties */
     LIBJEMALLOC("cassandra.libjemalloc"),

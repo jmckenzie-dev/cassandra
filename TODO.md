@@ -13,7 +13,10 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-No open branch tasks.
+- [ ] Merge all five feature branches and restore combined fixtures.
+- [ ] Account for all source paths and verify production reconstruction.
+- [ ] Build and run targeted combined tests and property entrypoints.
+- [ ] Run matched measurements with verified effective controls.
 
 # DONE
 
@@ -24,6 +27,10 @@ No open branch tasks.
 - [x] Extract final idle flushing and bounded admission behavior.
 - [x] Split the mixed distributed idle-flush fixture for standalone use.
 - [x] Extract lazy Trie memtable initialization and retirement coverage.
+- [x] Extract metric recording and storage changes from source commit 319995ce5c.
+- [x] Adapt combined test and tool assumptions to the standalone STORE branch.
+- [x] Build and run focused production, property, compatibility, and probe tests.
+- [x] Review the branch, record validation evidence, and create local commits.
 - [x] Extract generic tools, JaCoCo upgrade, and shared metric contracts.
 - [x] Build with JDK 21 and pass main/test Checkstyle.
 - [x] Pass both ThreadLocalHistogramTest cases.

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest-_jdk21" skipped="0" tests="13" time="0.262" timestamp="2026-09-12T02:28:45">
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="agedUpdatesWidenDenseDecayCountersBeforeLandmarkReset-_jdk21" time="0.11" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="sharedBucketDefinitionsCannotBeChangedThroughExports-_jdk21" time="0.002" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="legacyAndCompactSnapshotsMergeAndRebaseInBothDirections-_jdk21" time="0.002" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="cumulativeHistorySurvivesDecayAndSnapshotsRemainIndependent-_jdk21" time="0.001" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="hotSparseStoragePromotesWithoutChangingCounts-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="moderatelyOccupiedStorageStaysSparseThroughRebase-_jdk21" time="0.005" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="denseCountersWidenThroughSnapshotMergeAndRebase-_jdk21" time="0.007" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="contentionActivatesStripesAndRescaleRoundsEachStripe-_jdk21" time="0.07" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="clearableHistogramResetsCountsAndBothReservoirs-_jdk21" time="0.009" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="bucketEdgesSparseAndFullyPopulatedStorageMatch-_jdk21" time="0.007" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="emptyObservationAndLandmarkChangesAllocateNoCounterStorage-_jdk21" time="0.0" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="serialWriterHandoffsKeepOnlyPrimaryStorage-_jdk21" time="0.004" />
+  <testcase classname="org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest" name="concurrentFirstUpdatesSnapshotsAndRescalePreserveCounts-_jdk21" time="0.005" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

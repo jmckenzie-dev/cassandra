@@ -54,4 +54,16 @@ public class ClearableHistogram extends ThreadLocalHistogram
     {
         reset();
     }
+
+    protected ClearableHistogram(ClearableReservoir reservoir, int metricId)
+    {
+        super(reservoir, metricId);
+        this.reservoirRef = reservoir;
+    }
+
+    public static ClearableHistogram create(ClearableReservoir reservoir)
+    {
+        return org.apache.cassandra.config.CassandraRelevantProperties.LAZY_METRIC_IDS.getBoolean()
+               ? new LazyClearableHistogram(reservoir) : new ClearableHistogram(reservoir);
+    }
 }

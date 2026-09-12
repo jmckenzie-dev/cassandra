@@ -6167,6 +6167,11 @@ public class DatabaseDescriptor
         return conf.client_request_size_metrics_enabled;
     }
 
+    public static boolean getOptimizedMetricsEnabled()
+    {
+        return conf != null && conf.optimized_metrics_enabled;
+    }
+
     public static MetricProfile getMetricProfile()
     {
         return metricProfile == null ? MetricProfile.ALL : metricProfile;
