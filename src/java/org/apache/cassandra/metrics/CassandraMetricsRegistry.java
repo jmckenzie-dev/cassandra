@@ -49,6 +49,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.virtual.CollectionVirtualTableAdapter;
 import org.apache.cassandra.db.virtual.VirtualTable;
 import org.apache.cassandra.db.virtual.model.CounterMetricRow;
@@ -689,7 +690,8 @@ public class CassandraMetricsRegistry extends MetricRegistry
     private static class JmxHistogram extends AbstractBean implements JmxHistogramMBean
     {
         final OverrideHistogram metric;
-        private long[] last = null;
+        private final boolean adaptiveHistory = DatabaseDescriptor.getAdaptiveJmxHistogramHistoryEnabled();
+        private Object last;
 
         private JmxHistogram(OverrideHistogram metric, ObjectName objectName)
         {
@@ -789,8 +791,8 @@ public class CassandraMetricsRegistry extends MetricRegistry
             if (!metric.isCumulative())
                 return now;
 
-            long[] delta = delta(now, last);
-            last = now;
+            long[] delta = adaptiveHistory ? AdaptiveHistogramHistory.delta(now, last) : delta(now, (long[]) last);
+            last = adaptiveHistory ? AdaptiveHistogramHistory.pack(now, last) : now;
             return delta;
         }
 
@@ -985,7 +987,8 @@ public class CassandraMetricsRegistry extends MetricRegistry
     {
         private final Timer metric;
         private final String durationUnit;
-        private long[] last = null;
+        private final boolean adaptiveHistory = DatabaseDescriptor.getAdaptiveJmxHistogramHistoryEnabled();
+        private Object last;
 
         private JmxTimer(Timer metric,
                          ObjectName objectName,
@@ -1081,8 +1084,8 @@ public class CassandraMetricsRegistry extends MetricRegistry
             if (!metric.isCumulative())
                 return now;
 
-            long[] delta = delta(now, last);
-            last = now;
+            long[] delta = adaptiveHistory ? AdaptiveHistogramHistory.delta(now, last) : delta(now, (long[]) last);
+            last = adaptiveHistory ? AdaptiveHistogramHistory.pack(now, last) : now;
             return delta;
         }
 

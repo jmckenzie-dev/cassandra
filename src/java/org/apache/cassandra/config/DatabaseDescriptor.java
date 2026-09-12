@@ -6131,6 +6131,11 @@ public class DatabaseDescriptor
         return conf.client_request_size_metrics_enabled;
     }
 
+    public static boolean getAdaptiveJmxHistogramHistoryEnabled()
+    {
+        return conf != null && conf.adaptive_jmx_histogram_history_enabled;
+    }
+
     public static void setClientRequestSizeMetricsEnabled(boolean enabled)
     {
         conf.client_request_size_metrics_enabled = enabled;
