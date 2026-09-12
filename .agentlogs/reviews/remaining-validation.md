@@ -50,7 +50,11 @@ Controller/hierarchy XMLs: logs/20260911-174750-run-tests-reports/.
 Corrected strategy XMLs: logs/ucs-expiration-fix/remaining-run-{1,2,3}.xml.
 JDK 21 environment matches the shared-base validation records.
 
-Independent review and combined-branch tests remain pending.
+Independent verification review approved 92689444b6 with no findings. The
+SELECT worker checked the full plan/diff, owned source hashes, test adapters,
+all nine final XML reports, and three corrected regression reports. Coverage
+percentages are unavailable; the review mapped each planned behavior to tests.
+Combined-branch tests remain assigned to integration.
 Exact extracted production files match final source; shared property allocation
 and the two test adapters are recorded in the worklog. bash -n passed for both
 branch-local test selectors. git diff --check passed.
