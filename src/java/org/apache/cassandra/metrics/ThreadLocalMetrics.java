@@ -469,4 +469,22 @@ public class ThreadLocalMetrics
     {
         return allThreadLocalMetrics.size();
     }
+
+    @VisibleForTesting
+    static int getSummaryCapacity()
+    {
+        return summaryValues.length();
+    }
+
+    @VisibleForTesting
+    static int getCleanupReferenceCount()
+    {
+        return phantomReferences.size();
+    }
+
+    @VisibleForTesting
+    int getCounterCapacity()
+    {
+        return counterValues.length;
+    }
 }

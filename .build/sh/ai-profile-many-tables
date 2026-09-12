@@ -90,6 +90,10 @@ java_opts=(
   -Djdk.attach.allowAttachSelf=true
 )
 
+if [[ ${PROFILE_LAZY_METRIC_IDS:-false} == true ]]; then
+  java_opts+=(-Dcassandra.lazy_metric_ids=true)
+fi
+
 # JPMS flags mirror build.xml's _jvmXX_arg_items lists.
 case "$java_major" in
   21)

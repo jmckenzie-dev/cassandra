@@ -308,7 +308,7 @@ public class CassandraMetricsRegistry extends MetricRegistry
         if (metric instanceof Counter)
             return (Counter) metric;
 
-        Counter counter = new ThreadLocalCounter();
+        Counter counter = ThreadLocalCounter.create();
         super.register(simpleMetricName, counter);
         Stream.of(name).forEach(n -> register(n, counter));
         return counter;
@@ -350,7 +350,7 @@ public class CassandraMetricsRegistry extends MetricRegistry
         Metric existing = super.getMetrics().get(name.getMetricName());
         if (existing instanceof OverrideHistogram)
             return register(name, (OverrideHistogram) existing);
-        return register(name, new ClearableHistogram(createHistogramReservoir(considerZeroes)));
+        return register(name, ClearableHistogram.create(createHistogramReservoir(considerZeroes)));
     }
 
     public static ClearableReservoir createHistogramReservoir(boolean considerZeroes)

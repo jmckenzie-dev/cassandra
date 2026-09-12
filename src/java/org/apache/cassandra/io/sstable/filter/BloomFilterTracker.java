@@ -23,9 +23,9 @@ import org.apache.cassandra.metrics.ThreadLocalCounter;
 
 public class BloomFilterTracker
 {
-    private final ThreadLocalCounter falsePositiveCount = new ThreadLocalCounter();
-    private final ThreadLocalCounter truePositiveCount = new ThreadLocalCounter();
-    private final ThreadLocalCounter trueNegativeCount = new ThreadLocalCounter();
+    private final ThreadLocalCounter falsePositiveCount = ThreadLocalCounter.create();
+    private final ThreadLocalCounter truePositiveCount = ThreadLocalCounter.create();
+    private final ThreadLocalCounter trueNegativeCount = ThreadLocalCounter.create();
     private final AtomicLong lastFalsePositiveCount = new AtomicLong();
     private final AtomicLong lastTruePositiveCount = new AtomicLong();
     private final AtomicLong lastTrueNegativeCount = new AtomicLong();

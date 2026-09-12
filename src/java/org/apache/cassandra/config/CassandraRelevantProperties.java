@@ -375,6 +375,9 @@ public enum CassandraRelevantProperties
      */
     JUNIT_STORAGE_COMPATIBILITY_MODE("cassandra.junit_storage_compatibility_mode", StorageCompatibilityMode.CASSANDRA_4.toString()),
 
+    /** Experimental: defer counter IDs until a metric records its first update. Set before metric construction. */
+    LAZY_METRIC_IDS("cassandra.lazy_metric_ids", "false"),
+
     /** startup checks properties */
     LIBJEMALLOC("cassandra.libjemalloc"),
     /** Line separator ("\n" on UNIX). */

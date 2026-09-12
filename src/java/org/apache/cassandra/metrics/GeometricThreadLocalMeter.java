@@ -197,17 +197,29 @@ public class GeometricThreadLocalMeter extends com.codahale.metrics.Meter implem
 
     public GeometricThreadLocalMeter(MonotonicClock clock)
     {
+        this(clock, true);
+    }
+
+    protected GeometricThreadLocalMeter(MonotonicClock clock, boolean allocateIds)
+    {
         // movingAverages is set to null to reduce metrics memory footprint
         super(null, Clock.defaultClock());
         this.clock = clock;
         this.startTime = this.clock.now();
         this.lastTick = this.startTime;
-        this.countMetricId = ThreadLocalMetrics.allocateMetricId();
-        this.uncountedMetricId = ThreadLocalMetrics.allocateMetricId();
+        this.countMetricId = allocateIds ? ThreadLocalMetrics.allocateMetricId() : -1;
+        this.uncountedMetricId = allocateIds ? ThreadLocalMetrics.allocateMetricId() : -1;
         this.rateGroupId = allocateRateGroupOffset();
-        allMeters.add(new WeakReference<>(this));
+
         ThreadLocalMetrics.destroyWhenUnreachable(this, new MeterCleaner(countMetricId, uncountedMetricId, rateGroupId));
         ReflectionUtils.setFieldToNull(this, com.codahale.metrics.Meter.class, "count"); // to reduce metrics memory footprint
+        if (allocateIds)
+            registerForTicking();
+    }
+
+    protected final void registerForTicking()
+    {
+        allMeters.add(new WeakReference<>(this));
     }
 
     private static class MeterCleaner implements ThreadLocalMetrics.MetricCleaner
@@ -227,8 +239,11 @@ public class GeometricThreadLocalMeter extends com.codahale.metrics.Meter implem
         public void clean()
         {
             recycleRateGroupId(rateGroupId);
-            ThreadLocalMetrics.recycleMetricId(countMetricId);
-            ThreadLocalMetrics.recycleMetricId(uncountedMetricId);
+            if (countMetricId >= 0)
+            {
+                ThreadLocalMetrics.recycleMetricId(countMetricId);
+                ThreadLocalMetrics.recycleMetricId(uncountedMetricId);
+            }
         }
 
         private static void recycleRateGroupId(int rateGroupId)
@@ -344,7 +359,7 @@ public class GeometricThreadLocalMeter extends com.codahale.metrics.Meter implem
             }
             else if (requiredTicks > 0)
             {
-                long count = ThreadLocalMetrics.getCountAndReset(uncountedMetricId);
+                long count = getUncountedAndReset();
                 for (long i = 0; i < requiredTicks; i++)
                 {
                     int m1Offset  = rateGroupId +  M1_RATE_OFFSET;
@@ -397,7 +412,7 @@ public class GeometricThreadLocalMeter extends com.codahale.metrics.Meter implem
      */
     private void reset()
     {
-        ThreadLocalMetrics.getCountAndReset(uncountedMetricId);
+        getUncountedAndReset();
         setRateValue(rateGroupId +  M1_RATE_OFFSET, Double.MIN_NORMAL);
         setRateValue(rateGroupId +  M5_RATE_OFFSET, Double.MIN_NORMAL);
         setRateValue(rateGroupId + M15_RATE_OFFSET, Double.MIN_NORMAL);
@@ -407,5 +422,21 @@ public class GeometricThreadLocalMeter extends com.codahale.metrics.Meter implem
     static int getTickingMetersCount()
     {
         return allMeters.size();
+    }
+
+    public static GeometricThreadLocalMeter create(MonotonicClock clock, boolean lazy)
+    {
+        return lazy ? new LazyGeometricThreadLocalMeter(clock) : new GeometricThreadLocalMeter(clock);
+    }
+
+    protected long getUncountedAndReset()
+    {
+        return ThreadLocalMetrics.getCountAndReset(uncountedMetricId);
+    }
+
+    @VisibleForTesting
+    int[] counterIds()
+    {
+        return new int[] { countMetricId, uncountedMetricId };
     }
 }

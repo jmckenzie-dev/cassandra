@@ -39,9 +39,15 @@ public class ThreadLocalHistogram extends OverrideHistogram
      */
     public ThreadLocalHistogram(CassandraReservoir reservoir)
     {
+        this(reservoir, ThreadLocalMetrics.allocateMetricId());
+    }
+
+    protected ThreadLocalHistogram(CassandraReservoir reservoir, int metricId)
+    {
         super(reservoir);
-        this.countMetricId = ThreadLocalMetrics.allocateMetricId();
-        ThreadLocalMetrics.destroyWhenUnreachable(this, countMetricId);
+        this.countMetricId = metricId;
+        if (metricId >= 0)
+            ThreadLocalMetrics.destroyWhenUnreachable(this, metricId);
     }
 
     /**
@@ -85,5 +91,15 @@ public class ThreadLocalHistogram extends OverrideHistogram
     public Snapshot getSnapshot()
     {
         return reservoir.getSnapshot();
+    }
+
+    public static ThreadLocalHistogram create(CassandraReservoir reservoir)
+    {
+        return create(reservoir, org.apache.cassandra.config.CassandraRelevantProperties.LAZY_METRIC_IDS.getBoolean());
+    }
+
+    public static ThreadLocalHistogram create(CassandraReservoir reservoir, boolean lazy)
+    {
+        return lazy ? new LazyThreadLocalHistogram(reservoir) : new ThreadLocalHistogram(reservoir);
     }
 }
