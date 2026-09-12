@@ -29,6 +29,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 
 import com.codahale.metrics.Counter;
@@ -66,6 +67,7 @@ import org.apache.cassandra.utils.MovingAverage;
 import org.apache.cassandra.utils.Pair;
 
 import static java.util.concurrent.TimeUnit.MICROSECONDS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.COMPACT_TABLE_METRIC_BOOKKEEPING;
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.resolveShortMetricName;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
@@ -295,7 +297,7 @@ public class TableMetrics
     private final TableMetricNameFactory factory;
     private final TableMetricNameFactory aliasFactory;
 
-    private final Map<String, Metric> ownedMetrics = new HashMap<>();
+    private final OwnedMetrics ownedMetrics;
     private final List<LatencyMetrics> ownedLatencies = new ArrayList<>();
     private boolean released;
 
@@ -534,6 +536,13 @@ public class TableMetrics
      */
     public TableMetrics(final ColumnFamilyStore cfs)
     {
+        this(cfs, COMPACT_TABLE_METRIC_BOOKKEEPING.getBoolean());
+    }
+
+    @VisibleForTesting
+    protected TableMetrics(final ColumnFamilyStore cfs, boolean compactBookkeeping)
+    {
+        ownedMetrics = new OwnedMetrics(compactBookkeeping);
         factory = new TableMetricNameFactory(cfs, cfs.isIndex() ? INDEX_TYPE_NAME : TYPE_NAME);
         aliasFactory = new TableMetricNameFactory(cfs, cfs.isIndex() ? INDEX_ALIAS_TYPE_NAME : ALIAS_TYPE_NAME);
 
@@ -1326,6 +1335,70 @@ public class TableMetrics
         boolean ret = ALL_TABLE_METRICS.putIfAbsent(name, ConcurrentHashMap.newKeySet()) == null;
         ALL_TABLE_METRICS.get(name).add(metric);
         return ret;
+    }
+
+    /** Construction lookup and release bookkeeping; recording never accesses this collection. */
+    @VisibleForTesting
+    static final class OwnedMetrics
+    {
+        private final Map<String, Metric> map;
+        private final List<Object> pairs;
+
+        OwnedMetrics(boolean compact)
+        {
+            map = compact ? null : new HashMap<>();
+            pairs = compact ? new ArrayList<>(128) : null;
+        }
+
+        Metric get(String name)
+        {
+            if (map != null)
+                return map.get(name);
+            int index = indexOf(name);
+            return index < 0 ? null : (Metric) pairs.get(index + 1);
+        }
+
+        void put(String name, Metric metric)
+        {
+            if (map != null)
+            {
+                map.put(name, metric);
+                return;
+            }
+            int index = indexOf(name);
+            if (index >= 0)
+                pairs.set(index + 1, metric);
+            else
+            {
+                pairs.add(name);
+                pairs.add(metric);
+            }
+        }
+
+        private int indexOf(String name)
+        {
+            for (int i = 0; i < pairs.size(); i += 2)
+                if (name.equals(pairs.get(i)))
+                    return i;
+            return -1;
+        }
+
+        void forEach(BiConsumer<String, Metric> action)
+        {
+            if (map != null)
+                map.forEach(action);
+            else
+                for (int i = 0; i < pairs.size(); i += 2)
+                    action.accept((String) pairs.get(i), (Metric) pairs.get(i + 1));
+        }
+
+        void clear()
+        {
+            if (map != null)
+                map.clear();
+            else
+                pairs.clear();
+        }
     }
 
     public static class TableMeter

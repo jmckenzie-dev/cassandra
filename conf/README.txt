@@ -28,6 +28,11 @@ the full catalog. Omitting the setting, or setting it to null, preserves all
 metrics, including names outside the built-in catalog. A bare filename resolves
 on the classpath (normally conf/). An absolute path or file: URI selects a local
 file. Missing or invalid files stop startup. Restart to change the selection.
+Set -Dcassandra.compact_table_metric_bookkeeping=true before startup to store
+TableMetrics release bookkeeping in an array-backed list. Setup uses linear
+lookups; recording does not access this collection. Late subclass additions
+remain supported. The default false retains the map control. This is independent
+of metric profiles.
 
 Both files use mode: allowlist and three lists within each scope:
 

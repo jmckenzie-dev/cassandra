@@ -90,6 +90,10 @@ java_opts=(
   -Djdk.attach.allowAttachSelf=true
 )
 
+if [[ ${PROFILE_COMPACT_BOOKKEEPING:-false} == true ]]; then
+  java_opts+=(-Dcassandra.compact_table_metric_bookkeeping=true)
+fi
+
 # JPMS flags mirror build.xml's _jvmXX_arg_items lists.
 case "$java_major" in
   21)
