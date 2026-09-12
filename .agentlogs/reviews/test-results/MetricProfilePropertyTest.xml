@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.metrics.MetricProfilePropertyTest-_jdk21" skipped="0" tests="2" time="0.297" timestamp="2026-09-12T02:31:33">
+  <testcase classname="org.apache.cassandra.metrics.MetricProfilePropertyTest" name="everyCatalogNameRejectsDuplicateAndConflictingSelections-_jdk21" time="0.083" />
+  <testcase classname="org.apache.cassandra.metrics.MetricProfilePropertyTest" name="generatedSelectionsPreserveScopeAndAliasDecisions-_jdk21" time="0.178" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite errors="0" failures="0" hostname="joshuamc-ltmk2l2.internal.salesforce.com" name="org.apache.cassandra.distributed.test.MetricProfileRegistrationTest-_jdk21" skipped="0" tests="5" time="35.378" timestamp="2026-09-12T02:33:00">
+  <testcase classname="org.apache.cassandra.distributed.test.MetricProfileRegistrationTest" name="simpleProfileCanRetainLegacyAliases-_jdk21" time="8.792" />
+  <testcase classname="org.apache.cassandra.distributed.test.MetricProfileRegistrationTest" name="simpleProfileFiltersExportsAndReleasesHiddenChildren-_jdk21" time="6.533" />
+  <testcase classname="org.apache.cassandra.distributed.test.MetricProfileRegistrationTest" name="allProfileCanOmitLegacyAliases-_jdk21" time="6.594" />
+  <testcase classname="org.apache.cassandra.distributed.test.MetricProfileRegistrationTest" name="allProfilePreservesRegistrationAndRecording-_jdk21" time="6.634" />
+  <testcase classname="org.apache.cassandra.distributed.test.MetricProfileRegistrationTest" name="omittedProfilePreservesRegistrationAndRecording-_jdk21" time="6.672" />
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
