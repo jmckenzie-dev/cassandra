@@ -106,10 +106,10 @@ public class CompactJmxRegistrationTest
         exercise((Gauge<Object>) () -> "text", "Value");
         exercise((Gauge<Object>) () -> { throw new IllegalStateException("fixture"); }, "Value");
         exercise((Gauge<Object>) () -> { throw new AssertionError("fixture"); }, "Value");
-        exercise(new ClearableHistogram(new DecayingEstimatedHistogramReservoir(false)), "Count");
-        exercise(new SnapshottingTimer(new DecayingEstimatedHistogramReservoir(false)), "Count");
-        exercise((Metric) new ThreadLocalMeter(), "Count");
-        exercise((Metric) new ThreadLocalMeter(), "Value", true);
+        exercise(new ClearableHistogram(CassandraMetricsRegistry.createHistogramReservoir(false)), "Count");
+        exercise(new SnapshottingTimer(CassandraMetricsRegistry.createHistogramReservoir(false)), "Count");
+        exercise((Metric) Meter.create(), "Count");
+        exercise((Metric) Meter.create(), "Value", true);
     }
 
     private static void exercise(Metric metric, String attribute) throws Exception
@@ -277,9 +277,9 @@ public class CompactJmxRegistrationTest
                     for (int seed = 0; seed < 8; seed++)
                     {
                         Random random = new Random(seed);
-                        ClearableHistogram histogram = new ClearableHistogram(new DecayingEstimatedHistogramReservoir(false));
-                        SnapshottingTimer timer = new SnapshottingTimer(new DecayingEstimatedHistogramReservoir(false));
-                        Meter meter = new ThreadLocalMeter();
+                        ClearableHistogram histogram = new ClearableHistogram(CassandraMetricsRegistry.createHistogramReservoir(false));
+                        SnapshottingTimer timer = new SnapshottingTimer(CassandraMetricsRegistry.createHistogramReservoir(false));
+                        Meter meter = Meter.create();
                         try (Views histograms = new Views(histogram); Views timers = new Views(timer);
                              Views meters = new Views((Metric) meter); Views compatible = new Views((Metric) meter, true))
                         {
@@ -354,6 +354,7 @@ public class CompactJmxRegistrationTest
     {
         Config config = new Config();
         config.adaptive_jmx_histogram_history_enabled = true;
+        config.optimized_metrics_enabled = true;
         DatabaseDescriptor.setConfig(config);
         MBeanWrapper.InstanceMBeanWrapper wrapper = new MBeanWrapper.InstanceMBeanWrapper("monitoring-benchmark");
         try
@@ -367,9 +368,9 @@ public class CompactJmxRegistrationTest
                 {
                     case 0: metric = new Counter(); break;
                     case 1: metric = (Gauge<Long>) () -> 7L; break;
-                    case 2: metric = new ClearableHistogram(new DecayingEstimatedHistogramReservoir(false)); break;
-                    case 3: metric = new SnapshottingTimer(new DecayingEstimatedHistogramReservoir(false)); break;
-                    default: metric = (Metric) new ThreadLocalMeter(); break;
+                    case 2: metric = new ClearableHistogram(CassandraMetricsRegistry.createHistogramReservoir(false)); break;
+                    case 3: metric = new SnapshottingTimer(CassandraMetricsRegistry.createHistogramReservoir(false)); break;
+                    default: metric = (Metric) Meter.create(); break;
                 }
                 ObjectName name = new ObjectName("benchmark:type=Table,keyspace=k,scope=t" + i + ",name=Metric");
                 CassandraMetricsRegistry.Metrics.registerMBean(metric, name, wrapper, false, true);

@@ -29,6 +29,7 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.compaction.ActiveCompactionsTracker;
 import org.apache.cassandra.db.compaction.CompactionInfo;
 import org.apache.cassandra.db.compaction.UnifiedCompactionStrategy;
+import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -69,7 +70,7 @@ public class ControllerHierarchyTest extends CQLTester
         levels.forEach(level -> level.getSSTables().forEach(s -> assertTrue(assigned.add(s))));
         assertEquals(cfs.getLiveSSTables().size(), assigned.size());
         assertRows(execute("SELECT count(*) FROM %s"), row(514L));
-        assertTrue(cfs.getCurrentMemtable().isClean());
+        assertFalse(((TrieMemtable) cfs.getCurrentMemtable()).isInitialized());
     }
 
     @Test
@@ -122,7 +123,7 @@ public class ControllerHierarchyTest extends CQLTester
             }
             assertEquals(1, cfs.getLiveSSTables().size());
             execute("INSERT INTO %s (pk, c, v) VALUES (10, 0, 0x02)");
-            assertFalse(cfs.getCurrentMemtable().isClean());
+            assertTrue(((TrieMemtable) cfs.getCurrentMemtable()).isInitialized());
             cfs.forceBlockingFlush(ColumnFamilyStore.FlushReason.UNIT_TESTS);
             assertRows(execute("SELECT v FROM %s WHERE pk = 10"), row(ByteBuffer.wrap(new byte[] { 2 })));
         }

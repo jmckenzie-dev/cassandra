@@ -77,6 +77,19 @@ public class CompactMetricsIntegrationTest
     }
 
     @Test
+    public void resettingConfigurationAlsoResetsMetricProfile()
+    {
+        Config config = new Config();
+        config.metrics_config_file = "org/apache/cassandra/metrics/test-metrics-profile.yml";
+        DatabaseDescriptor.setConfig(config);
+        assertFalse(DatabaseDescriptor.getMetricProfile().isEnabled(MetricProfile.Scope.TABLE, "WriteLatency"));
+
+        DatabaseDescriptor.setConfig(null);
+        assertSame(MetricProfile.ALL, DatabaseDescriptor.getMetricProfile());
+        assertFalse(DatabaseDescriptor.getOptimizedMetricsEnabled());
+    }
+
+    @Test
     public void yamlDefaultAndExplicitSelectionReachFactory() throws Exception
     {
         DatabaseDescriptor.setConfig(loadYaml("{}\n"));
@@ -149,6 +162,58 @@ public class CompactMetricsIntegrationTest
                     registry.remove(name);
                 }
             }
+        }
+    }
+
+    @Test
+    public void optimizedParentPreservesExactBucketsWhenChildrenAreReleased() throws Exception
+    {
+        DatabaseDescriptor.setConfig(loadYaml("optimized_metrics_enabled: true\n"));
+        LatencyMetrics parent = new LatencyMetrics(new DefaultNameFactory(ClientRequestMetrics.TYPE_NAME, "compactParent"), "");
+        LatencyMetrics first = new LatencyMetrics(new DefaultNameFactory(ClientRequestMetrics.TYPE_NAME, "compactFirst"), "", parent);
+        LatencyMetrics second = new LatencyMetrics(new DefaultNameFactory(ClientRequestMetrics.TYPE_NAME, "compactSecond"), "", parent);
+        boolean firstReleased = false;
+        boolean secondReleased = false;
+        try
+        {
+            DecayingEstimatedHistogramReservoir expected = new DecayingEstimatedHistogramReservoir(false,
+                                                                                                   DecayingEstimatedHistogramReservoir.LOW_BUCKET_COUNT,
+                                                                                                   DecayingEstimatedHistogramReservoir.DEFAULT_STRIPE_COUNT);
+            for (int i = 0; i < 3; i++)
+            {
+                first.addNano(1000);
+                expected.update(1);
+            }
+            for (int i = 0; i < 2; i++)
+            {
+                second.addNano(9000);
+                expected.update(9);
+            }
+            assertEquals(5, parent.latency.getCount());
+            assertArrayEquals(expected.getSnapshot().getValues(), parent.latency.getSnapshot().getValues());
+
+            first.release();
+            firstReleased = true;
+            assertEquals(5, parent.latency.getCount());
+            assertEquals(5, population(parent.latency.getSnapshot().getValues()));
+            assertArrayEquals(expected.getSnapshot().getValues(), parent.latency.getSnapshot().getValues());
+
+            second.addNano(99000);
+            expected.update(99);
+            assertArrayEquals(expected.getSnapshot().getValues(), parent.latency.getSnapshot().getValues());
+            second.release();
+            secondReleased = true;
+            assertEquals(6, parent.latency.getCount());
+            assertEquals(120, parent.totalLatency.getCount());
+            assertArrayEquals(expected.getSnapshot().getValues(), parent.latency.getSnapshot().getValues());
+        }
+        finally
+        {
+            if (!firstReleased)
+                first.release();
+            if (!secondReleased)
+                second.release();
+            parent.release();
         }
     }
 

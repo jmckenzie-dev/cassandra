@@ -37,6 +37,7 @@ import org.apache.cassandra.metrics.GeometricThreadLocalMeterTest.TestClock;
 
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 import static org.apache.cassandra.config.CassandraRelevantProperties.LAZY_METRIC_IDS;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
@@ -139,7 +140,7 @@ public class LazyMetricIdTest
     }
 
     @Test
-    public void lazyLatencyCounterUsesSelectedImplementation()
+    public void lazyLatencyChildrenPreserveReleaseAggregation()
     {
         String previous = LAZY_METRIC_IDS.getString();
         try
@@ -147,16 +148,34 @@ public class LazyMetricIdTest
             for (boolean lazy : new boolean[] { false, true })
             {
                 LAZY_METRIC_IDS.setBoolean(lazy);
-                LatencyMetrics metrics = new LatencyMetrics(ClientRequestMetrics.TYPE_NAME, "id-counter-" + lazy);
+                LatencyMetrics parent = new LatencyMetrics(ClientRequestMetrics.TYPE_NAME, "id-parent-" + lazy);
+                MetricNameFactory factory = name -> new CassandraMetricsRegistry.MetricName(
+                DefaultNameFactory.GROUP_NAME, ClientRequestMetrics.TYPE_NAME, name, "id-child-" + lazy);
+                LatencyMetrics first = new LatencyMetrics(factory, "first", parent);
+                LatencyMetrics second = new LatencyMetrics(factory, "second", parent);
                 try
                 {
-                    assertEquals(lazy, metrics.totalLatency instanceof LazyThreadLocalCounter);
-                    metrics.addNano(1000);
-                    assertEquals(1, metrics.totalLatency.getCount());
+                    assertEquals(lazy, parent.totalLatency instanceof LazyThreadLocalCounter);
+                    assertEquals(lazy, first.totalLatency instanceof LazyThreadLocalCounter);
+                    first.addNano(1000);
+                    second.addNano(1000000);
+                    second.addNano(1000000);
+                    long[] values = parent.latency.getSnapshot().getValues();
+                    first.release();
+                    first.release();
+                    assertEquals(3, parent.latency.getCount());
+                    assertEquals(2001, parent.totalLatency.getCount());
+                    assertArrayEquals(values, parent.latency.getSnapshot().getValues());
+                    second.release();
+                    assertEquals(3, parent.latency.getCount());
+                    assertEquals(2001, parent.totalLatency.getCount());
+                    assertArrayEquals(values, parent.latency.getSnapshot().getValues());
                 }
                 finally
                 {
-                    metrics.release();
+                    first.release();
+                    second.release();
+                    parent.release();
                 }
             }
         }

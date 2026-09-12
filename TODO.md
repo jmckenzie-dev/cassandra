@@ -15,14 +15,14 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-- [ ] Restore combined fixtures after merging all five feature branches.
-- [ ] Account for all source paths and verify production reconstruction.
 - [ ] Build and run targeted combined tests and property entrypoints.
 - [ ] Run matched measurements with verified effective controls.
 - [ ] Verify all-versus-simple profiles with legacy storage in integration.
 
 # DONE
 
+- [x] Restore combined fixtures after merging all five feature branches.
+- [x] Account for all source paths and verify production reconstruction.
 - [x] Record never-written, retirement, idle, reactivation, and admission assertions.
 - [x] Defer quantitative memory, compaction, and drain measurements to integration.
 - [x] Record validation, review, and source-independence evidence.

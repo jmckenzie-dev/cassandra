@@ -81,7 +81,7 @@ public class AdaptiveJmxHistogramHistoryTest
     }
 
     @Test
-    public void configurationDefaultsOffAndLoadsFromYaml() throws Exception
+    public void configurationDefaultsOffAndDoesNotSelectTheRecorderBackend() throws Exception
     {
         assertFalse(new Config().adaptive_jmx_histogram_history_enabled);
         DatabaseDescriptor.setConfig(new Config());
@@ -90,11 +90,18 @@ public class AdaptiveJmxHistogramHistoryTest
         Path yaml = Files.createTempFile(Paths.get("tmp"), "adaptive-history-config-", ".yaml");
         try
         {
-            for (boolean adaptive : new boolean[]{ false, true })
+            for (boolean optimized : new boolean[]{ false, true })
             {
-                Files.writeString(yaml, "adaptive_jmx_histogram_history_enabled: " + adaptive + '\n');
-                DatabaseDescriptor.setConfig(new YamlConfigurationLoader().loadConfig(yaml.toUri().toURL()));
-                assertEquals(adaptive, DatabaseDescriptor.getAdaptiveJmxHistogramHistoryEnabled());
+                for (boolean adaptive : new boolean[]{ false, true })
+                {
+                    Files.writeString(yaml, "optimized_metrics_enabled: " + optimized + '\n'
+                                            + "adaptive_jmx_histogram_history_enabled: " + adaptive + '\n');
+                    DatabaseDescriptor.setConfig(new YamlConfigurationLoader().loadConfig(yaml.toUri().toURL()));
+                    assertEquals(adaptive, DatabaseDescriptor.getAdaptiveJmxHistogramHistoryEnabled());
+                    assertEquals(optimized, DatabaseDescriptor.getOptimizedMetricsEnabled());
+                    assertEquals(optimized ? CompactDecayingEstimatedHistogramReservoir.class : DecayingEstimatedHistogramReservoir.class,
+                                 CassandraMetricsRegistry.createHistogramReservoir(false).getClass());
+                }
             }
         }
         finally
@@ -174,40 +181,43 @@ public class AdaptiveJmxHistogramHistoryTest
     }
 
     @Test
-    public void realRecordersAndResetsMatchWithLegacyHistogramBackend() throws Exception
+    public void realRecordersAndResetsMatchWithEitherHistogramBackend() throws Exception
     {
-        configure(false);
-        ClearableReservoir histogramReservoir = new DecayingEstimatedHistogramReservoir(false);
-        ClearableReservoir timerReservoir = new DecayingEstimatedHistogramReservoir(false);
-        ClearableHistogram histogram = new ClearableHistogram(histogramReservoir);
-        SnapshottingTimer timer = new SnapshottingTimer(timerReservoir);
-        Views histogramViews = histogramViews(histogram);
-        Views timerViews = timerViews(timer);
-        long[] previousHistogram = null;
-        long[] previousTimer = null;
-        for (int step = 0; step < 4; step++)
+        for (boolean optimized : new boolean[]{ false, true })
         {
-            if (step == 2)
+            configure(false, optimized);
+            ClearableReservoir histogramReservoir = CassandraMetricsRegistry.createHistogramReservoir(false);
+            ClearableReservoir timerReservoir = CassandraMetricsRegistry.createHistogramReservoir(false);
+            ClearableHistogram histogram = new ClearableHistogram(histogramReservoir);
+            SnapshottingTimer timer = new SnapshottingTimer(timerReservoir);
+            Views histogramViews = histogramViews(histogram);
+            Views timerViews = timerViews(timer);
+            long[] previousHistogram = null;
+            long[] previousTimer = null;
+            for (int step = 0; step < 4; step++)
             {
-                histogram.clear();
-                timerReservoir.clear();
-            }
-            else
-            {
-                for (int update = 0; update < 130; update++)
+                if (step == 2)
                 {
-                    histogram.update(10);
-                    timer.update(10, TimeUnit.NANOSECONDS);
+                    histogram.clear();
+                    timerReservoir.clear();
                 }
+                else
+                {
+                    for (int update = 0; update < 130; update++)
+                    {
+                        histogram.update(10);
+                        timer.update(10, TimeUnit.NANOSECONDS);
+                    }
+                }
+                long[] histogramNow = histogram.getSnapshot().getValues();
+                long[] timerNow = timer.getSnapshot().getValues();
+                histogramViews.assertPrimary(CassandraMetricsRegistry.delta(histogramNow, previousHistogram));
+                histogramViews.assertAliases(CassandraMetricsRegistry.delta(histogramNow, previousHistogram));
+                timerViews.assertPrimary(CassandraMetricsRegistry.delta(timerNow, previousTimer));
+                timerViews.assertAliases(CassandraMetricsRegistry.delta(timerNow, previousTimer));
+                previousHistogram = histogramNow;
+                previousTimer = timerNow;
             }
-            long[] histogramNow = histogram.getSnapshot().getValues();
-            long[] timerNow = timer.getSnapshot().getValues();
-            histogramViews.assertPrimary(CassandraMetricsRegistry.delta(histogramNow, previousHistogram));
-            histogramViews.assertAliases(CassandraMetricsRegistry.delta(histogramNow, previousHistogram));
-            timerViews.assertPrimary(CassandraMetricsRegistry.delta(timerNow, previousTimer));
-            timerViews.assertAliases(CassandraMetricsRegistry.delta(timerNow, previousTimer));
-            previousHistogram = histogramNow;
-            previousTimer = timerNow;
         }
     }
 
@@ -223,11 +233,12 @@ public class AdaptiveJmxHistogramHistoryTest
 
     private <T> Views registerViews(Metric metric, Class<T> type, Function<T, long[]> read) throws Exception
     {
+        boolean optimized = DatabaseDescriptor.getOptimizedMetricsEnabled();
         List<Supplier<long[]>> readers = new ArrayList<>();
         int id = registration++;
         for (int view = 0; view < 8; view++)
         {
-            configure(view % 4 >= 2);
+            configure(view % 4 >= 2, optimized);
             ObjectName name = new ObjectName("test.metrics:type=History,id=" + id + ",view=" + view);
             CassandraMetricsRegistry.Metrics.registerMBean(metric, name, server, false, view >= 4);
             assertTrue(server.isRegistered(name));
@@ -237,10 +248,11 @@ public class AdaptiveJmxHistogramHistoryTest
         return new Views(readers);
     }
 
-    private static void configure(boolean adaptive)
+    private static void configure(boolean adaptive, boolean optimized)
     {
         Config config = new Config();
         config.adaptive_jmx_histogram_history_enabled = adaptive;
+        config.optimized_metrics_enabled = optimized;
         DatabaseDescriptor.setConfig(config);
     }
 

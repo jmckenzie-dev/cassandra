@@ -33,13 +33,20 @@ import org.junit.Test;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.memtable.TrieMemtable;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.shared.WithProperties;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry.MetricName;
 import org.apache.cassandra.metrics.KeyspaceMetrics;
 import org.apache.cassandra.metrics.LatencyMetrics;
+import org.apache.cassandra.metrics.OverrideHistogram;
+import org.apache.cassandra.metrics.OverrideTimer;
+import org.apache.cassandra.metrics.ScalingReservoir;
 import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.utils.MBeanWrapper;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.GEOMETRIC_METER_ARRAYS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.LAZY_METRIC_IDS;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ONE;
 import static org.apache.cassandra.distributed.api.Feature.JMX;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
@@ -56,6 +63,7 @@ import static org.junit.Assert.assertTrue;
 public class MetricProfileRegistrationTest extends TestBaseImpl
 {
     private static final String TABLE = "profiled";
+    static final Configuration DEFAULT_CONFIGURATION = new Configuration(true, true, false, false, false);
 
     @Test
     public void omittedProfilePreservesRegistrationAndRecording() throws Throwable
@@ -104,14 +112,38 @@ public class MetricProfileRegistrationTest extends TestBaseImpl
 
     private void exerciseProfile(String profile, boolean all) throws Throwable
     {
+        exerciseProfile(profile, all, DEFAULT_CONFIGURATION);
+    }
+
+    void exerciseProfile(String profile, boolean all, Configuration configuration) throws Throwable
+    {
         String location = profile == null ? null : Paths.get("conf").resolve(profile).toAbsolutePath().toString();
-        try (Cluster cluster = init(builder().withNodes(1).withConfig(config -> {
-            config.with(JMX);
-            config.set("metrics_config_file", location);
-            config.set("memtable", Map.of("configurations", Map.of("default", Map.of("class_name", "TrieMemtable"))));
-            config.set("cursor_compaction_enabled", false);
-        }).start()))
+        boolean optimizedMetrics = configuration.optimizedMetrics;
+        boolean compactJmxRegistration = configuration.compactJmxRegistration;
+        boolean adaptiveJmxHistory = configuration.adaptiveJmxHistory;
+        boolean lazyMetricIds = configuration.lazyMetricIds;
+        boolean geometricMeterArrays = configuration.geometricMeterArrays;
+        try (WithProperties properties = new WithProperties().set(LAZY_METRIC_IDS, lazyMetricIds)
+                                                              .set(GEOMETRIC_METER_ARRAYS, geometricMeterArrays);
+             Cluster cluster = init(builder().withNodes(1).withConfig(config -> {
+                 config.with(JMX);
+                 config.set("metrics_config_file", location);
+                 config.set("optimized_metrics_enabled", optimizedMetrics);
+                 config.set("compact_jmx_registration_enabled", compactJmxRegistration);
+                 config.set("adaptive_jmx_histogram_history_enabled", adaptiveJmxHistory);
+                 config.set("memtable", Map.of("configurations", Map.of("default", Map.of("class_name", "TrieMemtable",
+                                                                                          "parameters", Map.of("lazy_initialization", "true")))));
+                 config.set("cursor_compaction_enabled", false);
+             }).start()))
         {
+            cluster.get(1).runOnInstance(() -> {
+                assertEquals(location, DatabaseDescriptor.getRawConfig().metrics_config_file);
+                assertEquals(optimizedMetrics, DatabaseDescriptor.getOptimizedMetricsEnabled());
+                assertEquals(compactJmxRegistration, DatabaseDescriptor.getCompactJmxRegistrationEnabled());
+                assertEquals(adaptiveJmxHistory, DatabaseDescriptor.getAdaptiveJmxHistogramHistoryEnabled());
+                assertEquals(lazyMetricIds, LAZY_METRIC_IDS.getBoolean());
+                assertEquals(geometricMeterArrays, GEOMETRIC_METER_ARRAYS.getBoolean());
+            });
             int[] baseline = cluster.get(1).callOnInstance(() -> new int[]{ tableOwners(), children(TableMetrics.GLOBAL_KEY_MIGRATION_LATENCY) });
             for (int generation = 0; generation < 3; generation++)
             {
@@ -121,6 +153,8 @@ public class MetricProfileRegistrationTest extends TestBaseImpl
                     assertEquals(baseline[0] + 1, tableOwners());
                     assertEquals(baseline[1] + 1, children(TableMetrics.GLOBAL_KEY_MIGRATION_LATENCY));
                     assertEquals(1, children(Keyspace.open(KEYSPACE).metric.readLatency));
+                    assertFalse(((TrieMemtable) table().getCurrentMemtable()).isInitialized());
+                    assertMetricImplementations(optimizedMetrics, lazyMetricIds, geometricMeterArrays);
                 });
 
                 for (int key = 0; key < 4; key++)
@@ -137,6 +171,7 @@ public class MetricProfileRegistrationTest extends TestBaseImpl
                 long[] history = cluster.get(1).callOnInstance(() -> {
                     TableMetrics metric = table().metric;
                     assertFalse(table().getLiveSSTables().isEmpty());
+                    assertFalse(((TrieMemtable) table().getCurrentMemtable()).isInitialized());
                     assertTrue(metric.coordinatorReadLatency.getCount() >= 8);
                     assertTrue(metric.coordinatorWriteLatency.getCount() >= 4);
                     assertTrue(metric.readLatency.latency.getCount() >= 8);
@@ -153,6 +188,7 @@ public class MetricProfileRegistrationTest extends TestBaseImpl
                     metric.keyMigration.addNano(2_000_000);
                     assertEquals(before + 2, TableMetrics.GLOBAL_KEY_MIGRATION_LATENCY.latency.getCount());
                     assertEquals(duration + 3000, TableMetrics.GLOBAL_KEY_MIGRATION_LATENCY.totalLatency.getCount());
+                    assertJmxTimerReadable();
                     return history();
                 });
 
@@ -167,6 +203,92 @@ public class MetricProfileRegistrationTest extends TestBaseImpl
                     assertArrayEquals("Dropping a child must preserve history exactly once", history, history());
                 }));
             }
+        }
+    }
+
+    private static void assertMetricImplementations(boolean optimizedMetrics, boolean lazyMetricIds,
+                                                    boolean geometricMeterArrays)
+    {
+        Object histogram = field(OverrideTimer.class, "histogram", table().metric.readLatency.latency);
+        Object reservoir = field(OverrideHistogram.class, "reservoir", histogram);
+        if (reservoir instanceof ScalingReservoir)
+            reservoir = field(ScalingReservoir.class, "delegate", reservoir);
+        assertEquals(optimizedMetrics ? "CompactDecayingEstimatedHistogramReservoir"
+                                      : "DecayingEstimatedHistogramReservoir",
+                     reservoir.getClass().getSimpleName());
+
+        Object meter = field(OverrideTimer.class, "meter", table().metric.readLatency.latency);
+        String expectedMeter = geometricMeterArrays ? "GeometricThreadLocalMeter" : "ThreadLocalMeter";
+        if (lazyMetricIds)
+            expectedMeter = "Lazy" + expectedMeter;
+        assertEquals(expectedMeter, meter.getClass().getSimpleName());
+    }
+
+    private static void assertJmxTimerReadable()
+    {
+        try
+        {
+            MetricName readLatency = tableName("Table", "ReadLatency");
+            Object count = MBeanWrapper.instance.getMBeanServer().getAttribute(readLatency.getMBeanName(), "Count");
+            Object firstRecentValues = MBeanWrapper.instance.getMBeanServer()
+                                                           .getAttribute(readLatency.getMBeanName(), "RecentValues");
+            Object secondRecentValues = MBeanWrapper.instance.getMBeanServer()
+                                                            .getAttribute(readLatency.getMBeanName(), "RecentValues");
+            assertEquals(table().metric.readLatency.latency.getCount(), ((Number) count).longValue());
+            assertTrue(firstRecentValues instanceof long[]);
+            assertTrue(secondRecentValues instanceof long[]);
+        }
+        catch (Exception e)
+        {
+            throw new AssertionError(e);
+        }
+    }
+
+    static final class Configuration
+    {
+        final boolean optimizedMetrics;
+        final boolean compactJmxRegistration;
+        final boolean adaptiveJmxHistory;
+        final boolean lazyMetricIds;
+        final boolean geometricMeterArrays;
+
+        Configuration(boolean optimizedMetrics, boolean compactJmxRegistration, boolean adaptiveJmxHistory,
+                      boolean lazyMetricIds, boolean geometricMeterArrays)
+        {
+            this.optimizedMetrics = optimizedMetrics;
+            this.compactJmxRegistration = compactJmxRegistration;
+            this.adaptiveJmxHistory = adaptiveJmxHistory;
+            this.lazyMetricIds = lazyMetricIds;
+            this.geometricMeterArrays = geometricMeterArrays;
+        }
+
+        Configuration withOptimizedMetrics(boolean value)
+        {
+            return new Configuration(value, compactJmxRegistration, adaptiveJmxHistory,
+                                     lazyMetricIds, geometricMeterArrays);
+        }
+
+        Configuration withCompactJmxRegistration(boolean value)
+        {
+            return new Configuration(optimizedMetrics, value, adaptiveJmxHistory, lazyMetricIds, geometricMeterArrays);
+        }
+
+        Configuration withAdaptiveJmxHistory(boolean value)
+        {
+            return new Configuration(optimizedMetrics, compactJmxRegistration, value,
+                                     lazyMetricIds, geometricMeterArrays);
+        }
+
+        Configuration withLazyMetricIds(boolean value)
+        {
+            return new Configuration(optimizedMetrics, compactJmxRegistration, adaptiveJmxHistory,
+                                     value, geometricMeterArrays);
+        }
+
+        Configuration withGeometricMeterArrays(boolean value)
+        {
+            return new Configuration(optimizedMetrics, compactJmxRegistration, adaptiveJmxHistory,
+                                     lazyMetricIds, value);
         }
     }
 

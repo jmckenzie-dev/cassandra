@@ -214,7 +214,10 @@ public class MetricProfileRecordingTest extends TestBaseImpl
         Cluster cluster = init(builder().withNodes(1).withConfig(config -> {
             config.with(JMX);
             config.set("metrics_config_file", location);
-            config.set("memtable", Map.of("configurations", Map.of("default", Map.of("class_name", "TrieMemtable"))));
+            config.set("optimized_metrics_enabled", true);
+            config.set("compact_jmx_registration_enabled", true);
+            config.set("memtable", Map.of("configurations", Map.of("default", Map.of("class_name", "TrieMemtable",
+                                                                                     "parameters", Map.of("lazy_initialization", "true")))));
             config.set("cursor_compaction_enabled", false);
         }).start());
         try

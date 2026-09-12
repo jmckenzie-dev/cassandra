@@ -44,7 +44,42 @@ public class IdleMemtableFlushTest extends TestBaseImpl
     @Test
     public void schedulerRetiresOnlyEligibleTablesAndWritesReactivate() throws Throwable
     {
-        schedulerRetirementAndRecovery();
+        schedulerRetirementAndRecovery(null);
+    }
+
+    @Test
+    public void smallHierarchyRetiresReactivatesAndRecovers() throws Throwable
+    {
+        schedulerRetirementAndRecovery("1KiB");
+    }
+
+    @Test
+    public void operatorCanAlterHierarchyAndScalingBeforeRestart() throws Throwable
+    {
+        try (Cluster cluster = newCluster("300ms"))
+        {
+            create(cluster, "tuned", "trie", "UnifiedCompactionStrategy");
+            for (int value = 0; value < 3; value++)
+            {
+                String size = value == 1 ? "1KiB" : "1MiB";
+                cluster.schemaChange(withKeyspace("ALTER TABLE %s.tuned WITH compaction = " +
+                                                 "{'class':'UnifiedCompactionStrategy','min_hierarchy_size':'" + size +
+                                                 "','scaling_parameters':'L4,T4'}"));
+                cluster.coordinator(1).execute(withKeyspace("INSERT INTO %s.tuned (pk,v) VALUES (?,?)"), ONE, value, value);
+                await().atMost(30, TimeUnit.SECONDS).until(() -> dormant(cluster, "tuned"));
+                assertRows(cluster.coordinator(1).execute(withKeyspace("SELECT * FROM %s.tuned WHERE pk = ?"), ONE, value), row(value, value));
+            }
+            cluster.get(1).shutdown().get();
+            cluster.get(1).startup();
+            cluster.get(1).runOnInstance(() -> {
+                Map<String, String> options = Keyspace.open(KEYSPACE).getColumnFamilyStore("tuned")
+                                                     .getCompactionStrategyManager().getCompactionParams().options();
+                assertEquals("1MiB", options.get("min_hierarchy_size"));
+                assertEquals("L4,T4", options.get("scaling_parameters"));
+            });
+            for (int value = 0; value < 3; value++)
+                assertRows(cluster.coordinator(1).execute(withKeyspace("SELECT * FROM %s.tuned WHERE pk = ?"), ONE, value), row(value, value));
+        }
     }
 
     @Test
@@ -109,11 +144,13 @@ public class IdleMemtableFlushTest extends TestBaseImpl
         }
     }
 
-    private void schedulerRetirementAndRecovery() throws Throwable
+    private void schedulerRetirementAndRecovery(String hierarchySize) throws Throwable
     {
         try (Cluster cluster = newCluster("600ms"))
         {
-            create(cluster, "eligible", "trie", "UnifiedCompactionStrategy");
+            cluster.schemaChange(withKeyspace("CREATE TABLE %s.eligible (pk int PRIMARY KEY, v int) WITH memtable = 'trie'" +
+                                             " AND compaction = {'class':'UnifiedCompactionStrategy'" +
+                                             (hierarchySize == null ? "" : ",'min_hierarchy_size':'" + hierarchySize + "'") + "}"));
             create(cluster, "stcs", "trie", "SizeTieredCompactionStrategy");
             create(cluster, "skiplist", "skiplist", "UnifiedCompactionStrategy");
             create(cluster, "eager", "eager", "UnifiedCompactionStrategy");
@@ -134,6 +171,9 @@ public class IdleMemtableFlushTest extends TestBaseImpl
             assertRows(cluster.coordinator(1).execute(withKeyspace("SELECT * FROM %s.eligible"), ONE), row(1, 20));
             cluster.get(1).shutdown().get();
             cluster.get(1).startup();
+            if (hierarchySize != null)
+                cluster.get(1).runOnInstance(() -> assertEquals(hierarchySize, Keyspace.open(KEYSPACE).getColumnFamilyStore("eligible")
+                                                                                    .getCompactionStrategyManager().getCompactionParams().options().get("min_hierarchy_size")));
             assertRows(cluster.coordinator(1).execute(withKeyspace("SELECT * FROM %s.eligible"), ONE), row(1, 20));
             cluster.coordinator(1).execute(withKeyspace("INSERT INTO %s.eligible (pk,v) VALUES (2,30)"), ONE);
             await().atMost(30, TimeUnit.SECONDS).until(() -> dormant(cluster, "eligible"));

@@ -34,6 +34,8 @@ import org.apache.cassandra.utils.MBeanWrapper;
 
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -102,6 +104,38 @@ public class MetricFactoryReuseTest
         {
             executor.shutdownNow();
             Metrics.remove(name);
+        }
+    }
+
+    @Test
+    public void disabledFactoriesKeepIndependentHiddenRecorders()
+    {
+        Config previous = DatabaseDescriptor.getRawConfig();
+        Config simple = new Config();
+        simple.metrics_config_file = java.nio.file.Paths.get("conf", "simple_metrics.yml").toAbsolutePath().toString();
+        CassandraMetricsRegistry.MetricName histogramName = name("SSTablesPerRangeReadHistogram");
+        CassandraMetricsRegistry.MetricName timerName = name("CasPrepareLatency");
+        try
+        {
+            DatabaseDescriptor.setConfig(simple);
+            OverrideHistogram first = Metrics.histogram(histogramName, false);
+            OverrideHistogram second = Metrics.histogram(histogramName, false);
+            SnapshottingTimer firstTimer = Metrics.timer(timerName);
+            SnapshottingTimer secondTimer = Metrics.timer(timerName);
+            assertNotSame(first, second);
+            assertNotSame(firstTimer, secondTimer);
+            first.update(1);
+            firstTimer.update(1, java.util.concurrent.TimeUnit.MILLISECONDS);
+            assertEquals(1, first.getCount());
+            assertEquals(0, second.getCount());
+            assertEquals(1, firstTimer.getCount());
+            assertEquals(0, secondTimer.getCount());
+            assertFalse(Metrics.getMetrics().containsKey(histogramName.getMetricName()));
+            assertFalse(Metrics.getMetrics().containsKey(timerName.getMetricName()));
+        }
+        finally
+        {
+            DatabaseDescriptor.setConfig(previous);
         }
     }
 

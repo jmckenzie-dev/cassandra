@@ -28,11 +28,43 @@ the full catalog. Omitting the setting, or setting it to null, preserves all
 metrics, including names outside the built-in catalog. A bare filename resolves
 on the classpath (normally conf/). An absolute path or file: URI selects a local
 file. Missing or invalid files stop startup. Restart to change the selection.
+The optimized_metrics_enabled setting controls histogram storage independently.
+The adaptive_jmx_histogram_history_enabled setting compresses saved JMX scrape
+snapshots independently. It defaults to false, preserving long-array history.
+Setting it to true preserves exact recent-value deltas and each alias's cursor.
+
+Optional JMX name and registration storage
+
+Uncomment this line in jvm-server.options to keep monitoring property queries
+from populating caches on registered metric ObjectNames:
+
+  -Djavax.management.builder.initial=org.apache.cassandra.utils.TransientMBeanServerBuilder
+
+This JVM startup option covers direct platform-server access and connectors
+attached to the resulting server. Set it before the platform server is created;
+a later YAML or runtime change cannot replace that server. It uses the standard
+JDK registration store and preserves property queries, readable values, and
+Cassandra authorization checks. Local query results, direct ObjectName results,
+and registration notifications use independent name copies. Broad queries thus
+allocate more temporary objects. Narrow queries still scan the selected domain.
+Third-party MBeans that retain and inspect their own registration names can
+still populate their own caches. This option does not copy arbitrary returned
+application object graphs. Leave the line commented for the legacy server.
+
+Independently, compact_jmx_registration_enabled: true in cassandra.yaml avoids
+one persistent JDK adapter for each metric MBean. It retains
+the existing getters and metadata and creates temporary adapters during calls.
+Meter and timer wrappers also share the constant rate-unit label. This setting
+defaults to false. Neither option changes metric names, aliases, profiles, recording, or
+histogram history. Restart to change either selection. Measurements and limits
+are in research/jmx_query_export.md.
+
 Set -Dcassandra.compact_table_metric_bookkeeping=true before startup to store
 TableMetrics release bookkeeping in an array-backed list. Setup uses linear
 lookups; recording does not access this collection. Late subclass additions
 remain supported. The default false retains the map control. This is independent
-of metric profiles.
+of metric profiles, lazy metric IDs, and JMX registration. Measurements are in
+research/jmx_registration_and_metric_bookkeeping.md.
 
 Both files use mode: allowlist and three lists within each scope:
 
@@ -131,7 +163,8 @@ Both profiles preserve CoordinatorReadLatency, CoordinatorWriteLatency, and
 TotalDiskSpaceUsed. CompressionRatio is required conservatively because a
 conditional size-estimation helper reads it; the normal cleanup path reads
 SSTable metadata directly. No registered Keyspace metric has a confirmed database
-control dependency. Required node metrics remain outside these profiles.
+control dependency. See research/internal_metric_dependencies.md for the audit,
+including required node metrics that are outside these profiles.
 
 Generating the metric reference
 -------------------------------
@@ -162,25 +195,15 @@ the runtime validator allows operator profiles to omit optional names. Parsing
 cannot prove that prose still matches a computation; review the update/read sites
 when changing a description. New registration forms need extractor support.
 
-Run isolated generator tests with .build/sh/ai-generate-metrics-reference --test.
-Run generated input cases with .build/sh/ai-generate-metrics-reference --property.
-These commands need Python 3 and a Java Development Kit (JDK). They do not start
-a Cassandra node.
+Run the isolated generator tests with ./run_tests.sh --metrics-ref. Run generated
+input cases with ./run_property_tests.sh --metrics-ref. These commands use Python 3 and a JDK, and do not start a Cassandra node.
 
-Runtime metric storage
-======================
-
-The optimized_metrics_enabled setting controls histogram storage. It defaults
-to true. Set it to false and restart to restore legacy reservoir storage.
-
-Set -Dcassandra.geometric_meter_arrays=true in the Java Virtual Machine (JVM)
-startup options to store meter rates in shared geometric arrays. The default is
-false. Remove the option or set it to false and restart to restore the legacy
-thread-local meter arrays.
-
+Run runtime profile and database integration tests with
+./run_tests.sh --metric-profiles. Run generated profile and no-op recorder cases
+with ./run_property_tests.sh --metric-profiles.
 
 Experimental lazy metric IDs
-============================
+----------------------------
 
 Set -Dcassandra.lazy_metric_ids=true in the JVM startup options to allocate
 thread-local counter IDs on the first update. The default is false. Remove the
@@ -197,41 +220,11 @@ does allocate an ID; a live zero count never means an unused ID.
 
 Worker arrays remain dense. This experimental option reduces retained storage
 for untouched metrics but adds first-use work and can change recording costs.
+See research/worker_metric_residency.md for matched memory and timing evidence.
+Run focused checks with ./run_tests.sh --metric-ids and generated checks with
+./run_property_tests.sh --metric-ids.
 
-Optional Java Management Extensions (JMX) history storage
+Historical research paths above refer to the preserved original branch.
 
-The adaptive_jmx_histogram_history_enabled setting compresses saved JMX scrape
-snapshots independently. It defaults to false, preserving long-array history.
-Setting it to true preserves exact recent-value deltas and each alias's cursor.
-
-Optional JMX name and registration storage
-
-Uncomment this line in jvm-server.options to keep monitoring property queries
-from populating caches on registered metric ObjectNames:
-
-  -Djavax.management.builder.initial=org.apache.cassandra.utils.TransientMBeanServerBuilder
-
-This JVM startup option covers direct platform-server access and connectors
-attached to the resulting server. Set it before the platform server is created;
-a later YAML or runtime change cannot replace that server. It uses the standard
-JDK registration store and preserves property queries, readable values, and
-Cassandra authorization checks. Local query results, direct ObjectName results,
-and registration notifications use independent name copies. Broad queries thus
-allocate more temporary objects. Narrow queries still scan the selected domain.
-Third-party MBeans that retain and inspect their own registration names can
-still populate their own caches. This option does not copy arbitrary returned
-application object graphs. Leave the line commented for the legacy server.
-
-Independently, compact_jmx_registration_enabled: true in cassandra.yaml avoids
-one persistent JDK adapter for each metric MBean. It retains
-the existing getters and metadata and creates temporary adapters during calls.
-Meter and timer wrappers also share the constant rate-unit label. This setting
-defaults to false. Neither option changes metric names, aliases, recording, or
-histogram history. Restart to change either selection. Historical measurements
-and limits remain in the original branch at
-research/jmx_query_export.md.
-
-
-Run focused checks with ./run_tests.sh. Run generated checks with
-./run_property_tests.sh. The property selector runs the nested registration suite
-and standalone generated name-copy and query checks.
+Set -Dcassandra.geometric_meter_arrays=true before startup to use shared
+geometric meter arrays. The default is false. Restart to change the selection.

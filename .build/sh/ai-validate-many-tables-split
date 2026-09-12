@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one or more contributor
+# license agreements. See the NOTICE file distributed with this work for
+# additional information regarding copyright ownership. The ASF licenses this
+# file to you under the Apache License, Version 2.0 (the "License"); you may not
+# use this file except in compliance with the License. You may obtain a copy at
+# http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software distributed
+# under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+# CONDITIONS OF ANY KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations under the License.
+
+set -euo pipefail
+project_root="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$project_root"
+mkdir -p logs
+run_log="logs/$(date +%Y%m%d-%H%M%S)-validate-many-tables-split.log"
+exec > >(tee "$run_log") 2>&1
+report_dir="${run_log%.log}-reports"
+mkdir -p "$report_dir"
+unit=(
+  org.apache.cassandra.auth.jmx.TransientMBeanServerAuthorizationTest
+  org.apache.cassandra.config.IdleMemtableConfigTest
+  org.apache.cassandra.db.compaction.UnifiedCompactionStrategyTest
+  org.apache.cassandra.db.compaction.unified.ControllerHierarchyTest
+  org.apache.cassandra.db.compaction.unified.ControllerTest
+  org.apache.cassandra.db.memtable.IdleFlushAdmissionBudgetPropertyTest
+  org.apache.cassandra.db.memtable.IdleFlushAdmissionBudgetTest
+  org.apache.cassandra.db.memtable.IdleMemtableFlusherTest
+  org.apache.cassandra.db.memtable.TrieMemtableLazyPropertyTest
+  org.apache.cassandra.db.memtable.TrieMemtableLazyTest
+  org.apache.cassandra.db.memtable.TrieMemtableRetirementFailureTest
+  org.apache.cassandra.db.memtable.TrieMemtableRetirementTest
+  org.apache.cassandra.io.sstable.metadata.MetadataCollectorHistogramTest
+  org.apache.cassandra.metrics.AdaptiveCounterArrayPropertyTest
+  org.apache.cassandra.metrics.AdaptiveCounterArrayTest
+  org.apache.cassandra.metrics.AdaptiveHistogramHistoryPropertyTest
+  org.apache.cassandra.metrics.AdaptiveHistogramHistoryTest
+  org.apache.cassandra.metrics.AdaptiveJmxHistogramHistoryTest
+  org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirPropertyTest
+  org.apache.cassandra.metrics.CompactDecayingEstimatedHistogramReservoirTest
+  org.apache.cassandra.metrics.CompactJmxRegistrationTest
+  org.apache.cassandra.metrics.CompactMetricsAccuracyTest
+  org.apache.cassandra.metrics.CompactMetricsIntegrationTest
+  org.apache.cassandra.metrics.GeometricThreadLocalMeterPropertyTest
+  org.apache.cassandra.metrics.GeometricThreadLocalMeterTest
+  org.apache.cassandra.metrics.LatencyMetricsTest
+  org.apache.cassandra.metrics.LazyMetricIdPropertyTest
+  org.apache.cassandra.metrics.LazyMetricIdTest
+  org.apache.cassandra.metrics.MetricFactoryReuseTest
+  org.apache.cassandra.metrics.MetricProfilePropertyTest
+  org.apache.cassandra.metrics.MetricProfileTest
+  org.apache.cassandra.metrics.NoOpMetricsTest
+  org.apache.cassandra.metrics.TableMetricBookkeepingLifecycleTest
+  org.apache.cassandra.metrics.TableMetricBookkeepingTest
+  org.apache.cassandra.utils.ObjectNamePropertyPatternTest
+  org.apache.cassandra.utils.streamhist.LazyTombstoneHistogramBuilderPropertyTest
+  org.apache.cassandra.utils.streamhist.LazyTombstoneHistogramBuilderTest
+  org.apache.cassandra.utils.streamhist.TombstoneHistogramAllocationTest
+  org.apache.cassandra.db.memtable.SplittablePartitionerTrieMemtableFlushSetTest
+  org.apache.cassandra.db.memtable.NonSplittablePartitionerTrieMemtableFlushSetTest
+  org.apache.cassandra.db.memtable.MemtableSizeHeapBuffersTest
+  org.apache.cassandra.db.virtual.SettingsTableTest
+  org.apache.cassandra.db.compaction.unified.ShardedMultiWriterTest
+  org.apache.cassandra.utils.streamhist.StreamingTombstoneHistogramBuilderTest
+  org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoirTest
+  org.apache.cassandra.metrics.CassandraMetricsRegistryTest
+  org.apache.cassandra.metrics.ThreadLocalHistogramTest
+  org.apache.cassandra.metrics.ThreadLocalMeterTest
+  org.apache.cassandra.metrics.JmxVirtualTableMetricsTest
+)
+distributed=(
+  org.apache.cassandra.distributed.test.HeapOwnershipCensusHarnessTest
+  org.apache.cassandra.distributed.test.IdleMemtableFlushTest
+  org.apache.cassandra.distributed.test.MemtableResidencyConfigTest
+  org.apache.cassandra.distributed.test.MemtableResidencyHarnessTest
+  org.apache.cassandra.distributed.test.MetricProfileRecordingTest
+  org.apache.cassandra.distributed.test.MetricProfileRegistrationTest
+  org.apache.cassandra.distributed.test.TrieMemtableLazyRecoveryTest
+)
+matrix=(org.apache.cassandra.distributed.test.MetricProfileConfigurationMatrixTest)
+case "${1:---all}" in
+  --all) tests=("${matrix[@]}" "${unit[@]}" "${distributed[@]}") ;;
+  --matrix) tests=("${matrix[@]}") ;;
+  --unit) tests=("${unit[@]}") ;;
+  --distributed) tests=("${distributed[@]}") ;;
+  --nested) tests=() ;;
+  *) echo "Usage: $0 [--all|--matrix|--unit|--distributed|--nested]" >&2; exit 2 ;;
+esac
+if [[ $# -gt 1 ]]; then
+  echo "Expected at most one selector" >&2
+  exit 2
+fi
+for test_class in "${tests[@]}"; do
+  echo "Running $test_class"
+  status=0
+  .build/sh/ai-ci-test "$test_class" || status=$?
+  found=false
+  for target in test jvm-dtest; do
+    report="build/test/output/$target/TEST-$test_class.xml"
+    if [[ -f "$report" ]]; then
+      cp "$report" "$report_dir/"
+      found=true
+    fi
+  done
+  if [[ $status -ne 0 ]]; then
+    exit "$status"
+  fi
+  if [[ $found != true ]]; then
+    echo "Missing report for $test_class" >&2
+    exit 1
+  fi
+done
+if [[ ${1:---all} == --all || ${1:---all} == --nested ]]; then
+  env PROFILE_SKIP_BUILD=true PROFILE_MAIN_CLASS=org.junit.runner.JUnitCore \
+    .build/sh/ai-profile-many-tables \
+    'org.apache.cassandra.metrics.NoOpMetricsTest$Properties' \
+    'org.apache.cassandra.metrics.TableMetricBookkeepingTest$Properties' \
+    'org.apache.cassandra.metrics.CompactJmxRegistrationTest$Properties'
+fi
