@@ -37,3 +37,12 @@ specific language governing permissions and limitations under the License.
 - [x] Complete all five targeted test classes: 48 passed and one existing skip.
 - [x] Complete the three-table generic harness smoke test.
 - [x] Complete independent review with no findings and freeze the shared base.
+- [x] Run isolated history, registration, and retained-name measurements.
+- [x] Complete independent extraction review with no missing production hunks.
+- [x] Extract export code onto the corrected shared base.
+- [x] Keep all switches opt-in and exclude storage and profile dependencies.
+- [x] Adapt mixed tests to legacy storage and record integration assertions.
+- [x] Build and pass main/test Checkstyle.
+- [x] Pass 28 unique test cases, including the nested registration properties.
+- [x] Run name and server boundary diagnostics.
+- [x] Split production changes into three review units.

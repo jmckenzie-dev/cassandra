@@ -6172,6 +6172,16 @@ public class DatabaseDescriptor
         return conf != null && conf.optimized_metrics_enabled;
     }
 
+    public static boolean getAdaptiveJmxHistogramHistoryEnabled()
+    {
+        return conf != null && conf.adaptive_jmx_histogram_history_enabled;
+    }
+
+    public static boolean getCompactJmxRegistrationEnabled()
+    {
+        return conf != null && conf.compact_jmx_registration_enabled;
+    }
+
     public static MetricProfile getMetricProfile()
     {
         return metricProfile == null ? MetricProfile.ALL : metricProfile;
