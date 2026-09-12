@@ -34,6 +34,7 @@ specific language governing permissions and limitations under the License.
 - [x] Adapt combined test and tool assumptions to the standalone STORE branch.
 - [x] Build and run focused production, property, compatibility, and probe tests.
 - [x] Review the branch, record validation evidence, and create local commits.
+- [x] Complete independent verification review with no findings.
 - [x] Complete the standalone build/Checkstyle and all nine planned test classes: 82 cases, no errors/failures/skips. Preserve generated traces and allocation checks.
 - [x] Record the two source/test adaptations for combined verification and prepare separate UCS and lazy tombstone commits.
 - [x] Fix the expiration-test clock-tick dependency without production changes. Build/Checkstyle and three 28-case runs passed. Commit the isolated correction as 1cfcbfab95; see the coordinator's .agentlogs/reviews/ucs-expiration-test-fix.md.
