@@ -549,6 +549,8 @@ public class UnifiedCompactionStrategyTest
     private void testDropExpiredFromBucket(int numShards)
     {
         Controller controller = Mockito.mock(Controller.class);
+        // Check expiration on every selection, including calls in the same millisecond.
+        when(controller.getExpiredSSTableCheckFrequency()).thenReturn(-1L);
         long minimalSizeBytes = 2 << 20;
         when(controller.getMaxLevelDensity(anyInt(), anyDouble())).thenCallRealMethod();
         when(controller.getScalingParameter(anyInt())).thenReturn(3); // T=5
@@ -592,6 +594,8 @@ public class UnifiedCompactionStrategyTest
     private void testDropExpiredAndCompactNonExpired()
     {
         Controller controller = Mockito.mock(Controller.class);
+        // Check expiration on every selection, including calls in the same millisecond.
+        when(controller.getExpiredSSTableCheckFrequency()).thenReturn(-1L);
         long minimalSizeBytes = 2 << 20;
         when(controller.getMaxLevelDensity(anyInt(), anyDouble())).thenCallRealMethod();
         when(controller.getScalingParameter(anyInt())).thenReturn(2);
