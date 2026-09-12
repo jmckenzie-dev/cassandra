@@ -59,7 +59,9 @@ correctness and object-graph observations, not isolated timing results.
 
 ## Limits
 
-Isolated history, registration, and name measurements are pending.
+Isolated history, registration, and name measurements passed. Results and costs
+are in metric-exports-measurements.md. Whole-node history retention remains
+assigned to the integration census.
 Cross-feature storage/profile combinations return in integration.
 No line or branch coverage percentage was computed for this extraction.
 The build wrapper skips documentation generation and license auditing.

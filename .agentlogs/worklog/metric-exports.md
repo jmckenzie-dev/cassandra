@@ -16,5 +16,7 @@ specific language governing permissions and limitations under the License.
 Extracted final-source export hunks onto the corrected shared base.
 Removed storage-only fixture controls so this branch compiles independently.
 Build and Checkstyle passed. Targeted tests passed 28 unique cases, including
-the nested registration properties. Boundary probes passed. Isolated measurements
-and independent extraction review remain pending.
+the nested registration properties. Boundary probes and isolated measurements
+passed. Independent extraction review found no missing production hunks.
+Recorded allocation and latency costs alongside retention savings; kept all
+switches opt-in. Combined node measurements remain assigned to integration.

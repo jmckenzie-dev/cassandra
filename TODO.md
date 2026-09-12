@@ -13,12 +13,12 @@ specific language governing permissions and limitations under the License.
 
 # TODO
 
-- [ ] Run isolated history and retained-name measurements.
-- [ ] Complete independent extraction review.
 - [ ] Validate cross-feature combinations in integration.
 
 # DONE
 
+- [x] Run isolated history, registration, and retained-name measurements.
+- [x] Complete independent extraction review with no missing production hunks.
 - [x] Extract export code onto the corrected shared base.
 - [x] Keep all switches opt-in and exclude storage and profile dependencies.
 - [x] Adapt mixed tests to legacy storage and record integration assertions.
