@@ -21,6 +21,7 @@ package org.apache.cassandra.db.compaction.unified;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -114,6 +115,71 @@ public class ControllerTest
     public void testValidateOptions()
     {
         testValidateOptions(false);
+    }
+
+    @Test
+    public void testHierarchySizeOptions()
+    {
+        for (String value : new String[] { "1B", "1KiB", "4KiB", "64KiB", "1MiB" })
+            assertTrue(Controller.validateOptions(Map.of("min_hierarchy_size", value)).isEmpty());
+        for (String value : new String[] { "0B", "-1B", "1048577B", "2MiB", "12E899B", "garbage" })
+            assertThatExceptionOfType(ConfigurationException.class)
+            .isThrownBy(() -> Controller.validateOptions(Map.of("min_hierarchy_size", value)))
+            .withMessageContaining("min_hierarchy_size");
+        assertThatExceptionOfType(ConfigurationException.class)
+        .isThrownBy(() -> Controller.validateOptions(Map.of("min_hierarchy_size", "1KiB", "flush_size_override", "1KiB")));
+        Controller overridden = Controller.fromOptions(cfs, Map.of("min_hierarchy_size", "1KiB", "flush_size_override", "4MiB"));
+        assertEquals(4L << 20, overridden.getFlushSizeBytes());
+        assertEquals((4L << 20) * 0.775, overridden.getBaseSstableSize(4), 0.0);
+    }
+
+    @Test
+    public void testSmallHierarchyRoundsObservedFlushes()
+    {
+        for (long quantum : new long[] { 1, 1024, 4096, 65536 })
+        {
+            for (long observed : new long[] { 0, 1, quantum - 1, quantum, quantum + 1, 1L << 40 })
+            {
+                Controller controller = Controller.fromOptions(cfs, Map.of("min_hierarchy_size", quantum + "B"));
+                assertEquals(((observed + quantum - 1) / quantum) * quantum, controller.updateFlushSize(observed));
+            }
+        }
+        Controller controller = Controller.fromOptions(cfs, Map.of("min_hierarchy_size", "1KiB"));
+        assertEquals(0, controller.updateFlushSize(Double.NaN));
+        assertEquals(1024, controller.updateFlushSize(1000));
+        assertEquals(1024, controller.updateFlushSize(2048)); // exactly 50% is not a refresh
+        assertEquals(3072, controller.updateFlushSize(2049));
+        assertEquals(3072, controller.updateFlushSize(2048));
+        assertEquals(2048, controller.updateFlushSize(2047));
+        assertEquals(Long.MAX_VALUE, controller.updateFlushSize(Double.MAX_VALUE));
+        assertEquals(1024, controller.updateFlushSize(1));
+    }
+
+    @Test
+    public void testGeneratedHierarchyRoundingAndLegacyEquivalence()
+    {
+        Random random = new Random(71829);
+        for (String option : new String[] { "default", "1MiB" })
+        {
+            Controller controller = Controller.fromOptions(cfs, option.equals("default") ? Map.of() : Map.of("min_hierarchy_size", option));
+            long legacy = 0;
+            for (int i = 0; i < 10000; i++)
+            {
+                double observed = i % 101 == 0 ? Double.NaN : i % 103 == 0 ? 0 : random.nextLong() & ((1L << 42) - 1);
+                if (legacy == 0 || Math.abs(1 - legacy / observed) > 0.5)
+                    legacy = ((long) Math.ceil(Math.scalb(observed, -20))) << 20;
+                assertEquals(legacy, controller.updateFlushSize(observed));
+            }
+        }
+        for (int i = 0; i < 5000; i++)
+        {
+            long quantum = 1 + random.nextInt(1 << 20);
+            long observed = random.nextLong() & ((1L << 42) - 1);
+            Controller controller = Controller.fromOptions(cfs, Map.of("min_hierarchy_size", quantum + "B"));
+            long rounded = controller.updateFlushSize(observed);
+            assertEquals(0, rounded % quantum);
+            assertTrue(rounded >= observed && rounded - observed < quantum);
+        }
     }
 
     @Test
