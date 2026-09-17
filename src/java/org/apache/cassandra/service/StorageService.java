@@ -3936,28 +3936,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             // In-progress writes originating here could generate hints to be written,
             // which is currently scheduled on the mutation stage. So shut down MessagingService
             // before mutation stage, so we can get all the hints saved before shutting down.
-            try
-            {
-                MessagingService.instance().shutdown();
-            }
-            catch (Throwable t)
-            {
-                // prevent messaging service timing out shutdown from aborting
-                // drain process; otherwise drain and/or shutdown might throw
-                logger.error("Messaging service timed out shutting down", t);
-            }
-
-            if (AccordService.isSetupOrStarting())
-            {
-                try
-                {
-                    AccordService.unsafeInstance().shutdownAndWait(DatabaseDescriptor.getAccord().shutdown_grace_period.toDuration().toNanos(), NANOSECONDS);
-                }
-                catch (Throwable t)
-                {
-                    logger.error("AccordService exception shutting down", t);
-                }
-            }
+            shutdownMessagingService();
+            awaitAccordShutdown();
 
             // ScheduledExecutors shuts down after MessagingService, as MessagingService may issue tasks to it.
             ScheduledExecutors.optionalTasks.shutdown();
@@ -3985,36 +3965,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             // else in-flight repairs may block attempting to write to system tables
             AutoRepair.instance.shutdownBlocking();
 
-            // count CFs first, since forceFlush could block for the flushWriter to get a queue slot empty
-            totalCFs = 0;
-            for (Keyspace keyspace : Keyspace.nonLocalStrategy())
-                totalCFs += keyspace.getColumnFamilyStores().size();
-            remainingCFs = totalCFs;
-            // flush
-            List<Future<?>> flushes = new ArrayList<>();
-            for (Keyspace keyspace : Keyspace.nonLocalStrategy())
-            {
-                for (ColumnFamilyStore cfs : keyspace.getColumnFamilyStores())
-                    flushes.add(cfs.forceFlush(ColumnFamilyStore.FlushReason.DRAIN));
-            }
-            // wait for the flushes.
-            // TODO this is a godawful way to track progress, since they flush in parallel.  a long one could
-            // thus make several short ones "instant" if we wait for them later.
-            for (Future f : flushes)
-            {
-                try
-                {
-                    FBUtilities.waitOnFuture(f);
-                }
-                catch (Throwable t)
-                {
-                    JVMStabilityInspector.inspectThrowable(t);
-                    // don't let this stop us from shutting down the commitlog and other thread pools
-                    logger.warn("Caught exception while waiting for memtable flushes during shutdown hook", t);
-                }
-
-                remainingCFs--;
-            }
+            List<Future<?>> flushes = flushNonSystemTablesForDrain();
 
             // Interrupt ongoing compactions and shutdown CM to prevent further compactions.
             CompactionManager.instance.forceShutdown();
@@ -4023,13 +3974,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             // Flush system tables after stopping compactions since they modify
             // system tables (for example compactions can obsolete sstables and the tidiers in SSTableReader update
             // system tables, see SSTableReader.GlobalTidy)
-            flushes.clear();
-            for (Keyspace keyspace : Keyspace.system())
-            {
-                for (ColumnFamilyStore cfs : keyspace.getColumnFamilyStores())
-                    flushes.add(cfs.forceFlush(ColumnFamilyStore.FlushReason.DRAIN));
-            }
-            FBUtilities.waitOnFutures(flushes);
+            flushSystemTablesForDrain(flushes);
 
             SnapshotManager.instance.shutdownAndWait(1L, MINUTES);
             HintsService.instance.shutdownBlocking();
@@ -4049,34 +3994,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             if (isFinalShutdown)
                 DiskErrorsHandlerService.get().close();
 
-            try
-            {
-                // stop async profiler on shutdown in case a user
-                // did not stop it beforehand on their own
-                AsyncProfilerService.instance().stop(Map.of());
-            }
-            catch (Throwable t)
-            {
-                logger.error("Failed to stop async profiler.", t);
-            }
-
-            try
-            {
-                // we are not shutting down ScheduledExecutors#scheduledFastTasks to be still able to progress time
-                // fast-tasks executor is shut down in StorageService's shutdown hook added to Runtime
-                ExecutorUtils.shutdownNowAndWait(1, MINUTES,
-                                                 ScheduledExecutors.nonPeriodicTasks,
-                                                 ScheduledExecutors.scheduledTasks,
-                                                 ScheduledExecutors.optionalTasks);
-            }
-            finally
-            {
-                if (!isFinalShutdown)
-                    logger.info("{}", Mode.DRAINED);
-                else
-                    logger.debug("{}", Mode.DRAINED);
-                transientMode = Optional.of(Mode.DRAINED);
-            }
+            stopProfiler();
+            stopScheduledExecutorsForDrain(isFinalShutdown);
         }
         catch (Throwable t)
         {
@@ -4087,6 +4006,116 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             Throwable postShutdownHookThrowable = Throwables.perform(null, postShutdownHooks.stream().map(h -> h::run));
             if (postShutdownHookThrowable != null)
                 logger.error("Post-shutdown hooks returned exception", postShutdownHookThrowable);
+        }
+    }
+
+    private static void shutdownMessagingService()
+    {
+        try
+        {
+            MessagingService.instance().shutdown();
+        }
+        catch (Throwable t)
+        {
+            // prevent messaging service timing out shutdown from aborting
+            // drain process; otherwise drain and/or shutdown might throw
+            logger.error("Messaging service timed out shutting down", t);
+        }
+    }
+
+    private static void awaitAccordShutdown()
+    {
+        if (AccordService.isSetupOrStarting())
+        {
+            try
+            {
+                AccordService.unsafeInstance().shutdownAndWait(DatabaseDescriptor.getAccord().shutdown_grace_period.toDuration().toNanos(), NANOSECONDS);
+            }
+            catch (Throwable t)
+            {
+                logger.error("AccordService exception shutting down", t);
+            }
+        }
+    }
+
+    private List<Future<?>> flushNonSystemTablesForDrain()
+    {
+        // count CFs first, since forceFlush could block for the flushWriter to get a queue slot empty
+        totalCFs = 0;
+        for (Keyspace keyspace : Keyspace.nonLocalStrategy())
+            totalCFs += keyspace.getColumnFamilyStores().size();
+        remainingCFs = totalCFs;
+        // flush
+        List<Future<?>> flushes = new ArrayList<>();
+        for (Keyspace keyspace : Keyspace.nonLocalStrategy())
+        {
+            for (ColumnFamilyStore cfs : keyspace.getColumnFamilyStores())
+                flushes.add(cfs.forceFlush(ColumnFamilyStore.FlushReason.DRAIN));
+        }
+        // wait for the flushes.
+        // TODO this is a godawful way to track progress, since they flush in parallel.  a long one could
+        // thus make several short ones "instant" if we wait for them later.
+        for (Future f : flushes)
+        {
+            try
+            {
+                FBUtilities.waitOnFuture(f);
+            }
+            catch (Throwable t)
+            {
+                JVMStabilityInspector.inspectThrowable(t);
+                // don't let this stop us from shutting down the commitlog and other thread pools
+                logger.warn("Caught exception while waiting for memtable flushes during shutdown hook", t);
+            }
+
+            remainingCFs--;
+        }
+        return flushes;
+    }
+
+    private static void flushSystemTablesForDrain(List<Future<?>> flushes)
+    {
+        flushes.clear();
+        for (Keyspace keyspace : Keyspace.system())
+        {
+            for (ColumnFamilyStore cfs : keyspace.getColumnFamilyStores())
+                flushes.add(cfs.forceFlush(ColumnFamilyStore.FlushReason.DRAIN));
+        }
+        FBUtilities.waitOnFutures(flushes);
+    }
+
+    private static void stopProfiler()
+    {
+        try
+        {
+            // stop async profiler on shutdown in case a user
+            // did not stop it beforehand on their own
+            AsyncProfilerService.instance().stop(Map.of());
+        }
+        catch (Throwable t)
+        {
+            logger.error("Failed to stop async profiler.", t);
+        }
+    }
+
+    private void stopScheduledExecutorsForDrain(boolean isFinalShutdown) throws TimeoutException, InterruptedException
+    {
+        try
+        {
+            // we are not shutting down ScheduledExecutors#scheduledFastTasks to be still able to progress time
+            // fast-tasks executor is shut down in StorageService's shutdown hook added to Runtime
+            ExecutorUtils.shutdownNowAndWait(1, MINUTES,
+                                             ScheduledExecutors.nonPeriodicTasks,
+                                             ScheduledExecutors.scheduledTasks,
+                                             ScheduledExecutors.optionalTasks);
+        }
+        finally
+        {
+            if (!isFinalShutdown)
+                logger.info("{}", Mode.DRAINED);
+            else
+                logger.debug("{}", Mode.DRAINED);
+            transientMode = Optional.of(Mode.DRAINED);
         }
     }
 
@@ -4253,44 +4282,14 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         AbstractReplicationStrategy strategy;
         if (keyspace != null)
         {
-            if (isLocalSystemKeyspace(keyspace))
-                throw new IllegalStateException("Ownership values for keyspaces with LocalStrategy are meaningless");
-
-            KeyspaceMetadata keyspaceInstance = metadata.schema.getKeyspaces().getNullable(keyspace);
-            if (keyspaceInstance == null)
-                throw new IllegalArgumentException("The keyspace " + keyspace + ", does not exist");
-
-            if (keyspaceInstance.replicationStrategy instanceof LocalStrategy)
-                throw new IllegalStateException("Ownership values for keyspaces with LocalStrategy are meaningless");
+            KeyspaceMetadata keyspaceInstance = resolveOwnershipKeyspace(metadata, keyspace);
 
             strategy = keyspaceInstance.replicationStrategy;
             replicationParams = keyspaceInstance.params.replication;
         }
         else
         {
-            Set<String> userKeyspaces = metadata.schema.getKeyspaces()
-                                                       .without(SchemaConstants.REPLICATED_SYSTEM_KEYSPACE_NAMES)
-                                                       .names();
-
-            if (userKeyspaces.size() > 0)
-            {
-                keyspace = userKeyspaces.iterator().next();
-                AbstractReplicationStrategy replicationStrategy = Schema.instance.getKeyspaceInstance(keyspace).getReplicationStrategy();
-                for (String keyspaceName : userKeyspaces)
-                {
-                    if (!Schema.instance.getKeyspaceInstance(keyspaceName).getReplicationStrategy().hasSameSettings(replicationStrategy))
-                        throw new IllegalStateException("Non-system keyspaces don't have the same replication settings, effective ownership information is meaningless");
-                }
-            }
-
-            if (keyspace == null)
-            {
-                keyspace = "system_traces";
-            }
-
-            Keyspace keyspaceInstance = Schema.instance.getKeyspaceInstance(keyspace);
-            if (keyspaceInstance == null)
-                throw new IllegalStateException("The node does not have " + keyspace + " yet, probably still bootstrapping. Effective ownership information is meaningless.");
+            Keyspace keyspaceInstance = resolveDefaultOwnershipKeyspace(metadata);
             replicationParams = keyspaceInstance.getMetadata().params.replication;
             strategy = keyspaceInstance.getReplicationStrategy();
         }
@@ -4320,16 +4319,65 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             // calculate the ownership with replication and add the endpoint to the final ownership map
             for (InetAddressAndPort endpoint : endpoints)
             {
-                float ownership = 0.0f;
-                for (Replica replica : endpointToRanges.get(endpoint))
-                {
-                    if (tokenOwnership.containsKey(replica.range().right))
-                        ownership += tokenOwnership.get(replica.range().right);
-                }
+                float ownership = ownershipForReplicas(endpointToRanges.get(endpoint), tokenOwnership);
                 finalOwnership.put(endpoint, ownership);
             }
         }
         return finalOwnership;
+    }
+
+    private static KeyspaceMetadata resolveOwnershipKeyspace(ClusterMetadata metadata, String keyspace)
+    {
+        if (isLocalSystemKeyspace(keyspace))
+            throw new IllegalStateException("Ownership values for keyspaces with LocalStrategy are meaningless");
+
+        KeyspaceMetadata keyspaceInstance = metadata.schema.getKeyspaces().getNullable(keyspace);
+        if (keyspaceInstance == null)
+            throw new IllegalArgumentException("The keyspace " + keyspace + ", does not exist");
+
+        if (keyspaceInstance.replicationStrategy instanceof LocalStrategy)
+            throw new IllegalStateException("Ownership values for keyspaces with LocalStrategy are meaningless");
+        return keyspaceInstance;
+    }
+
+    private static Keyspace resolveDefaultOwnershipKeyspace(ClusterMetadata metadata)
+    {
+        String keyspace = null;
+        Set<String> userKeyspaces = metadata.schema.getKeyspaces()
+                                                   .without(SchemaConstants.REPLICATED_SYSTEM_KEYSPACE_NAMES)
+                                                   .names();
+
+        if (userKeyspaces.size() > 0)
+        {
+            keyspace = userKeyspaces.iterator().next();
+            AbstractReplicationStrategy replicationStrategy = Schema.instance.getKeyspaceInstance(keyspace).getReplicationStrategy();
+            for (String keyspaceName : userKeyspaces)
+            {
+                if (!Schema.instance.getKeyspaceInstance(keyspaceName).getReplicationStrategy().hasSameSettings(replicationStrategy))
+                    throw new IllegalStateException("Non-system keyspaces don't have the same replication settings, effective ownership information is meaningless");
+            }
+        }
+
+        if (keyspace == null)
+        {
+            keyspace = "system_traces";
+        }
+
+        Keyspace keyspaceInstance = Schema.instance.getKeyspaceInstance(keyspace);
+        if (keyspaceInstance == null)
+            throw new IllegalStateException("The node does not have " + keyspace + " yet, probably still bootstrapping. Effective ownership information is meaningless.");
+        return keyspaceInstance;
+    }
+
+    private static float ownershipForReplicas(Iterable<Replica> replicas, Map<Token, Float> tokenOwnership)
+    {
+        float ownership = 0.0f;
+        for (Replica replica : replicas)
+        {
+            if (tokenOwnership.containsKey(replica.range().right))
+                ownership += tokenOwnership.get(replica.range().right);
+        }
+        return ownership;
     }
 
     public LinkedHashMap<InetAddress, Float> effectiveOwnership(String keyspace) throws IllegalStateException

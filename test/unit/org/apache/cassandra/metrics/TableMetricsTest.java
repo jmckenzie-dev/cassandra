@@ -46,6 +46,8 @@ import static org.apache.cassandra.cql3.CQLTester.assertRowsContains;
 import static org.apache.cassandra.cql3.CQLTester.row;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.quicktheories.QuickTheory.qt;
+import static org.quicktheories.generators.SourceDSL.integers;
 
 public class TableMetricsTest
 {
@@ -194,6 +196,54 @@ public class TableMetricsTest
         assertRowsContains(cluster, session.execute("SELECT * FROM system_metrics.column_family_group"),
                 row("org.apache.cassandra.metrics.ColumnFamily.MaxSSTableDuration.junit.tablemetricstesttwcs", "junit.tablemetricstesttwcs", "gauge",
                         String.valueOf(cfs.metric.maxSSTableDuration.getValue())));
+    }
+
+    @Test
+    public void equivalentFlushedDataPreservesPartitionSizeMetrics()
+    {
+        String table = TABLE + "_partition_metrics_property";
+        qt().withFixedSeed(18424)
+            .withExamples(8)
+            .forAll(integers().between(1, 8), integers().between(0, 256))
+            .checkAssert((partitions, payloadSize) -> {
+                ColumnFamilyStore cfs = recreateTable(table);
+                cfs.disableAutoCompaction();
+                assertEquals(0, cfs.metric.minPartitionSize.getValue().longValue());
+                assertEquals(0, cfs.metric.maxPartitionSize.getValue().longValue());
+                assertEquals(0, cfs.metric.meanPartitionSize.getValue().longValue());
+                assertEquals(100.0, cfs.metric.percentRepaired.getValue(), 0.0);
+
+                PreparedStatement insert = session.prepare(String.format(
+                    "INSERT INTO %s.%s (id, val1, val2) VALUES (?, ?, ?) USING TIMESTAMP 1", KEYSPACE, table));
+                String payload = "v".repeat(payloadSize);
+                for (int key = 0; key < partitions; key++)
+                    session.execute(insert.bind(key, "row", payload));
+                assertTrue(cfs.metric.allMemtablesLiveDataSize.getValue() > 0);
+                cfs.forceBlockingFlush(ColumnFamilyStore.FlushReason.UNIT_TESTS);
+
+                long min = cfs.metric.minPartitionSize.getValue();
+                long max = cfs.metric.maxPartitionSize.getValue();
+                long mean = cfs.metric.meanPartitionSize.getValue();
+                long bytes = cfs.metric.bytesUnrepaired.getValue();
+                assertTrue(min > 0 && min <= mean && mean <= max);
+                assertTrue(bytes > 0);
+
+                // Fixed timestamps and equal-width keys make both SSTables the same size.
+                for (int key = partitions; key < 2 * partitions; key++)
+                    session.execute(insert.bind(key, "row", payload));
+                cfs.forceBlockingFlush(ColumnFamilyStore.FlushReason.UNIT_TESTS);
+
+                assertEquals(2, cfs.getLiveSSTables().size());
+                assertEquals(min, cfs.metric.minPartitionSize.getValue().longValue());
+                assertEquals(max, cfs.metric.maxPartitionSize.getValue().longValue());
+                assertEquals(mean, cfs.metric.meanPartitionSize.getValue().longValue());
+                assertEquals(2 * bytes, cfs.metric.bytesUnrepaired.getValue().longValue());
+                assertEquals(0, cfs.metric.bytesRepaired.getValue().longValue());
+                assertEquals(0, cfs.metric.bytesPendingRepair.getValue().longValue());
+                assertEquals(0.0, cfs.metric.percentRepaired.getValue(), 0.0);
+                assertEquals(0, cfs.metric.allMemtablesLiveDataSize.getValue().longValue());
+                assertEquals(2 * partitions, session.execute("SELECT * FROM " + KEYSPACE + '.' + table).all().size());
+            });
     }
 
     @Test

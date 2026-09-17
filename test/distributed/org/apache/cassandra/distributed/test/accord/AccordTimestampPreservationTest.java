@@ -49,11 +49,18 @@ import org.apache.cassandra.service.consensus.migration.ConsensusKeyMigrationSta
 import org.apache.cassandra.service.consensus.migration.ConsensusRequestRouter;
 
 import static java.lang.String.format;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.Util.spinAssertEquals;
 import static org.apache.cassandra.config.CassandraRelevantProperties.HINT_DISPATCH_INTERVAL_MS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_SEED;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ALL;
+import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
+import static org.apache.cassandra.distributed.shared.AssertUtils.row;
+import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
+import static org.quicktheories.QuickTheory.qt;
+import static org.quicktheories.generators.SourceDSL.integers;
 
 /*
  * Test that non-transactional updates have their timestamps preserved when written through Accord so that
@@ -183,6 +190,37 @@ public class AccordTimestampPreservationTest extends AccordTestBase
                 int instance = i;
                 spinAssertEquals(expectedResult, () -> cluster.get(instance).executeInternalWithResult(checkCQL()).toString(), 20);
             }
+        });
+    }
+
+    @Test
+    public void acknowledgedMixedBatchesPreserveValuesAndTimestamps() throws Exception
+    {
+        test(ImmutableList.of(format(NORMAL_TABLE_FMT, qualifiedRegularTableName), format(ACCORD_TABLE_FMT, qualifiedAccordTableName)), cluster -> {
+            qt().withFixedSeed(TEST_SEED.getLong(18424L)).withExamples(8)
+                .forAll(integers().between(1, 8), integers().between(-128, 127))
+                .checkAssert((keyIndex, value) -> {
+                    for (int coordinatorIndex = 1; coordinatorIndex <= cluster.size(); coordinatorIndex++)
+                    {
+                        for (int mode = 0; mode < 2; mode++)
+                        {
+                            int key = 10000 + ((keyIndex * 256 + value + 128) * cluster.size() + coordinatorIndex - 1) * 2 + mode;
+                            int regularKey = key + 100000;
+                            cluster.coordinator(coordinatorIndex).executeWithResult(batchInsert(mode == 0, key, regularKey, value), ALL);
+                            for (IInvokableInstance replica : cluster)
+                            {
+                                assertRows(replica.executeInternal("SELECT v, writetime(v) FROM " + qualifiedRegularTableName + " WHERE id = ? AND c = ?",
+                                                                   regularKey, CLUSTERING_VALUE),
+                                           row(value, TIMESTAMP));
+                                // Full Accord mode can finish before every replica applies the write.
+                                await().atMost(20, SECONDS).untilAsserted(() ->
+                                    assertRows(replica.executeInternal("SELECT v, writetime(v) FROM " + qualifiedAccordTableName + " WHERE id = ? AND c = ?",
+                                                                       key, CLUSTERING_VALUE),
+                                               row(value, TIMESTAMP)));
+                            }
+                        }
+                    }
+                });
         });
     }
 

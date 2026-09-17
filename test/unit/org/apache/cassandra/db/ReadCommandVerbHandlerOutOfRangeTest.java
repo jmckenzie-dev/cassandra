@@ -47,6 +47,7 @@ import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.tcm.ClusterMetadata;
+import org.apache.cassandra.tcm.Epoch;
 import org.apache.cassandra.tcm.membership.NodeState;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
@@ -58,7 +59,14 @@ import static org.apache.cassandra.distributed.test.log.ClusterMetadataTestHelpe
 import static org.apache.cassandra.distributed.test.log.ClusterMetadataTestHelper.randomInt;
 import static org.apache.cassandra.distributed.test.log.ClusterMetadataTestHelper.registerOutgoingMessageSink;
 import static org.apache.cassandra.net.Verb.READ_REQ;
+import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_SEED;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.quicktheories.QuickTheory.qt;
+import static org.quicktheories.generators.SourceDSL.integers;
 
 public class ReadCommandVerbHandlerOutOfRangeTest
 {
@@ -103,6 +111,59 @@ public class ReadCommandVerbHandlerOutOfRangeTest
     private static DecoratedKey key(TableMetadata metadata, int key)
     {
         return metadata.partitioner.decorateKey(ByteBufferUtil.bytes(key));
+    }
+
+    @Test
+    public void tokenOwnershipControlsSingleAndRangeRequests()
+    {
+        for (boolean range : new boolean[]{ false, true })
+        {
+            assertRouting(1, range, true);
+            assertRouting(100, range, true);
+            assertRouting(101, range, false);
+            assertRouting(250, range, false);
+        }
+        qt().withFixedSeed(TEST_SEED.getLong(18424L)).withExamples(32)
+            .forAll(integers().between(1, 100), integers().between(101, 250))
+            .checkAssert((owned, unowned) -> {
+                for (boolean range : new boolean[]{ false, true })
+                {
+                    assertRouting(owned, range, true);
+                    assertRouting(unowned, range, false);
+                }
+            });
+    }
+
+    private void assertRouting(int key, boolean range, boolean owned)
+    {
+        startingTotalMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
+        startingKeyspaceMetricCount = keyspaceMetricValue(cfs);
+        ListenableFuture<MessageDelivery> sink = registerOutgoingMessageSink();
+        int id = randomInt();
+        ReadCommand command = range ? rangeRead(key - 1, key) : partitionRead(key);
+        Message<ReadCommand> message = Message.builder(READ_REQ, command).from(node1).withId(id)
+                                             .withEpoch(ClusterMetadata.current().epoch).build();
+        assertTrue(message.epoch().isAfter(Epoch.EMPTY));
+        Throwable failure = catchThrowable(() -> handler.doVerb(message));
+        if (owned)
+        {
+            assertNull(failure);
+            try
+            {
+                getAndVerifyResponse(sink, id, false);
+            }
+            catch (Exception e)
+            {
+                throw new AssertionError("Owned read did not return its response", e);
+            }
+        }
+        else
+        {
+            assertNotNull(failure);
+            assertEquals(InvalidRoutingException.class, failure.getClass());
+            assertEquals(startingTotalMetricCount + 1, StorageMetrics.totalOpsForInvalidToken.getCount());
+            assertEquals(startingKeyspaceMetricCount + 1, keyspaceMetricValue(cfs));
+        }
     }
 
     @Test
@@ -234,7 +295,8 @@ public class ReadCommandVerbHandlerOutOfRangeTest
             this.tmd = tmd;
         }
 
-        public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController)
+        @Override
+        public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, int tombstonePagingThreshold)
         {
             return EmptyIterators.unfilteredPartition(tmd);
         }
@@ -268,7 +330,8 @@ public class ReadCommandVerbHandlerOutOfRangeTest
             this.cfm = tmd;
         }
 
-        public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController)
+        @Override
+        public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, int tombstonePagingThreshold)
         {
             return EmptyIterators.unfilteredPartition(cfm);
         }

@@ -1444,11 +1444,7 @@ public class StorageProxy implements StorageProxyMBean
         boolean attributeNonAccordLatency = true;
         long nonAccordEndTime = -1;
 
-        for (IMutation mutation : mutations)
-        {
-            if (Keyspace.open(mutation.getKeyspaceName()).getReplicationStrategy().hasTransientReplicas())
-                throw new AssertionError("Logged batches are unsupported with transient replication");
-        }
+        validateAtomicBatchReplicas(mutations);
 
         try
         {
@@ -1467,33 +1463,8 @@ public class StorageProxy implements StorageProxyMBean
                 BatchlogCleanup cleanup = new BatchlogCleanup(() -> asyncRemoveFromBatchlog(batchlogReplicaPlan, batchUUID, requestTime));
 
                 // add a handler for each mutation that will not be written on Accord - includes checking availability, but doesn't initiate any writes, yet
-                SplitConsumer<Mutation> splitConsumer = (accordMutation, normalMutation, originalMutations, mutationIndex) -> {
-                    Mutation eitherMutation = normalMutation != null ? normalMutation : accordMutation;
-                    Keyspace keyspace = Keyspace.open(eitherMutation.getKeyspaceName());
-                    Token tk = eitherMutation.key().getToken();
-
-                    if (accordMutation != null)
-                        accordMutations.add(accordMutation);
-
-                    if (normalMutation == null)
-                        return;
-
-                    // Always construct the replica plan to check availability
-                    ReplicaPlan.ForWrite dataReplicaPlan = ReplicaPlans.forWrite(cm, keyspace, consistencyLevel, tk, ReplicaPlans.writeNormal);
-
-                    if (dataReplicaPlan.lookup(FBUtilities.getBroadcastAddressAndPort()) != null)
-                        writeMetrics.localRequests.mark();
-                    else
-                        writeMetrics.remoteRequests.mark();
-
-                    WriteResponseHandlerWrapper wrapper = wrapBatchResponseHandler(normalMutation,
-                                                                                   dataReplicaPlan,
-                                                                                   batchConsistencyLevel,
-                                                                                   WriteType.BATCH,
-                                                                                   cleanup,
-                                                                                   requestTime);
-                    wrappers.add(wrapper);
-                };
+                SplitConsumer<Mutation> splitConsumer = batchMutationSplitter(cm, consistencyLevel, batchConsistencyLevel,
+                                                                              cleanup, requestTime, wrappers, accordMutations);
                 splitMutationsIntoAccordAndNormal(cm, mutations,  splitConsumer);
                 attributeNonAccordLatency = !wrappers.isEmpty();
                 cleanup.setMutationsWaitingFor(wrappers.size() + (accordMutations.isEmpty() ? 0 : 1));
@@ -1502,18 +1473,8 @@ public class StorageProxy implements StorageProxyMBean
                 // If the entire batch can execute on Accord then we can skip the batch log entirely
                 // Write to the batch log first in case it fails so we don't end up with Accord applying
                 // part of the batch independently
-                if (!wrappers.isEmpty() && !wroteToBatchLog)
-                {
-                    // write to the batchlog, including writes that will be routed to Accord to preserve the behavior
-                    // of the batch log where if part of a batch is visible then eventually the entire batch is visible.
-                    // If the Accord routed mutations depend on the Accord txn succeeding then it is no longer consistent
-                    // with the mutations delivered by the batch log since an unacknowledged Accord txn won't be retried
-                    // unless those mutations are also written to the batch log
-                    // Only write to the log once and reuse the batchUUID for every attempt to route the mutations correctly
-                    doFallibleWriteWithMetricTracking(() -> syncWriteToBatchlog(mutations, batchlogReplicaPlan, batchUUID, requestTime), consistencyLevel);
-                    Tracing.trace("Successfully wrote to batchlog");
-                    wroteToBatchLog = true;
-                }
+                wroteToBatchLog = writeBatchlogIfNeeded(mutations, wrappers, wroteToBatchLog, batchlogReplicaPlan,
+                                                       batchUUID, consistencyLevel, requestTime);
 
                 // Start Accord executing so it executes while the mutations are synchronously applied
                 IAccordResult<TxnResult> accordResult = !accordMutations.isEmpty() ? mutateWithAccordAsync(cm, accordMutations, consistencyLevel, requestTime, PreserveTimestamp.yes) : null;
@@ -1522,11 +1483,7 @@ public class StorageProxy implements StorageProxyMBean
                 try
                 {
                     // now actually perform the writes and wait for them to complete
-                    if (!wrappers.isEmpty())
-                    {
-                        doFallibleWriteWithMetricTracking(() -> syncWriteBatchedMutations(wrappers, Stage.MUTATION, requestTime), consistencyLevel);
-                        Tracing.trace("Successfully wrote normal mutations");
-                    }
+                    writeNormalBatch(wrappers, consistencyLevel, requestTime);
                 }
                 catch (RetryOnDifferentSystemException e)
                 {
@@ -1555,30 +1512,8 @@ public class StorageProxy implements StorageProxyMBean
                     nonAccordEndTime = nanoTime();
                 }
 
-                // Check if the Accord mutations succeeded asynchronously
-                try
-                {
-                    // It's notable here that the Accord portion of the batch will not be hinted
-                    // while the regular mutations are hinted on failure and also going to be replayed later from
-                    // the batch log. It wouldn't be difficult to add hinting here, but it does seem redundant with
-                    // the batch log.
-                    if (accordResult != null)
-                    {
-                        TxnResult result = accordResult.awaitAndGet();
-                        TxnResult.Kind kind = result.kind();
-                        if (kind == retry_new_protocol && failure == null)
-                            continue;
-                        TxnValidationRejection.maybeThrow(result);
-                        Tracing.trace("Successfully wrote Accord mutations");
-                        cleanup.ackMutation();
-                    }
-                }
-                catch (Exception e)
-                {
-                    failure = Throwables.merge(failure, e);
-                }
-                if (failure != null)
-                    throw unchecked(failure);
+                if (!completeAccordBatch(accordResult, cleanup, failure))
+                    continue;
                 break;
             }
         }
@@ -1592,13 +1527,131 @@ public class StorageProxy implements StorageProxyMBean
         {
             if (attributeNonAccordLatency)
             {
-                // On the exception path nonAccordEndTime will be -1
-                long latency = nonAccordEndTime != -1 ? nonAccordEndTime : nanoTime() - startTime;
-                writeMetrics.addNano(latency);
-                writeMetricsForLevel(consistencyLevel).addNano(latency);
-                updateCoordinatorWriteLatencyTableMetric(mutations, latency);
+                recordBatchWriteLatency(mutations, consistencyLevel, nonAccordEndTime, startTime);
             }
         }
+    }
+
+    private static void validateAtomicBatchReplicas(List<Mutation> mutations)
+    {
+        for (IMutation mutation : mutations)
+        {
+            if (Keyspace.open(mutation.getKeyspaceName()).getReplicationStrategy().hasTransientReplicas())
+                throw new AssertionError("Logged batches are unsupported with transient replication");
+        }
+    }
+
+    private static SplitConsumer<Mutation> batchMutationSplitter(ClusterMetadata cm,
+                                                                 ConsistencyLevel consistencyLevel,
+                                                                 ConsistencyLevel batchConsistencyLevel,
+                                                                 BatchlogCleanup cleanup,
+                                                                 Dispatcher.RequestTime requestTime,
+                                                                 List<WriteResponseHandlerWrapper> wrappers,
+                                                                 List<Mutation> accordMutations)
+    {
+        return (accordMutation, normalMutation, originalMutations, mutationIndex) -> {
+            Mutation eitherMutation = normalMutation != null ? normalMutation : accordMutation;
+            Keyspace keyspace = Keyspace.open(eitherMutation.getKeyspaceName());
+            Token tk = eitherMutation.key().getToken();
+
+            if (accordMutation != null)
+                accordMutations.add(accordMutation);
+
+            if (normalMutation == null)
+                return;
+
+            // Always construct the replica plan to check availability
+            ReplicaPlan.ForWrite dataReplicaPlan = ReplicaPlans.forWrite(cm, keyspace, consistencyLevel, tk, ReplicaPlans.writeNormal);
+
+            if (dataReplicaPlan.lookup(FBUtilities.getBroadcastAddressAndPort()) != null)
+                writeMetrics.localRequests.mark();
+            else
+                writeMetrics.remoteRequests.mark();
+
+            WriteResponseHandlerWrapper wrapper = wrapBatchResponseHandler(normalMutation,
+                                                                           dataReplicaPlan,
+                                                                           batchConsistencyLevel,
+                                                                           WriteType.BATCH,
+                                                                           cleanup,
+                                                                           requestTime);
+            wrappers.add(wrapper);
+        };
+    }
+
+    private static boolean writeBatchlogIfNeeded(List<Mutation> mutations,
+                                                List<WriteResponseHandlerWrapper> wrappers,
+                                                boolean wroteToBatchLog,
+                                                ReplicaPlan.ForWrite batchlogReplicaPlan,
+                                                TimeUUID batchUUID,
+                                                ConsistencyLevel consistencyLevel,
+                                                Dispatcher.RequestTime requestTime)
+    {
+        if (!wrappers.isEmpty() && !wroteToBatchLog)
+        {
+            // write to the batchlog, including writes that will be routed to Accord to preserve the behavior
+            // of the batch log where if part of a batch is visible then eventually the entire batch is visible.
+            // If the Accord routed mutations depend on the Accord txn succeeding then it is no longer consistent
+            // with the mutations delivered by the batch log since an unacknowledged Accord txn won't be retried
+            // unless those mutations are also written to the batch log
+            // Only write to the log once and reuse the batchUUID for every attempt to route the mutations correctly
+            doFallibleWriteWithMetricTracking(() -> syncWriteToBatchlog(mutations, batchlogReplicaPlan, batchUUID, requestTime), consistencyLevel);
+            Tracing.trace("Successfully wrote to batchlog");
+            wroteToBatchLog = true;
+        }
+        return wroteToBatchLog;
+    }
+
+    private static void writeNormalBatch(List<WriteResponseHandlerWrapper> wrappers,
+                                         ConsistencyLevel consistencyLevel,
+                                         Dispatcher.RequestTime requestTime)
+    {
+        if (!wrappers.isEmpty())
+        {
+            doFallibleWriteWithMetricTracking(() -> syncWriteBatchedMutations(wrappers, Stage.MUTATION, requestTime), consistencyLevel);
+            Tracing.trace("Successfully wrote normal mutations");
+        }
+    }
+
+    private static boolean completeAccordBatch(IAccordResult<TxnResult> accordResult,
+                                               BatchlogCleanup cleanup,
+                                               Throwable failure)
+    {
+        try
+        {
+            // It's notable here that the Accord portion of the batch will not be hinted
+            // while the regular mutations are hinted on failure and also going to be replayed later from
+            // the batch log. It wouldn't be difficult to add hinting here, but it does seem redundant with
+            // the batch log.
+            if (accordResult != null)
+            {
+                TxnResult result = accordResult.awaitAndGet();
+                TxnResult.Kind kind = result.kind();
+                if (kind == retry_new_protocol && failure == null)
+                    return false;
+                TxnValidationRejection.maybeThrow(result);
+                Tracing.trace("Successfully wrote Accord mutations");
+                cleanup.ackMutation();
+            }
+        }
+        catch (Exception e)
+        {
+            failure = Throwables.merge(failure, e);
+        }
+        if (failure != null)
+            throw unchecked(failure);
+        return true;
+    }
+
+    private static void recordBatchWriteLatency(List<Mutation> mutations,
+                                                ConsistencyLevel consistencyLevel,
+                                                long nonAccordEndTime,
+                                                long startTime)
+    {
+        // On the exception path nonAccordEndTime will be -1
+        long latency = nonAccordEndTime != -1 ? nonAccordEndTime : nanoTime() - startTime;
+        writeMetrics.addNano(latency);
+        writeMetricsForLevel(consistencyLevel).addNano(latency);
+        updateCoordinatorWriteLatencyTableMetric(mutations, latency);
     }
 
     private static void updateCoordinatorWriteLatencyTableMetric(Collection<? extends IMutation> mutations, long latency)
@@ -1856,60 +1909,40 @@ public class StorageProxy implements StorageProxyMBean
         {
             checkHintOverload(destination);
 
-            if (plan.isAlive(destination))
+            if (!plan.isAlive(destination))
             {
-                if (destination.isSelf())
-                {
-                    insertLocal = true;
-                    localReplica = destination;
-                }
-                else
-                {
-                    // belongs on a different server
-                    if (message == null)
-                    {
-                        message = Message.outWithFlag(MUTATION_REQ,
-                                                      mutation,
-                                                      requestTime,
-                                                      MessageFlag.CALL_BACK_ON_FAILURE);
-                    }
-
-                    String dc = DatabaseDescriptor.getLocator().location(destination.endpoint()).datacenter;
-
-                    // direct writes to local DC or old Cassandra versions
-                    // (1.1 knows how to forward old-style String message IDs; updated to int in 2.0)
-                    if (localDataCenter.equals(dc))
-                    {
-                        if (localDc == null)
-                            localDc = new ArrayList<>(plan.contacts().size());
-
-                        localDc.add(destination);
-                    }
-                    else
-                    {
-                        if (dcGroups == null)
-                            dcGroups = new HashMap<>();
-
-                        Collection<Replica> messages = dcGroups.get(dc);
-                        if (messages == null)
-                            messages = dcGroups.computeIfAbsent(dc, (v) -> new ArrayList<>(3)); // most DCs will have <= 3 replicas
-
-                        messages.add(destination);
-                    }
-                }
-            }
-            else
-            {
-                //Immediately mark the response as expired since the request will not be sent
+                // The request will not be sent, so expire its response before checking hints.
                 responseHandler.expired();
-                if (shouldHint(destination))
-                {
-                    if (endpointsToHint == null)
-                        endpointsToHint = new ArrayList<>();
-
-                    endpointsToHint.add(destination);
-                }
+                endpointsToHint = collectHintDestination(destination, endpointsToHint);
+                continue;
             }
+
+            if (destination.isSelf())
+            {
+                insertLocal = true;
+                localReplica = destination;
+                continue;
+            }
+
+            if (message == null)
+            {
+                message = Message.outWithFlag(MUTATION_REQ,
+                                              mutation,
+                                              requestTime,
+                                              MessageFlag.CALL_BACK_ON_FAILURE);
+            }
+
+            String dc = DatabaseDescriptor.getLocator().location(destination.endpoint()).datacenter;
+            if (localDataCenter.equals(dc))
+            {
+                if (localDc == null)
+                    localDc = new ArrayList<>(plan.contacts().size());
+
+                localDc.add(destination);
+                continue;
+            }
+
+            dcGroups = addToRemoteDcGroup(dcGroups, dc, destination);
         }
 
         if (endpointsToHint != null && requestTime.shouldSendHints())
@@ -1921,6 +1954,42 @@ public class StorageProxy implements StorageProxyMBean
             performLocally(stage, localReplica, mutation::apply, responseHandler, mutation, requestTime);
         }
 
+        sendGroupedWrites(mutation, message, localDc, dcGroups, responseHandler);
+    }
+
+    private static Collection<Replica> collectHintDestination(Replica destination, Collection<Replica> endpointsToHint)
+    {
+        if (!shouldHint(destination))
+            return endpointsToHint;
+
+        if (endpointsToHint == null)
+            endpointsToHint = new ArrayList<>();
+
+        endpointsToHint.add(destination);
+        return endpointsToHint;
+    }
+
+    private static Map<String, Collection<Replica>> addToRemoteDcGroup(Map<String, Collection<Replica>> dcGroups,
+                                                                      String dc,
+                                                                      Replica destination)
+    {
+        if (dcGroups == null)
+            dcGroups = new HashMap<>();
+
+        Collection<Replica> messages = dcGroups.get(dc);
+        if (messages == null)
+            messages = dcGroups.computeIfAbsent(dc, (v) -> new ArrayList<>(3));
+
+        messages.add(destination);
+        return dcGroups;
+    }
+
+    private static void sendGroupedWrites(Mutation mutation,
+                                          Message<Mutation> message,
+                                          Collection<Replica> localDc,
+                                          Map<String, Collection<Replica>> dcGroups,
+                                          AbstractWriteResponseHandler<IMutation> responseHandler)
+    {
         if (localDc != null)
         {
             for (Replica destination : localDc)
@@ -2460,11 +2529,7 @@ public class StorageProxy implements StorageProxyMBean
                 PartitionIterator normalPartitions = null;
                 try
                 {
-                    if (normalReads != null)
-                    {
-                        normalPartitions = readRegular(normalReads, consistencyLevel, coordinator, requestTime);
-                        Tracing.trace("Successfully executed normal reads");
-                    }
+                    normalPartitions = executeNormalReads(normalReads, consistencyLevel, coordinator, requestTime);
                 }
                 catch (RetryOnDifferentSystemException e)
                 {
@@ -2487,49 +2552,11 @@ public class StorageProxy implements StorageProxyMBean
                     failure = Throwables.merge(failure, e);
                 }
 
-                // Check if the Accord reads succeeded asynchronously
-                PartitionIterator accordPartitions = null;
-                try
-                {
-                    if (accordResult != null)
-                    {
-                        ConsensusAttemptResult consensusResult = getConsensusAttemptResultFromAsyncTxnResult(accordResult, accordReads.queries.size(), index -> group.queries.get(index).isReversed());
-                        if (consensusResult == RETRY_NEW_PROTOCOL)
-                        {
-                            readMetrics.retryDifferentSystem.mark();
-                            readMetricsForLevel(consistencyLevel).retryDifferentSystem.mark();
-                            Tracing.trace("Accord returned retry new protocol");
-                            logger.debug("Retrying reads on different system because some reads were misrouted according to Accord");
-                            continue;
-                        }
-                        Tracing.trace("Successfully executed Accord reads");
-                        accordPartitions = consensusResult.serialReadResult;
-                    }
-                }
-                catch (Exception e)
-                {
-                    failure = Throwables.merge(failure, e);
-                }
-
-                if (failure != null)
-                    throw unchecked(failure);
-
-                PartitionIterator resultIterator = null;
-                if (normalPartitions != null && (accordPartitions == null || !accordPartitions.hasNext()))
-                    resultIterator = normalPartitions;
-                else if ((normalPartitions == null || !normalPartitions.hasNext()) && accordPartitions != null)
-                    resultIterator = accordPartitions;
-                else
-                {
-                    // Merge into partition key order
-                    List<PartitionIterator> partitions = new ArrayList<>(group.queries.size());
-                    Iterator<RowIterator> mergeIterator = Iterators.mergeSorted(ImmutableList.of(normalPartitions, accordPartitions), Comparator.comparing(RowIterator::partitionKey));
-                    while (mergeIterator.hasNext())
-                    {
-                        partitions.add(singletonIterator(mergeIterator.next()));
-                    }
-                    resultIterator = PartitionIterators.concat(partitions);}
-                return maybeEnforceLimits(resultIterator, group);
+                ConsensusAttemptResult consensusResult = completeAccordReads(accordResult, accordReads, group, consistencyLevel, failure);
+                if (consensusResult == RETRY_NEW_PROTOCOL)
+                    continue;
+                PartitionIterator accordPartitions = consensusResult == null ? null : consensusResult.serialReadResult;
+                return maybeEnforceLimits(mergeReadResults(normalPartitions, accordPartitions, group), group);
             }
             catch (Exception t)
             {
@@ -2538,6 +2565,78 @@ public class StorageProxy implements StorageProxyMBean
                 throw t;
             }
         }
+    }
+
+    private static PartitionIterator executeNormalReads(SinglePartitionReadCommand.Group normalReads,
+                                                         ConsistencyLevel consistencyLevel,
+                                                         ReadCoordinator coordinator,
+                                                         Dispatcher.RequestTime requestTime)
+    {
+        if (normalReads != null)
+        {
+            PartitionIterator normalPartitions = readRegular(normalReads, consistencyLevel, coordinator, requestTime);
+            Tracing.trace("Successfully executed normal reads");
+            return normalPartitions;
+        }
+        return null;
+    }
+
+    /** Returns null for absent work; an Accord retry takes precedence over an earlier normal-read failure. */
+    private static ConsensusAttemptResult completeAccordReads(IAccordResult<TxnResult> accordResult,
+                                                               SinglePartitionReadCommand.Group accordReads,
+                                                               SinglePartitionReadCommand.Group group,
+                                                               ConsistencyLevel consistencyLevel,
+                                                               Throwable failure)
+    {
+        // Check if the Accord reads succeeded asynchronously
+        ConsensusAttemptResult consensusResult = null;
+        try
+        {
+            if (accordResult != null)
+            {
+                consensusResult = getConsensusAttemptResultFromAsyncTxnResult(accordResult, accordReads.queries.size(), index -> group.queries.get(index).isReversed());
+                if (consensusResult == RETRY_NEW_PROTOCOL)
+                {
+                    readMetrics.retryDifferentSystem.mark();
+                    readMetricsForLevel(consistencyLevel).retryDifferentSystem.mark();
+                    Tracing.trace("Accord returned retry new protocol");
+                    logger.debug("Retrying reads on different system because some reads were misrouted according to Accord");
+                    return consensusResult;
+                }
+                Tracing.trace("Successfully executed Accord reads");
+            }
+        }
+        catch (Exception e)
+        {
+            failure = Throwables.merge(failure, e);
+        }
+
+        if (failure != null)
+            throw unchecked(failure);
+        return consensusResult;
+    }
+
+    private static PartitionIterator mergeReadResults(PartitionIterator normalPartitions,
+                                                       PartitionIterator accordPartitions,
+                                                       SinglePartitionReadCommand.Group group)
+    {
+        PartitionIterator resultIterator = null;
+        if (normalPartitions != null && (accordPartitions == null || !accordPartitions.hasNext()))
+            resultIterator = normalPartitions;
+        else if ((normalPartitions == null || !normalPartitions.hasNext()) && accordPartitions != null)
+            resultIterator = accordPartitions;
+        else
+        {
+            // Merge into partition key order
+            List<PartitionIterator> partitions = new ArrayList<>(group.queries.size());
+            Iterator<RowIterator> mergeIterator = Iterators.mergeSorted(ImmutableList.of(normalPartitions, accordPartitions), Comparator.comparing(RowIterator::partitionKey));
+            while (mergeIterator.hasNext())
+            {
+                partitions.add(singletonIterator(mergeIterator.next()));
+            }
+            resultIterator = PartitionIterators.concat(partitions);
+        }
+        return resultIterator;
     }
 
     public static PartitionIterator maybeEnforceLimits(PartitionIterator iterator, SinglePartitionReadCommand.Group group)

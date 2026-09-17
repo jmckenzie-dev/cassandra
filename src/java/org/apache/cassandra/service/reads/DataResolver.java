@@ -386,96 +386,122 @@ public class DataResolver<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
             };
         }
 
-        return new UnfilteredPartitionIterators.MergeListener()
+        return new DiagnosticPartitionMergeListener(partitionListener, sources, repairedDataTracker);
+    }
+
+    /** Adds replica context to merge assertions and verifies repaired data on close. */
+    private class DiagnosticPartitionMergeListener implements UnfilteredPartitionIterators.MergeListener
+    {
+        private final UnfilteredPartitionIterators.MergeListener partitionListener;
+        private final P sources;
+        private final RepairedDataTracker repairedDataTracker;
+
+        private DiagnosticPartitionMergeListener(UnfilteredPartitionIterators.MergeListener partitionListener,
+                                                   P sources,
+                                                   RepairedDataTracker repairedDataTracker)
         {
-            public UnfilteredRowIterators.MergeListener getRowMergeListener(DecoratedKey partitionKey, List<UnfilteredRowIterator> versions)
+            this.partitionListener = partitionListener;
+            this.sources = sources;
+            this.repairedDataTracker = repairedDataTracker;
+        }
+
+        public UnfilteredRowIterators.MergeListener getRowMergeListener(DecoratedKey partitionKey, List<UnfilteredRowIterator> versions)
+        {
+            UnfilteredRowIterators.MergeListener rowListener = partitionListener.getRowMergeListener(partitionKey, versions);
+            return new DiagnosticRowMergeListener(partitionKey, rowListener);
+        }
+
+        public void close()
+        {
+            partitionListener.close();
+            if (repairedDataTracker != null)
+                repairedDataTracker.verify();
+        }
+
+        private class DiagnosticRowMergeListener implements UnfilteredRowIterators.MergeListener
+        {
+            private final DecoratedKey partitionKey;
+            private final UnfilteredRowIterators.MergeListener rowListener;
+
+            private DiagnosticRowMergeListener(DecoratedKey partitionKey, UnfilteredRowIterators.MergeListener rowListener)
             {
-                UnfilteredRowIterators.MergeListener rowListener = partitionListener.getRowMergeListener(partitionKey, versions);
+                this.partitionKey = partitionKey;
+                this.rowListener = rowListener;
+            }
 
-                return new UnfilteredRowIterators.MergeListener()
+            public void onMergedPartitionLevelDeletion(DeletionTime mergedDeletion, DeletionTime[] versions)
+            {
+                try
                 {
-                    public void onMergedPartitionLevelDeletion(DeletionTime mergedDeletion, DeletionTime[] versions)
-                    {
-                        try
-                        {
-                            rowListener.onMergedPartitionLevelDeletion(mergedDeletion, versions);
-                        }
-                        catch (AssertionError e)
-                        {
-                            // The following can be pretty verbose, but it's really only triggered if a bug happen, so we'd
-                            // rather get more info to debug than not.
-                            TableMetadata table = command.metadata();
-                            String details = String.format("Error merging partition level deletion on %s: merged=%s, versions=%s, sources={%s}, debug info:%n %s",
-                                                           table,
-                                                           mergedDeletion == null ? "null" : mergedDeletion.toString(),
-                                                           '[' + Joiner.on(", ").join(transform(Arrays.asList(versions), rt -> rt == null ? "null" : rt.toString())) + ']',
-                                                           sources.contacts(),
-                                                           makeResponsesDebugString(partitionKey));
-                            throw new AssertionError(details, e);
-                        }
-                    }
+                    rowListener.onMergedPartitionLevelDeletion(mergedDeletion, versions);
+                }
+                catch (AssertionError e)
+                {
+                    // The following can be pretty verbose, but it's really only triggered if a bug happen, so we'd
+                    // rather get more info to debug than not.
+                    TableMetadata table = command.metadata();
+                    String details = String.format("Error merging partition level deletion on %s: merged=%s, versions=%s, sources={%s}, debug info:%n %s",
+                                                   table,
+                                                   mergedDeletion == null ? "null" : mergedDeletion.toString(),
+                                                   '[' + Joiner.on(", ").join(transform(Arrays.asList(versions), rt -> rt == null ? "null" : rt.toString())) + ']',
+                                                   sources.contacts(),
+                                                   makeResponsesDebugString(partitionKey));
+                    throw new AssertionError(details, e);
+                }
+            }
 
-                    public void onMergedRows(Row merged, Row[] versions)
-                    {
-                        try
-                        {
-                            rowListener.onMergedRows(merged, versions);
-                        }
-                        catch (AssertionError e)
-                        {
-                            // The following can be pretty verbose, but it's really only triggered if a bug happen, so we'd
-                            // rather get more info to debug than not.
-                            TableMetadata table = command.metadata();
-                            String details = String.format("Error merging rows on %s: merged=%s, versions=%s, sources={%s}, debug info:%n %s",
-                                                           table,
-                                                           merged == null ? "null" : merged.toString(table),
-                                                           '[' + Joiner.on(", ").join(transform(Arrays.asList(versions), rt -> rt == null ? "null" : rt.toString(table))) + ']',
-                                                           sources.contacts(),
-                                                           makeResponsesDebugString(partitionKey));
-                            throw new AssertionError(details, e);
-                        }
-                    }
+            public void onMergedRows(Row merged, Row[] versions)
+            {
+                try
+                {
+                    rowListener.onMergedRows(merged, versions);
+                }
+                catch (AssertionError e)
+                {
+                    // The following can be pretty verbose, but it's really only triggered if a bug happen, so we'd
+                    // rather get more info to debug than not.
+                    TableMetadata table = command.metadata();
+                    String details = String.format("Error merging rows on %s: merged=%s, versions=%s, sources={%s}, debug info:%n %s",
+                                                   table,
+                                                   merged == null ? "null" : merged.toString(table),
+                                                   '[' + Joiner.on(", ").join(transform(Arrays.asList(versions), rt -> rt == null ? "null" : rt.toString(table))) + ']',
+                                                   sources.contacts(),
+                                                   makeResponsesDebugString(partitionKey));
+                    throw new AssertionError(details, e);
+                }
+            }
 
-                    public void onMergedRangeTombstoneMarkers(RangeTombstoneMarker merged, RangeTombstoneMarker[] versions)
-                    {
-                        try
-                        {
-                            // The code for merging range tombstones is a tad complex, and we had the assertions there triggered
-                            // unexpectedly in a few occasions (CASSANDRA-13237, CASSANDRA-13719). It's hard to get insights
-                            // when that happen without more context that what the assertion errors give us however, hence the
-                            // catch here that basically gather as much as context as reasonable.
-                            rowListener.onMergedRangeTombstoneMarkers(merged, versions);
-                        }
-                        catch (AssertionError e)
-                        {
+            public void onMergedRangeTombstoneMarkers(RangeTombstoneMarker merged, RangeTombstoneMarker[] versions)
+            {
+                try
+                {
+                    // The code for merging range tombstones is a tad complex, and we had the assertions there triggered
+                    // unexpectedly in a few occasions (CASSANDRA-13237, CASSANDRA-13719). It's hard to get insights
+                    // when that happen without more context that what the assertion errors give us however, hence the
+                    // catch here that basically gather as much as context as reasonable.
+                    rowListener.onMergedRangeTombstoneMarkers(merged, versions);
+                }
+                catch (AssertionError e)
+                {
 
-                            // The following can be pretty verbose, but it's really only triggered if a bug happen, so we'd
-                            // rather get more info to debug than not.
-                            TableMetadata table = command.metadata();
-                            String details = String.format("Error merging RTs on %s: merged=%s, versions=%s, sources={%s}, debug info:%n %s",
-                                                           table,
-                                                           merged == null ? "null" : merged.toString(table),
-                                                           '[' + Joiner.on(", ").join(transform(Arrays.asList(versions), rt -> rt == null ? "null" : rt.toString(table))) + ']',
-                                                           sources.contacts(),
-                                                           makeResponsesDebugString(partitionKey));
-                            throw new AssertionError(details, e);
-                        }
+                    // The following can be pretty verbose, but it's really only triggered if a bug happen, so we'd
+                    // rather get more info to debug than not.
+                    TableMetadata table = command.metadata();
+                    String details = String.format("Error merging RTs on %s: merged=%s, versions=%s, sources={%s}, debug info:%n %s",
+                                                   table,
+                                                   merged == null ? "null" : merged.toString(table),
+                                                   '[' + Joiner.on(", ").join(transform(Arrays.asList(versions), rt -> rt == null ? "null" : rt.toString(table))) + ']',
+                                                   sources.contacts(),
+                                                   makeResponsesDebugString(partitionKey));
+                    throw new AssertionError(details, e);
+                }
 
-                    }
-
-                    public void close()
-                    {
-                        rowListener.close();
-                    }
-                };
             }
 
             public void close()
             {
-                partitionListener.close();
-                if (repairedDataTracker != null)
-                    repairedDataTracker.verify();
+                rowListener.close();
             }
-        };
+        }
     }
 }

@@ -621,6 +621,63 @@ public class DatabaseDescriptor
 
         validateUpperBoundStreamingConfig();
 
+        applyAutoSnapshotTtl();
+        applyCommitLogSync();
+        applyAccordJournalDefaults();
+        applyReadDiskAccessModes();
+        validateReadAndWriteConcurrency();
+        applyMemoryDefaults();
+        applyRepairSessionLimits();
+        validateReadTimeoutsAndSizes();
+        applyStorageDirectoryLocations();
+        applyNativeRequestLimits();
+        applyCommitLogSpace();
+        applyCdcDefaults();
+        applyDataDirectoryDefaults();
+        validateDataDirectories();
+        validateLocalSystemDirectory();
+        validateAuxiliaryDirectories();
+
+        initializeBackgroundWriteDiskAccessMode();
+
+        applyMemtableFlushOptions();
+        applyConcurrencyAndTokenOptions();
+        applyPreparedStatementCacheSize();
+        applyKeyCacheSize();
+        applyCounterCacheSize();
+        applyPaxosCacheSize();
+        applyAccordCacheSize();
+        applyAccordWorkingSetSize();
+        applyConsensusMigrationCacheSize();
+        applyCounterCacheAndIndexSummarySettings();
+        validateUdfOptions();
+        applyMutationSizeLimits();
+        applyNativeMessageSize();
+        applyClientEncryptionAndJmxOptions();
+        validateSnapshotAndValueLimits();
+        applyDiskOptimization();
+        applyServerEncryptionOptions();
+        applyInternodeMessageSize();
+        applyReplicationAndPaxosOptions();
+
+        logInitializationOutcome(logger);
+
+        validateCompactionAndHeapLimits();
+        validateProgressBarrierConsistency();
+        validateNativeTransportBackoff();
+
+        if (conf.use_deterministic_table_id)
+            logger.warn("use_deterministic_table_id is no longer supported and should be removed from cassandra.yaml.");
+
+        // run audit logging options through sanitation and validation
+        if (conf.audit_logging_options != null)
+            setAuditLoggingOptions(conf.audit_logging_options);
+
+        validateGCLogThresholds();
+    }
+
+    private static void applyAutoSnapshotTtl()
+    {
         if (conf.auto_snapshot_ttl != null)
         {
             try
@@ -632,7 +689,10 @@ public class DatabaseDescriptor
                 throw new ConfigurationException("Invalid value of auto_snapshot_ttl: " + conf.auto_snapshot_ttl, false);
             }
         }
+    }
 
+    private static void applyCommitLogSync()
+    {
         if (conf.commitlog_sync == null)
         {
             throw new ConfigurationException("Missing required directive CommitLogSync", false);
@@ -666,7 +726,10 @@ public class DatabaseDescriptor
             }
             logger.debug("Syncing log with a period of {}", conf.commitlog_sync_period.toString());
         }
+    }
 
+    private static void applyAccordJournalDefaults()
+    {
         if (conf.accord.journal.flushPeriod == null)
         {
             conf.accord.journal.flushPeriod = conf.commitlog_sync_period;
@@ -679,7 +742,10 @@ public class DatabaseDescriptor
 
         if (conf.accord.durability_flush_interval == null)
             conf.accord.durability_flush_interval = conf.accord.shard_durability_cycle;
+    }
 
+    private static void applyReadDiskAccessModes()
+    {
         /* evaluate the DiskAccessMode Config directive, which also affects indexAccessMode selection */
         if (conf.disk_access_mode == DiskAccessMode.auto || conf.disk_access_mode == DiskAccessMode.mmap_index_only)
         {
@@ -715,7 +781,10 @@ public class DatabaseDescriptor
                                                "(options: direct/auto) " + conf.compaction_read_disk_access_mode);
         }
         logger.info("compaction_read_disk_access_mode resolved to: {}", compactionReadDiskAccessMode);
+    }
 
+    private static void validateReadAndWriteConcurrency()
+    {
         /* phi convict threshold for FailureDetector */
         if (conf.phi_convict_threshold < 5 || conf.phi_convict_threshold > 16)
         {
@@ -735,7 +804,10 @@ public class DatabaseDescriptor
 
         if (conf.concurrent_counter_writes < 2)
             throw new ConfigurationException("concurrent_counter_writes must be at least 2, but was " + conf.concurrent_counter_writes, false);
+    }
 
+    private static void applyMemoryDefaults()
+    {
         if (conf.networking_cache_size == null)
             conf.networking_cache_size = new DataStorageSpec.IntMebibytesBound(Math.min(128, (int) (Runtime.getRuntime().maxMemory() / (16 * 1048576))));
 
@@ -747,7 +819,10 @@ public class DatabaseDescriptor
             conf.file_cache_round_up = conf.disk_optimization_strategy == Config.DiskOptimizationStrategy.spinning;
 
         applyMemtableSpace(conf);
+    }
 
+    private static void applyRepairSessionLimits()
+    {
         if (conf.repair_session_max_tree_depth != null)
         {
             logger.warn("repair_session_max_tree_depth has been deprecated and should be removed from cassandra.yaml. Use repair_session_space instead");
@@ -768,7 +843,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException("repair_session_space must be > 0, but was " + conf.repair_session_space);
         else if (conf.repair_session_space.toMebibytes() > (int) (Runtime.getRuntime().maxMemory() / (4 * 1048576)))
             logger.warn("A repair_session_space of " + conf.repair_session_space + " mebibytes is likely to cause heap pressure");
+    }
 
+    private static void validateReadTimeoutsAndSizes()
+    {
         checkForLowestAcceptedTimeouts(conf);
 
         long valueInBytes = conf.native_transport_max_frame_size.toBytes();
@@ -784,7 +862,10 @@ public class DatabaseDescriptor
             checkValidForByteConversion(conf.column_index_size, "column_index_size");
         checkValidForByteConversion(conf.column_index_cache_size, "column_index_cache_size");
         checkValidForByteConversion(conf.batch_size_warn_threshold, "batch_size_warn_threshold");
+    }
 
+    private static void applyStorageDirectoryLocations()
+    {
         // if data dirs, commitlog dir, or saved caches dir are set in cassandra.yaml, use that.  Otherwise,
         // use -Dcassandra.storagedir (set in cassandra-env.sh) as the parent dir for data/, commitlog/, and saved_caches/
         if (conf.commitlog_directory == null)
@@ -805,7 +886,10 @@ public class DatabaseDescriptor
         {
             conf.hints_directory = storagedirFor("hints");
         }
+    }
 
+    private static void applyNativeRequestLimits()
+    {
         if (conf.native_transport_max_request_data_in_flight == null)
         {
             conf.native_transport_max_request_data_in_flight = new DataStorageSpec.LongBytesBound(Runtime.getRuntime().maxMemory() / 10);
@@ -820,7 +904,10 @@ public class DatabaseDescriptor
             logger.info("Native transport rate-limiting enabled at {} requests/second.", conf.native_transport_max_requests_per_second);
         else
             logger.info("Native transport rate-limiting disabled.");
+    }
 
+    private static void applyCommitLogSpace()
+    {
         if (conf.commitlog_total_space == null)
         {
             final int preferredSizeInMiB = 8192;
@@ -833,7 +920,10 @@ public class DatabaseDescriptor
                                                                totalSpaceInBytes, 1, 4);
             conf.commitlog_total_space = new DataStorageSpec.IntMebibytesBound(defaultSpaceInMiB);
         }
+    }
 
+    private static void applyCdcDefaults()
+    {
         if (conf.cdc_enabled)
         {
             if (conf.cdc_raw_directory == null)
@@ -856,7 +946,10 @@ public class DatabaseDescriptor
 
             logger.info("cdc_enabled is true. Starting casssandra node with Change-Data-Capture enabled.");
         }
+    }
 
+    private static void applyDataDirectoryDefaults()
+    {
         if (conf.saved_caches_directory == null)
         {
             conf.saved_caches_directory = storagedirFor("saved_caches");
@@ -865,7 +958,10 @@ public class DatabaseDescriptor
         {
             conf.data_file_directories = new String[]{ storagedir("data_file_directories") + File.pathSeparator() + "data" };
         }
+    }
 
+    private static void validateDataDirectories()
+    {
         long dataFreeBytes = 0;
         /* data file and commit log directories. they get created later, when they're needed. */
         for (String datadir : conf.data_file_directories)
@@ -888,7 +984,10 @@ public class DatabaseDescriptor
         if (dataFreeBytes < 64 * ONE_GIB) // 64 GB
             logger.warn("Only {} free across all data volumes. Consider adding more capacity to your cluster or removing obsolete snapshots",
                         FBUtilities.prettyPrintMemory(dataFreeBytes));
+    }
 
+    private static void validateLocalSystemDirectory()
+    {
         if (conf.local_system_data_file_directory != null)
         {
             if (conf.local_system_data_file_directory.equals(conf.commitlog_directory))
@@ -906,7 +1005,10 @@ public class DatabaseDescriptor
                 logger.warn("Only {} free in the system data volume. Consider adding more capacity or removing obsolete snapshots",
                             FBUtilities.prettyPrintMemory(freeBytes));
         }
+    }
 
+    private static void validateAuxiliaryDirectories()
+    {
         if (conf.commitlog_directory.equals(conf.accord.journal_directory))
             throw new ConfigurationException("accord.journal_directory must not be the same as the commitlog_directory", false);
         if (conf.commitlog_directory.equals(conf.hints_directory))
@@ -921,9 +1023,10 @@ public class DatabaseDescriptor
 
         if (conf.hints_directory.equals(conf.saved_caches_directory))
             throw new ConfigurationException("saved_caches_directory must not be the same as the hints_directory", false);
+    }
 
-        initializeBackgroundWriteDiskAccessMode();
-
+    private static void applyMemtableFlushOptions()
+    {
         if (conf.memtable_flush_writers == 0)
         {
             conf.memtable_flush_writers = conf.data_file_directories.length == 1 ? 2 : 1;
@@ -947,7 +1050,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException("memtable_cleanup_threshold must be <= 0.99, but was " + conf.memtable_cleanup_threshold, false);
         if (conf.memtable_cleanup_threshold < 0.1f)
             logger.warn("memtable_cleanup_threshold is set very low [{}], which may cause performance degradation", conf.memtable_cleanup_threshold);
+    }
 
+    private static void applyConcurrencyAndTokenOptions()
+    {
         if (conf.concurrent_compactors == null)
             conf.concurrent_compactors = Math.min(8, Math.max(2, Math.min(FBUtilities.getAvailableProcessors(), conf.data_file_directories.length)));
 
@@ -963,7 +1069,10 @@ public class DatabaseDescriptor
 
         if (conf.num_tokens != null && conf.num_tokens > MAX_NUM_TOKENS)
             throw new ConfigurationException(String.format("A maximum number of %d tokens per node is supported", MAX_NUM_TOKENS), false);
+    }
 
+    private static void applyPreparedStatementCacheSize()
+    {
         try
         {
             // if prepared_statements_cache_size option was set to "auto" then size of the cache should be "max(1/256 of Heap (in MiB), 10MiB)"
@@ -982,7 +1091,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException("prepared_statements_cache_size option was set incorrectly to '"
                                              + (conf.prepared_statements_cache_size != null ? conf.prepared_statements_cache_size.toString() : null) + "', supported values are <integer> >= 0.", false);
         }
+    }
 
+    private static void applyKeyCacheSize()
+    {
         try
         {
             // if key_cache_size option was set to "auto" then size of the cache should be "min(5% of Heap (in MiB), 100MiB)
@@ -1001,7 +1113,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException("key_cache_size option was set incorrectly to '"
                                              + (conf.key_cache_size != null ? conf.key_cache_size.toString() : null) + "', supported values are <integer> >= 0.", false);
         }
+    }
 
+    private static void applyCounterCacheSize()
+    {
         try
         {
             // if counter_cache_size option was set to "auto" then size of the cache should be "min(2.5% of Heap (in MiB), 50MiB)
@@ -1017,7 +1132,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException("counter_cache_size option was set incorrectly to '"
                                              + (conf.counter_cache_size != null ? conf.counter_cache_size.toString() : null) + "', supported values are <integer> >= 0.", false);
         }
+    }
 
+    private static void applyPaxosCacheSize()
+    {
         try
         {
             // if paxosCacheSizeInMiB option was set to "auto" then size of the cache should be "min(1% of Heap (in MB), 50MB)
@@ -1033,7 +1151,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException("paxos_cache_size option was set incorrectly to '"
                                              + conf.paxos_cache_size + "', supported values are <integer> >= 0.", false);
         }
+    }
 
+    private static void applyAccordCacheSize()
+    {
         try
         {
             // if accordCacheSizeInMiB option was set to "auto" then size of the cache should be "max(10% of Heap (in MB), 1MB)
@@ -1049,7 +1170,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException("accord.cache_size option was set incorrectly to '"
                                              + conf.accord.cache_size + "', supported values are <integer> >= 0.", false);
         }
+    }
 
+    private static void applyAccordWorkingSetSize()
+    {
         try
         {
             // if accordWorkingSetSizeInMiB option was set to "auto" then size of the working set should be "max(5% of Heap (in MB), 1MB)
@@ -1063,7 +1187,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException("accord.working_set_size option was set incorrectly to '"
                                              + conf.accord.working_set_size + "', supported values are <integer> >= 0.", false);
         }
+    }
 
+    private static void applyConsensusMigrationCacheSize()
+    {
         try
         {
             // if consensusMigrationCacheSizeInMiB option was set to "auto" then size of the cache should be "min(1% of Heap (in MB), 50MB)
@@ -1079,7 +1206,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException("consensus_migration_cache_size option was set incorrectly to '"
                                              + conf.consensus_migration_cache_size + "', supported values are <integer> >= 0.", false);
         }
+    }
 
+    private static void applyCounterCacheAndIndexSummarySettings()
+    {
         // we need this assignment for the Settings virtual table - CASSANDRA-17735
         conf.counter_cache_size = new DataStorageSpec.LongMebibytesBound(counterCacheSizeInMiB);
 
@@ -1094,7 +1224,10 @@ public class DatabaseDescriptor
 
         // we need this assignment for the Settings virtual table - CASSANDRA-17735
         conf.index_summary_capacity = new DataStorageSpec.LongMebibytesBound(indexSummaryCapacityInMiB);
+    }
 
+    private static void validateUdfOptions()
+    {
         if (conf.user_defined_functions_fail_timeout.toMilliseconds() < conf.user_defined_functions_warn_timeout.toMilliseconds())
             throw new ConfigurationException("user_defined_functions_warn_timeout must less than user_defined_function_fail_timeout", false);
 
@@ -1107,7 +1240,10 @@ public class DatabaseDescriptor
         if (conf.scripted_user_defined_functions_enabled)
             throw new ConfigurationException("JavaScript user-defined functions were removed in CASSANDRA-18252. " +
                                              "Hooks are planned to be introduced as part of CASSANDRA-17280");
+    }
 
+    private static void applyMutationSizeLimits()
+    {
         if (conf.commitlog_segment_size.toMebibytes() == 0)
             throw new ConfigurationException("commitlog_segment_size must be positive, but was "
                                              + conf.commitlog_segment_size.toString(), false);
@@ -1119,7 +1255,10 @@ public class DatabaseDescriptor
             conf.max_mutation_size = new DataStorageSpec.IntKibibytesBound(conf.commitlog_segment_size.toKibibytes() / 2);
         else if (conf.commitlog_segment_size.toKibibytes() < 2 * conf.max_mutation_size.toKibibytes())
             throw new ConfigurationException("commitlog_segment_size must be at least twice the size of max_mutation_size / 1024", false);
+    }
 
+    private static void applyNativeMessageSize()
+    {
         if (conf.native_transport_max_message_size == null)
         {
             conf.native_transport_max_message_size = new DataStorageSpec.LongBytesBound(calculateDefaultNativeTransportMaxMessageSizeInBytes());
@@ -1136,7 +1275,10 @@ public class DatabaseDescriptor
 
         }
         nativeTransportMaxMessageSizeInBytes = conf.native_transport_max_message_size.toBytes();
+    }
 
+    private static void applyClientEncryptionAndJmxOptions()
+    {
         // native transport encryption options
         if (conf.client_encryption_options != null)
             conf.client_encryption_options.applyConfig();
@@ -1154,7 +1296,10 @@ public class DatabaseDescriptor
         }
 
         conf.jmx_server_options.jmx_encryption_options.applyConfig();
+    }
 
+    private static void validateSnapshotAndValueLimits()
+    {
         if (conf.snapshot_links_per_second < 0)
             throw new ConfigurationException("snapshot_links_per_second must be >= 0");
 
@@ -1163,7 +1308,10 @@ public class DatabaseDescriptor
         else if (conf.max_value_size.toMebibytes() >= 2048)
             throw new ConfigurationException("max_value_size must be smaller than 2048, but was "
                                              + conf.max_value_size.toString(), false);
+    }
 
+    private static void applyDiskOptimization()
+    {
         switch (conf.disk_optimization_strategy)
         {
             case ssd:
@@ -1176,7 +1324,10 @@ public class DatabaseDescriptor
 
         if (conf.compressed_read_ahead_buffer_size.toKibibytes() > 0 && conf.compressed_read_ahead_buffer_size.toKibibytes() < 256)
             throw new ConfigurationException("compressed_read_ahead_buffer_size must be at least 256KiB (set to 0 to disable), but was " + conf.compressed_read_ahead_buffer_size, false);
+    }
 
+    private static void applyServerEncryptionOptions()
+    {
         if (conf.server_encryption_options != null)
         {
             conf.server_encryption_options.applyConfig();
@@ -1187,7 +1338,10 @@ public class DatabaseDescriptor
                 throw new ConfigurationException("legacy_ssl_storage_port_enabled is true (enabled) with internode encryption disabled (none). Enable encryption or disable the legacy ssl storage port.");
             }
         }
+    }
 
+    private static void applyInternodeMessageSize()
+    {
         if (conf.internode_max_message_size != null)
         {
             long maxMessageSize = conf.internode_max_message_size.toBytes();
@@ -1212,7 +1366,10 @@ public class DatabaseDescriptor
 
             conf.internode_max_message_size = new DataStorageSpec.IntBytesBound(maxMessageSizeInBytes);
         }
+    }
 
+    private static void applyReplicationAndPaxosOptions()
+    {
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
 
         if (conf.default_keyspace_rf < conf.minimum_replication_factor_fail_threshold)
@@ -1227,9 +1384,10 @@ public class DatabaseDescriptor
         Paxos.setPaxosVariant(conf.paxos_variant);
         if (conf.paxos_state_purging == null)
             conf.paxos_state_purging = PaxosStatePurging.legacy;
+    }
 
-        logInitializationOutcome(logger);
-
+    private static void validateCompactionAndHeapLimits()
+    {
         if (conf.max_space_usable_for_compactions_in_percentage < 0 || conf.max_space_usable_for_compactions_in_percentage > 1)
             throw new ConfigurationException("max_space_usable_for_compactions_in_percentage must be between 0 and 1", false);
 
@@ -1237,7 +1395,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException(String.format("Invalid configuration. Heap dump is enabled but cannot create heap dump output path: %s.", conf.heap_dump_path != null ? conf.heap_dump_path : "null"));
 
         conf.sai_options.validate();
+    }
 
+    private static void validateProgressBarrierConsistency()
+    {
         List<ConsistencyLevel> progressBarrierCLsArr = Arrays.asList(ALL, EACH_QUORUM, LOCAL_QUORUM, QUORUM, ONE, NODE_LOCAL);
         Set<ConsistencyLevel> progressBarrierCls = new HashSet<>(progressBarrierCLsArr);
         if (!progressBarrierCls.contains(conf.progress_barrier_min_consistency_level))
@@ -1251,7 +1412,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException(String.format("Invalid value for.progress_barrier_default_consistency_level %s. Allowed values: %s",
                                                            conf.progress_barrier_default_consistency_level, progressBarrierCLsArr));
         }
+    }
 
+    private static void validateNativeTransportBackoff()
+    {
         if (conf.native_transport_min_backoff_on_queue_overload.toMilliseconds() <= 0)
             throw new ConfigurationException(" be positive");
 
@@ -1259,14 +1423,10 @@ public class DatabaseDescriptor
             throw new ConfigurationException(String.format("native_transport_min_backoff_on_queue_overload should be strictly less than native_transport_max_backoff_on_queue_overload, but %s >= %s",
                                                            conf.native_transport_min_backoff_on_queue_overload,
                                                            conf.native_transport_max_backoff_on_queue_overload));
+    }
 
-        if (conf.use_deterministic_table_id)
-            logger.warn("use_deterministic_table_id is no longer supported and should be removed from cassandra.yaml.");
-
-        // run audit logging options through sanitation and validation
-        if (conf.audit_logging_options != null)
-            setAuditLoggingOptions(conf.audit_logging_options);
-
+    private static void validateGCLogThresholds()
+    {
         try
         {
             // Run through the validation by setting current values back to their setters, so we are sure that their values are valid.

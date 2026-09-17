@@ -81,12 +81,15 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import static org.apache.cassandra.Util.assertClustering;
 import static org.apache.cassandra.Util.assertColumn;
 import static org.apache.cassandra.Util.assertColumns;
+import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_SEED;
 import static org.apache.cassandra.db.ClusteringBound.Kind;
 import static org.apache.cassandra.db.ConsistencyLevel.ALL;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.quicktheories.QuickTheory.qt;
+import static org.quicktheories.generators.SourceDSL.integers;
 
 public class DataResolverTest extends AbstractReadResponseTest
 {
@@ -131,6 +134,45 @@ public class DataResolverTest extends AbstractReadResponseTest
             }
         }
         return replicas.build();
+    }
+
+    @Test
+    public void responseOrderPreservesNewestRowRepairAndClose()
+    {
+        EndpointsForRange replicas = makeReplicas(2);
+        qt().withFixedSeed(TEST_SEED.getLong(18424L)).withExamples(64)
+            .forAll(integers().between(0, 100), integers().between(-128, 127))
+            .checkAssert((timestamp, value) -> {
+                for (boolean reverse : new boolean[]{ false, true })
+                {
+                    readRepair = new TestableReadRepair(command);
+                    DataResolver resolver = new DataResolver(ReadCoordinator.DEFAULT, command, plan(replicas, ALL),
+                                                             readRepair, Dispatcher.RequestTime.forImmediateExecution());
+                    PartitionUpdate older = new RowUpdateBuilder(cfm, nowInSec, timestamp.longValue(), dk)
+                                            .clustering("1").add("c1", Integer.toString(value + 1)).buildUpdate();
+                    PartitionUpdate newer = new RowUpdateBuilder(cfm, nowInSec, timestamp + 1L, dk)
+                                            .clustering("1").add("c1", value.toString()).buildUpdate();
+                    int first = reverse ? 1 : 0;
+                    PartitionUpdate[] versions = { older, newer };
+                    resolver.preprocess(response(command, replicas.get(first).endpoint(), iter(versions[first]), false));
+                    resolver.preprocess(response(command, replicas.get(1 - first).endpoint(), iter(versions[1 - first]), false));
+
+                    try (PartitionIterator data = resolver.resolve(); RowIterator rows = Iterators.getOnlyElement(data))
+                    {
+                        Row resolved = Iterators.getOnlyElement(rows);
+                        assertColumns(resolved, "c1");
+                        assertColumn(cfm, resolved, "c1", value.toString(), timestamp + 1L);
+                    }
+
+                    assertTrue(readRepair.dataWasConsumed());
+                    assertEquals(1, readRepair.sent.size());
+                    Mutation repair = readRepair.getForEndpoint(replicas.get(0).endpoint());
+                    assertNotNull(repair);
+                    assertRepairMetadata(repair);
+                    assertRepairContainsNoDeletions(repair);
+                    assertRepairContainsColumn(repair, "1", "c1", value.toString(), timestamp + 1L);
+                }
+            });
     }
 
     @Test

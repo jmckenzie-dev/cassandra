@@ -175,6 +175,22 @@ three-node fuzzer:
 
     bash run_property_tests.sh -Dno-build-test=true -DmaxMemory=2G
 
+Run the configuration, metrics, response/failure-order, multi-key read-routing,
+multi-datacenter write-routing, token ownership, effective ownership, drain/restart, timestamp-ordered reads,
+and mixed-Accord batch properties added for
+complexity refactors:
+
+    bash run_property_tests.sh --complexity -Dno-build-test=true -DmaxMemory=8G -Dtest.timeout=180000
+
+This selects the complete test classes that contain those properties.
+It also includes the verb-handler tracking tests whose command doubles must
+override the threshold-aware local-read method. Write-routing properties use
+distinct keys per coordinator and per logged/unlogged batch mode.
+`DigestResolverTest` includes an existing two-minute response-race test.
+The generated cases use seed 18424 by default. Full Accord replicas may apply
+writes after acknowledgement; their exact value/timestamp checks wait up to
+20 seconds, matching the existing Accord test fixture.
+
 The distributed fuzzer uses native-protocol clients pinned to each coordinator.
 It compares timestamp-ordered inserts, row deletes, and range deletes against an
 independent model at consistency ALL. Before enabling tombstone paging, it checks

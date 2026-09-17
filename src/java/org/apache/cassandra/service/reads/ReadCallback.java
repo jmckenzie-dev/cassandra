@@ -173,6 +173,21 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
         boolean timedout = !signaled;
         if (failed)
             timedout = RequestCallback.isTimeout(new HashMap<>(failureReasonByEndpoint));
+        WarningsSnapshot snapshot = snapshotWarnings();
+
+        if (signaled && !failed && replicaPlan().stillAppliesTo(ClusterMetadata.current()))
+            return;
+
+        traceReadFailure(received, timedout);
+
+        if (snapshot != null)
+            snapshot.maybeAbort(command, replicaPlan().consistencyLevel(), received, replicaPlan().readQuorum(), resolver.isDataPresent(), failureReasonByEndpoint);
+
+        throwReadFailure(received, timedout);
+    }
+
+    private WarningsSnapshot snapshotWarnings()
+    {
         WarningContext warnings = warningContext;
         // save the snapshot so abort state is not changed between now and when mayAbort gets called
         WarningsSnapshot snapshot = null;
@@ -185,24 +200,30 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
             if (!snapshot.isEmpty())
                 CoordinatorWarnings.update(command, snapshot);
         }
+        return snapshot;
+    }
 
-        if (signaled && !failed && replicaPlan().stillAppliesTo(ClusterMetadata.current()))
-            return;
-
+    private void traceReadFailure(int received, boolean timedout)
+    {
         if (isTracing())
         {
-            String gotData = received > 0 ? (resolver.isDataPresent() ? " (including data)" : " (only digests)") : "";
+            String gotData = describeReceivedData(received);
             Tracing.trace("{}; received {} of {} responses{}", !timedout ? "Failed" : "Timed out", received, replicaPlan().readQuorum(), gotData);
         }
         else if (logger.isDebugEnabled())
         {
-            String gotData = received > 0 ? (resolver.isDataPresent() ? " (including data)" : " (only digests)") : "";
+            String gotData = describeReceivedData(received);
             logger.debug("{}; received {} of {} responses{}", !timedout ? "Failed" : "Timed out", received, replicaPlan().readQuorum(), gotData);
         }
+    }
 
-        if (snapshot != null)
-            snapshot.maybeAbort(command, replicaPlan().consistencyLevel(), received, replicaPlan().readQuorum(), resolver.isDataPresent(), failureReasonByEndpoint);
+    private String describeReceivedData(int received)
+    {
+        return received > 0 ? (resolver.isDataPresent() ? " (including data)" : " (only digests)") : "";
+    }
 
+    private void throwReadFailure(int received, boolean timedout)
+    {
         // failures keeps incrementing, and this.failureReasonByEndpoint keeps getting new entries after signaling.
         // Simpler to reason about what happened by copying this.failureReasonByEndpoint and then inferring
         // failures from it

@@ -657,6 +657,12 @@ public class PartitionRangeReadCommand extends ReadCommand implements PartitionR
         }
 
         @Override
+        public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, int tombstonePagingThreshold)
+        {
+            return executeLocally(executionController);
+        }
+
+        @Override
         public ReadExecutionController executionController()
         {
             return ReadExecutionController.empty();

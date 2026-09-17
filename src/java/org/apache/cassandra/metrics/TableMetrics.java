@@ -550,10 +550,7 @@ public class TableMetrics
         {
             public Long getValue()
             {
-                long size = 0;
-                for (ColumnFamilyStore cfs2 : cfs.concatWithIndexes())
-                    size += cfs2.getTracker().getView().getCurrentMemtable().getLiveDataSize();
-                return size;
+                return computeAllMemtablesLiveDataSize(cfs);
             }
         });
         memtableSwitchCount = createTableCounter("MemtableSwitchCount");
@@ -565,13 +562,7 @@ public class TableMetrics
         {
             public Long getValue()
             {
-                long memtablePartitions = 0;
-                for (Memtable memtable : cfs.getTracker().getView().getAllMemtables())
-                   memtablePartitions += memtable.partitionCount();
-                try(ColumnFamilyStore.RefViewFragment refViewFragment = cfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL)))
-                {
-                    return SSTableReader.getApproximateKeyCount(refViewFragment.sstables) + memtablePartitions;
-                }
+                return computeEstimatedPartitionCount(cfs);
             }
         }, null);
         estimatedColumnCountHistogram = createTableGauge("EstimatedColumnCountHistogram", "EstimatedColumnCountHistogram",
@@ -599,17 +590,7 @@ public class TableMetrics
         {
             public Double getValue()
             {
-                double repaired = 0;
-                double total = 0;
-                for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
-                {
-                    if (sstable.isRepaired())
-                    {
-                        repaired += sstable.uncompressedLength();
-                    }
-                    total += sstable.uncompressedLength();
-                }
-                return total > 0 ? (repaired / total) * 100 : 100.0;
+                return computePercentRepaired(cfs);
             }
         });
 
@@ -617,12 +598,7 @@ public class TableMetrics
         {
             public Long getValue()
             {
-                long size = 0;
-                for (SSTableReader sstable: Iterables.filter(cfs.getSSTables(SSTableSet.CANONICAL), SSTableReader::isRepaired))
-                {
-                    size += sstable.uncompressedLength();
-                }
-                return size;
+                return sumUncompressedLengths(Iterables.filter(cfs.getSSTables(SSTableSet.CANONICAL), SSTableReader::isRepaired));
             }
         });
 
@@ -630,12 +606,7 @@ public class TableMetrics
         {
             public Long getValue()
             {
-                long size = 0;
-                for (SSTableReader sstable: Iterables.filter(cfs.getSSTables(SSTableSet.CANONICAL), s -> !s.isRepaired() && !s.isPendingRepair()))
-                {
-                    size += sstable.uncompressedLength();
-                }
-                return size;
+                return sumUncompressedLengths(Iterables.filter(cfs.getSSTables(SSTableSet.CANONICAL), s -> !s.isRepaired() && !s.isPendingRepair()));
             }
         });
 
@@ -643,12 +614,7 @@ public class TableMetrics
         {
             public Long getValue()
             {
-                long size = 0;
-                for (SSTableReader sstable: Iterables.filter(cfs.getSSTables(SSTableSet.CANONICAL), SSTableReader::isPendingRepair))
-                {
-                    size += sstable.uncompressedLength();
-                }
-                return size;
+                return sumUncompressedLengths(Iterables.filter(cfs.getSSTables(SSTableSet.CANONICAL), SSTableReader::isPendingRepair));
             }
         });
 
@@ -667,11 +633,7 @@ public class TableMetrics
         {
             public Integer getValue()
             {
-                int count = 0;
-                for (SSTableReader sstable : cfs.getLiveSSTables())
-                    if (!sstable.descriptor.version.isLatestVersion())
-                        count++;
-                return count;
+                return computeOldVersionSSTableCount(cfs);
             }
         });
         maxSSTableDuration = createTableGauge("MaxSSTableDuration", new Gauge<Long>()
@@ -710,80 +672,39 @@ public class TableMetrics
         {
             public Long getValue()
             {
-                long min = 0;
-                for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
-                {
-                    if (min == 0 || sstable.getEstimatedPartitionSize().min() < min)
-                        min = sstable.getEstimatedPartitionSize().min();
-                }
-                return min;
+                return computeMinPartitionSize(cfs);
             }
         }, new Gauge<Long>() // global gauge
         {
             public Long getValue()
             {
-                long min = Long.MAX_VALUE;
-                for (Metric cfGauge : ALL_TABLE_METRICS.get("MinPartitionSize"))
-                {
-                    min = Math.min(min, ((Gauge<? extends Number>) cfGauge).getValue().longValue());
-                }
-                return min;
+                return computeGlobalMinPartitionSize();
             }
         });
         maxPartitionSize = createTableGauge("MaxPartitionSize", "MaxRowSize", new Gauge<Long>()
         {
             public Long getValue()
             {
-                long max = 0;
-                for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
-                {
-                    if (sstable.getEstimatedPartitionSize().max() > max)
-                        max = sstable.getEstimatedPartitionSize().max();
-                }
-                return max;
+                return computeMaxPartitionSize(cfs);
             }
         }, new Gauge<Long>() // global gauge
         {
             public Long getValue()
             {
-                long max = 0;
-                for (Metric cfGauge : ALL_TABLE_METRICS.get("MaxPartitionSize"))
-                {
-                    max = Math.max(max, ((Gauge<? extends Number>) cfGauge).getValue().longValue());
-                }
-                return max;
+                return computeGlobalMaxPartitionSize();
             }
         });
         meanPartitionSize = createTableGauge("MeanPartitionSize", "MeanRowSize", new Gauge<Long>()
         {
             public Long getValue()
             {
-                long sum = 0;
-                long count = 0;
-                for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
-                {
-                    long n = sstable.getEstimatedPartitionSize().count();
-                    sum += sstable.getEstimatedPartitionSize().mean() * n;
-                    count += n;
-                }
-                return count > 0 ? sum / count : 0;
+                return computeMeanPartitionSize(cfs);
             }
         }, new Gauge<Long>() // global gauge
         {
             public Long getValue()
             {
-                long sum = 0;
-                long count = 0;
-                for (Keyspace keyspace : Keyspace.all())
-                {
-                    for (SSTableReader sstable : keyspace.getAllSSTables(SSTableSet.CANONICAL))
-                    {
-                        long n = sstable.getEstimatedPartitionSize().count();
-                        sum += sstable.getEstimatedPartitionSize().mean() * n;
-                        count += n;
-                    }
-                }
-                return count > 0 ? sum / count : 0;
+                return computeGlobalMeanPartitionSize();
             }
         });
         compressionDictionariesMemoryUsed = createTableGauge("CompressionDictionariesMemoryUsed", new Gauge<Long>()
@@ -803,10 +724,7 @@ public class TableMetrics
         {
             public Long getValue()
             {
-                long total = 0;
-                for (SSTableReader sst : cfs.getSSTables(SSTableSet.LIVE))
-                    total += sst.getCompressionMetadataOffHeapSize();
-                return total;
+                return computeCompressionMetadataSize(cfs);
             }
         });
         speculativeRetries = createTableCounter("SpeculativeRetries");
@@ -895,13 +813,7 @@ public class TableMetrics
         repairedDataTrackingOverreadTime = createTableTimer("RepairedDataTrackingOverreadTime", cfs.keyspace.metric.repairedDataTrackingOverreadTime);
 
         unleveledSSTables = createTableGauge("UnleveledSSTables", cfs::getUnleveledSSTables, () -> {
-            // global gauge
-            int cnt = 0;
-            for (Metric cfGauge : ALL_TABLE_METRICS.get("UnleveledSSTables"))
-            {
-                cnt += ((Gauge<? extends Number>) cfGauge).getValue().intValue();
-            }
-            return cnt;
+            return computeGlobalUnleveledSSTables();
         });
 
         clientTombstoneWarnings = createTableMeter("ClientTombstoneWarnings", cfs.keyspace.metric.clientTombstoneWarnings);
@@ -928,6 +840,146 @@ public class TableMetrics
         viewSSTableIntervalTree = createLatencyMetrics("ViewSSTableIntervalTree", cfs.keyspace.metric.viewSSTableIntervalTree);
 
         formatSpecificGauges = createFormatSpecificGauges(cfs);
+    }
+
+    private static long computeAllMemtablesLiveDataSize(ColumnFamilyStore cfs)
+    {
+        long size = 0;
+        for (ColumnFamilyStore cfs2 : cfs.concatWithIndexes())
+            size += cfs2.getTracker().getView().getCurrentMemtable().getLiveDataSize();
+        return size;
+    }
+
+    private static long computeEstimatedPartitionCount(ColumnFamilyStore cfs)
+    {
+        long memtablePartitions = 0;
+        for (Memtable memtable : cfs.getTracker().getView().getAllMemtables())
+           memtablePartitions += memtable.partitionCount();
+        try(ColumnFamilyStore.RefViewFragment refViewFragment = cfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL)))
+        {
+            return SSTableReader.getApproximateKeyCount(refViewFragment.sstables) + memtablePartitions;
+        }
+    }
+
+    private static double computePercentRepaired(ColumnFamilyStore cfs)
+    {
+        double repaired = 0;
+        double total = 0;
+        for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
+        {
+            if (sstable.isRepaired())
+            {
+                repaired += sstable.uncompressedLength();
+            }
+            total += sstable.uncompressedLength();
+        }
+        return total > 0 ? (repaired / total) * 100 : 100.0;
+    }
+
+    private static int computeOldVersionSSTableCount(ColumnFamilyStore cfs)
+    {
+        int count = 0;
+        for (SSTableReader sstable : cfs.getLiveSSTables())
+            if (!sstable.descriptor.version.isLatestVersion())
+                count++;
+        return count;
+    }
+
+    private static long computeMinPartitionSize(ColumnFamilyStore cfs)
+    {
+        long min = 0;
+        for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
+        {
+            if (min == 0 || sstable.getEstimatedPartitionSize().min() < min)
+                min = sstable.getEstimatedPartitionSize().min();
+        }
+        return min;
+    }
+
+    private static long computeGlobalMinPartitionSize()
+    {
+        long min = Long.MAX_VALUE;
+        for (Metric cfGauge : ALL_TABLE_METRICS.get("MinPartitionSize"))
+        {
+            min = Math.min(min, ((Gauge<? extends Number>) cfGauge).getValue().longValue());
+        }
+        return min;
+    }
+
+    private static long computeMaxPartitionSize(ColumnFamilyStore cfs)
+    {
+        long max = 0;
+        for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
+        {
+            if (sstable.getEstimatedPartitionSize().max() > max)
+                max = sstable.getEstimatedPartitionSize().max();
+        }
+        return max;
+    }
+
+    private static long computeGlobalMaxPartitionSize()
+    {
+        long max = 0;
+        for (Metric cfGauge : ALL_TABLE_METRICS.get("MaxPartitionSize"))
+        {
+            max = Math.max(max, ((Gauge<? extends Number>) cfGauge).getValue().longValue());
+        }
+        return max;
+    }
+
+    private static long computeMeanPartitionSize(ColumnFamilyStore cfs)
+    {
+        long sum = 0;
+        long count = 0;
+        for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
+        {
+            long n = sstable.getEstimatedPartitionSize().count();
+            sum += sstable.getEstimatedPartitionSize().mean() * n;
+            count += n;
+        }
+        return count > 0 ? sum / count : 0;
+    }
+
+    private static long computeGlobalMeanPartitionSize()
+    {
+        long sum = 0;
+        long count = 0;
+        for (Keyspace keyspace : Keyspace.all())
+        {
+            for (SSTableReader sstable : keyspace.getAllSSTables(SSTableSet.CANONICAL))
+            {
+                long n = sstable.getEstimatedPartitionSize().count();
+                sum += sstable.getEstimatedPartitionSize().mean() * n;
+                count += n;
+            }
+        }
+        return count > 0 ? sum / count : 0;
+    }
+
+    private static long computeCompressionMetadataSize(ColumnFamilyStore cfs)
+    {
+        long total = 0;
+        for (SSTableReader sst : cfs.getSSTables(SSTableSet.LIVE))
+            total += sst.getCompressionMetadataOffHeapSize();
+        return total;
+    }
+
+    private static long sumUncompressedLengths(Iterable<SSTableReader> sstables)
+    {
+        long size = 0;
+        for (SSTableReader sstable : sstables)
+            size += sstable.uncompressedLength();
+        return size;
+    }
+
+    private static int computeGlobalUnleveledSSTables()
+    {
+        int cnt = 0;
+        for (Metric cfGauge : ALL_TABLE_METRICS.get("UnleveledSSTables"))
+        {
+            cnt += ((Gauge<? extends Number>) cfGauge).getValue().intValue();
+        }
+        return cnt;
     }
 
     private Memtable.MemoryUsage getMemoryUsageWithIndexes(ColumnFamilyStore cfs)

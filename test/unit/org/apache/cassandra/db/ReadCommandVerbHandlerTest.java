@@ -187,10 +187,10 @@ public class ReadCommandVerbHandlerTest
         }
 
         @Override
-        public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController)
+        public UnfilteredPartitionIterator executeLocally(ReadExecutionController executionController, int tombstonePagingThreshold)
         {
             trackingRepairedData = executionController.isTrackingRepairedStatus();
-            return super.executeLocally(executionController);
+            return super.executeLocally(executionController, tombstonePagingThreshold);
         }
 
         public boolean isTrackingRepairedData()

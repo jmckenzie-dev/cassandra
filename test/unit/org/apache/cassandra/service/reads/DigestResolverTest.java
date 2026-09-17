@@ -55,7 +55,11 @@ import org.apache.cassandra.db.rows.BufferCell;
 import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.RowIterator;
+import org.apache.cassandra.exceptions.CoordinatorBehindException;
 import org.apache.cassandra.exceptions.ReadFailureException;
+import org.apache.cassandra.exceptions.ReadTimeoutException;
+import org.apache.cassandra.exceptions.RequestFailure;
+import org.apache.cassandra.exceptions.RetryOnDifferentSystemException;
 import org.apache.cassandra.locator.EndpointsForToken;
 import org.apache.cassandra.locator.ReplicaPlan;
 import org.apache.cassandra.net.Message;
@@ -67,12 +71,75 @@ import org.apache.cassandra.tcm.Epoch;
 import org.apache.cassandra.transport.Dispatcher;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_SEED;
 import static org.apache.cassandra.locator.ReplicaUtils.full;
 import static org.apache.cassandra.locator.ReplicaUtils.trans;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.quicktheories.QuickTheory.qt;
+import static org.quicktheories.generators.SourceDSL.integers;
 
 public class DigestResolverTest extends AbstractReadResponseTest
 {
+    @Test
+    public void failureOrderPreservesExceptionAndEndpointReasons()
+    {
+        RequestFailure[] reasons = { RequestFailure.TIMEOUT, RequestFailure.UNKNOWN,
+                                     RequestFailure.RETRY_ON_DIFFERENT_TRANSACTION_SYSTEM, RequestFailure.COORDINATOR_BEHIND };
+        Class<?> timeout = ReadTimeoutException.class;
+        Class<?> failure = ReadFailureException.class;
+        Class<?> retry = RetryOnDifferentSystemException.class;
+        Class<?> behind = CoordinatorBehindException.class;
+        Class<?>[][] expected = { { timeout, failure, failure, failure },
+                                  { failure, failure, failure, failure },
+                                  { failure, failure, retry, retry },
+                                  { failure, failure, retry, behind } };
+
+        for (int index = 0; index < reasons.length; index++)
+            assertFailureOrder(reasons[index], reasons[index], expected[index][index]);
+        assertFailureOrder(reasons[2], reasons[3], retry);
+        qt().withFixedSeed(TEST_SEED.getLong(18424L)).withExamples(64)
+            .forAll(integers().between(0, 3), integers().between(0, 3))
+            .checkAssert((first, second) -> assertFailureOrder(reasons[first], reasons[second], expected[first][second]));
+    }
+
+    private void assertFailureOrder(RequestFailure first, RequestFailure second, Class<?> expected)
+    {
+        for (boolean reverse : new boolean[]{ false, true })
+        {
+            SinglePartitionReadCommand command = SinglePartitionReadCommand.fullPartitionRead(cfm, nowInSec, dk);
+            ReplicaPlan.SharedForTokenRead plan = plan(ConsistencyLevel.ALL, EndpointsForToken.of(dk.getToken(), full(EP1), full(EP2)));
+            Dispatcher.RequestTime requestTime = Dispatcher.RequestTime.forImmediateExecution();
+            DigestResolver<EndpointsForToken, ReplicaPlan.ForTokenRead> resolver =
+            new DigestResolver<>(ReadCoordinator.DEFAULT, command, plan, requestTime);
+            ReadCallback<EndpointsForToken, ReplicaPlan.ForTokenRead> callback =
+            new ReadCallback<>(resolver, command, plan, requestTime, ReadCallback.TombstonePageCheckpointPolicy.REJECT);
+            if (reverse)
+            {
+                callback.onFailure(EP2, second);
+                callback.onFailure(EP1, first);
+            }
+            else
+            {
+                callback.onFailure(EP1, first);
+                callback.onFailure(EP2, second);
+            }
+
+            Throwable result = catchThrowable(callback::awaitResults);
+            Assert.assertNotNull(result);
+            Assert.assertEquals(expected, result.getClass());
+            if (result instanceof ReadFailureException)
+            {
+                ReadFailureException readFailure = (ReadFailureException) result;
+                Assert.assertEquals(2, readFailure.failureReasonByEndpoint.size());
+                Assert.assertEquals(first.reason, readFailure.failureReasonByEndpoint.get(EP1));
+                Assert.assertEquals(second.reason, readFailure.failureReasonByEndpoint.get(EP2));
+                Assert.assertEquals(0, readFailure.received);
+                Assert.assertFalse(readFailure.dataPresent);
+            }
+        }
+    }
+
     private static PartitionUpdate.Builder update(TableMetadata metadata, String key, Row... rows)
     {
         PartitionUpdate.Builder builder = new PartitionUpdate.Builder(metadata, dk(key), metadata.regularAndStaticColumns(), rows.length, false);

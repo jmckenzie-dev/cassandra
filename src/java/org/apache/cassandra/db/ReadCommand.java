@@ -725,176 +725,189 @@ public abstract class ReadCommand extends AbstractReadQuery
      */
     private UnfilteredPartitionIterator withMetricsRecording(UnfilteredPartitionIterator iter, final TableMetrics metric, final long startTimeNanos, int tombstonePagingThreshold)
     {
-        class MetricRecording extends StoppingTransformation<UnfilteredRowIterator>
+        return Transformation.apply(iter, new MetricRecording(metric, startTimeNanos, tombstonePagingThreshold));
+    }
+
+    private class MetricRecording extends StoppingTransformation<UnfilteredRowIterator>
+    {
+        private final TableMetrics metric;
+        private final long startTimeNanos;
+        private final int tombstonePagingThreshold;
+        private final int tombstoneThreshold;
+        private final int warningThreshold;
+        private final boolean respectTombstoneThresholds;
+        private final boolean enforceStrictLiveness;
+
+        private boolean tombstoneFailure;
+        private int liveRows = 0;
+        private int lastReportedLiveRows = 0;
+        private int tombstones = 0;
+        private int lastReportedTombstones = 0;
+
+        private DecoratedKey currentKey;
+
+        private MetricRecording(TableMetrics metric, long startTimeNanos, int tombstonePagingThreshold)
         {
-            private final int tombstoneThreshold = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED
-                                                   ? DatabaseDescriptor.getTombstoneFailureThreshold()
-                                                   : tombstonePagingThreshold;
-            private final int warningThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
-
-            private final boolean respectTombstoneThresholds = !SchemaConstants.isLocalSystemKeyspace(ReadCommand.this.metadata().keyspace);
-            private final boolean enforceStrictLiveness = metadata().enforceStrictLiveness();
-
-            private boolean tombstoneFailure;
-            private int liveRows = 0;
-            private int lastReportedLiveRows = 0;
-            private int tombstones = 0;
-            private int lastReportedTombstones = 0;
-
-            private DecoratedKey currentKey;
-
-            @Override
-            public UnfilteredRowIterator applyToPartition(UnfilteredRowIterator iter)
-            {
-                currentKey = iter.partitionKey();
-                // As this is a StoppingTransformation and we don't allow duplicate attachTo calls, we need to clear out
-                // our locally cached list of rows when we re-register this transformation with the iterator now that we've
-                // snapshot our currentKey.
-                this.rows = null;
-                return Transformation.apply(iter, this);
-            }
-
-            @Override
-            public @Nullable Row applyToStatic(Row row)
-            {
-                return applyToRow(row);
-            }
-
-            @Override
-            public @Nullable Row applyToRow(Row row)
-            {
-                boolean hasTombstones = false;
-                final long nowInSec = ReadCommand.this.nowInSec();
-                final boolean rowHasDeletion = row.hasDeletion(nowInSec);
-                if (rowHasDeletion) // perf optimization, to avoid iteration if all cells are alive
-                {
-                    for (Cell<?> cell : row.cells())
-                    {
-                        if (!cell.isLive(nowInSec))
-                        {
-                            countTombstone(row.clustering());
-                            hasTombstones = true; // allows to avoid counting an extra tombstone if the whole row expired
-                        }
-                    }
-                }
-
-                if (row.hasLiveData(nowInSec, enforceStrictLiveness))
-                    ++liveRows;
-                else if (!row.primaryKeyLivenessInfo().isLive(nowInSec)
-                        && rowHasDeletion
-                        && !hasTombstones)
-                {
-                    // We're counting primary key deletions only here.
-                    countTombstone(row.clustering());
-                }
-
-                if (isStopped())
-                {
-                    tombstonePagingState.recordLocalStop(row, tombstones);
-                }
-
-                return row;
-            }
-
-            @Override
-            public RangeTombstoneMarker applyToMarker(RangeTombstoneMarker marker)
-            {
-                countTombstone(marker.clustering());
-                return marker;
-            }
-
-            /**
-             * Stop at a resumable row after exceeding the paging threshold, or throw after exceeding
-             * the failure threshold when paging is disabled.
-             */
-            private void countTombstone(ClusteringPrefix<?> clustering) throws TombstoneOverwhelmingException
-            {
-                ++tombstones;
-                if (tombstones > tombstoneThreshold && respectTombstoneThresholds && !isStopped())
-                {
-                    boolean marker = clustering.kind().isBound() || clustering.kind().isBoundary();
-                    boolean abort = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED
-                                    || (marker && tombstones > (long) tombstoneThreshold + TOMBSTONE_PAGING_MARKER_ALLOWANCE);
-                    // Markers cannot supply a resume row. Allow a bounded scan for the next row checkpoint.
-                    if (marker && !abort)
-                        return;
-
-                    String query = ReadCommand.this.toCQLString();
-                    String actionTaken = abort ? "query aborted" : "page ended early";
-                    String setting = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED ? "tombstone_failure_threshold" : "tombstone_paging_threshold";
-                    Tracing.trace("Scanned over {} tombstones for query {}; " + actionTaken + " (see " + setting + ")", tombstoneThreshold, query);
-
-                    if (abort)
-                    {
-                        tombstoneFailure = true;
-                        metric.tombstoneFailures.inc();
-                        if (trackWarnings)
-                        {
-                            MessageParams.remove(ParamType.TOMBSTONE_WARNING);
-                            MessageParams.add(ParamType.TOMBSTONE_FAIL, tombstones);
-                        }
-                        throw new TombstoneOverwhelmingException(tombstones, query, ReadCommand.this.metadata(), currentKey, clustering);
-                    }
-
-                    metric.tombstonePages.inc();
-                    stopInPartition();
-                    String msg = String.format("Scanned over %d tombstones for query %s in this page; short-circuiting paging to prevent coordinator pressure.",
-                                               tombstoneThreshold, query);
-                    if (criticalTombstoneThresholdNoSpamLogger.warn(msg))
-                        ClientWarn.instance.warn(msg);
-                }
-            }
-
-            @Override
-            protected void onPartitionClose()
-            {
-                int lr = liveRows - lastReportedLiveRows;
-                int ts = tombstones - lastReportedTombstones;
-
-                if (lr > 0)
-                    metric.topReadPartitionRowCount.addSample(currentKey.getKey(), lr);
-
-                if (ts > 0)
-                    metric.topReadPartitionTombstoneCount.addSample(currentKey.getKey(), ts);
-
-                lastReportedLiveRows = liveRows;
-                lastReportedTombstones = tombstones;
-            }
-
-            @Override
-            public void onClose()
-            {
-                recordLatency(metric, nanoTime() - startTimeNanos);
-
-                metric.tombstoneScannedHistogram.update(tombstones);
-                metric.liveScannedHistogram.update(liveRows);
-                metric.totalRowsRead.inc(liveRows);
-
-                boolean warnTombstones = tombstones > warningThreshold && respectTombstoneThresholds;
-                if (warnTombstones)
-                {
-                    String msg = String.format(
-                            "Read %d live rows and %d tombstone cells for query %1.512s; token %s (see tombstone_warn_threshold)",
-                            liveRows, tombstones, ReadCommand.this.toCQLString(), currentKey.getToken());
-                    if (trackWarnings)
-                        MessageParams.add(ParamType.TOMBSTONE_WARNING, tombstones);
-                    else
-                        ClientWarn.instance.warn(msg);
-                    if (!tombstoneFailure)
-                    {
-                        metric.tombstoneWarnings.inc();
-                    }
-
-                    logger.warn(msg);
-                }
-
-                Tracing.trace("Read {} live rows and {} tombstone cells{}",
-                        liveRows, tombstones,
-                        (warnTombstones ? " (see tombstone_warn_threshold)" : ""));
-            }
+            this.metric = metric;
+            this.startTimeNanos = startTimeNanos;
+            this.tombstonePagingThreshold = tombstonePagingThreshold;
+            tombstoneThreshold = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED
+                                 ? DatabaseDescriptor.getTombstoneFailureThreshold()
+                                 : tombstonePagingThreshold;
+            warningThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
+            respectTombstoneThresholds = !SchemaConstants.isLocalSystemKeyspace(ReadCommand.this.metadata().keyspace);
+            enforceStrictLiveness = metadata().enforceStrictLiveness();
         }
 
-        return Transformation.apply(iter, new MetricRecording());
+        @Override
+        public UnfilteredRowIterator applyToPartition(UnfilteredRowIterator iter)
+        {
+            currentKey = iter.partitionKey();
+            // As this is a StoppingTransformation and we don't allow duplicate attachTo calls, we need to clear out
+            // our locally cached list of rows when we re-register this transformation with the iterator now that we've
+            // snapshot our currentKey.
+            this.rows = null;
+            return Transformation.apply(iter, this);
+        }
+
+        @Override
+        public @Nullable Row applyToStatic(Row row)
+        {
+            return applyToRow(row);
+        }
+
+        @Override
+        public @Nullable Row applyToRow(Row row)
+        {
+            boolean hasTombstones = false;
+            final long nowInSec = ReadCommand.this.nowInSec();
+            final boolean rowHasDeletion = row.hasDeletion(nowInSec);
+            if (rowHasDeletion) // perf optimization, to avoid iteration if all cells are alive
+            {
+                for (Cell<?> cell : row.cells())
+                {
+                    if (!cell.isLive(nowInSec))
+                    {
+                        countTombstone(row.clustering());
+                        hasTombstones = true; // allows to avoid counting an extra tombstone if the whole row expired
+                    }
+                }
+            }
+
+            if (row.hasLiveData(nowInSec, enforceStrictLiveness))
+                ++liveRows;
+            else if (!row.primaryKeyLivenessInfo().isLive(nowInSec)
+                    && rowHasDeletion
+                    && !hasTombstones)
+            {
+                // We're counting primary key deletions only here.
+                countTombstone(row.clustering());
+            }
+
+            if (isStopped())
+            {
+                tombstonePagingState.recordLocalStop(row, tombstones);
+            }
+
+            return row;
+        }
+
+        @Override
+        public RangeTombstoneMarker applyToMarker(RangeTombstoneMarker marker)
+        {
+            countTombstone(marker.clustering());
+            return marker;
+        }
+
+        /**
+         * Stop at a resumable row after exceeding the paging threshold, or throw after exceeding
+         * the failure threshold when paging is disabled.
+         */
+        private void countTombstone(ClusteringPrefix<?> clustering) throws TombstoneOverwhelmingException
+        {
+            ++tombstones;
+            if (tombstones <= tombstoneThreshold || !respectTombstoneThresholds || isStopped())
+                return;
+
+            boolean marker = clustering.kind().isBound() || clustering.kind().isBoundary();
+            boolean abort = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED
+                            || (marker && tombstones > (long) tombstoneThreshold + TOMBSTONE_PAGING_MARKER_ALLOWANCE);
+            // Markers cannot supply a resume row. Allow a bounded scan for the next row checkpoint.
+            if (marker && !abort)
+                return;
+
+            String query = ReadCommand.this.toCQLString();
+            String actionTaken = abort ? "query aborted" : "page ended early";
+            String setting = tombstonePagingThreshold == Config.TOMBSTONE_PAGING_DISABLED ? "tombstone_failure_threshold" : "tombstone_paging_threshold";
+            Tracing.trace("Scanned over {} tombstones for query {}; " + actionTaken + " (see " + setting + ")", tombstoneThreshold, query);
+
+            if (abort)
+            {
+                tombstoneFailure = true;
+                metric.tombstoneFailures.inc();
+                if (trackWarnings)
+                {
+                    MessageParams.remove(ParamType.TOMBSTONE_WARNING);
+                    MessageParams.add(ParamType.TOMBSTONE_FAIL, tombstones);
+                }
+                throw new TombstoneOverwhelmingException(tombstones, query, ReadCommand.this.metadata(), currentKey, clustering);
+            }
+
+            metric.tombstonePages.inc();
+            stopInPartition();
+            String msg = String.format("Scanned over %d tombstones for query %s in this page; short-circuiting paging to prevent coordinator pressure.",
+                                       tombstoneThreshold, query);
+            if (criticalTombstoneThresholdNoSpamLogger.warn(msg))
+                ClientWarn.instance.warn(msg);
+        }
+
+        @Override
+        protected void onPartitionClose()
+        {
+            int lr = liveRows - lastReportedLiveRows;
+            int ts = tombstones - lastReportedTombstones;
+
+            if (lr > 0)
+                metric.topReadPartitionRowCount.addSample(currentKey.getKey(), lr);
+
+            if (ts > 0)
+                metric.topReadPartitionTombstoneCount.addSample(currentKey.getKey(), ts);
+
+            lastReportedLiveRows = liveRows;
+            lastReportedTombstones = tombstones;
+        }
+
+        @Override
+        public void onClose()
+        {
+            recordLatency(metric, nanoTime() - startTimeNanos);
+
+            metric.tombstoneScannedHistogram.update(tombstones);
+            metric.liveScannedHistogram.update(liveRows);
+            metric.totalRowsRead.inc(liveRows);
+
+            boolean warnTombstones = tombstones > warningThreshold && respectTombstoneThresholds;
+            if (warnTombstones)
+            {
+                String msg = String.format(
+                        "Read %d live rows and %d tombstone cells for query %1.512s; token %s (see tombstone_warn_threshold)",
+                        liveRows, tombstones, ReadCommand.this.toCQLString(), currentKey.getToken());
+                if (trackWarnings)
+                    MessageParams.add(ParamType.TOMBSTONE_WARNING, tombstones);
+                else
+                    ClientWarn.instance.warn(msg);
+                if (!tombstoneFailure)
+                {
+                    metric.tombstoneWarnings.inc();
+                }
+
+                logger.warn(msg);
+            }
+
+            Tracing.trace("Read {} live rows and {} tombstone cells{}",
+                    liveRows, tombstones,
+                    (warnTombstones ? " (see tombstone_warn_threshold)" : ""));
+        }
     }
 
     private boolean shouldTrackSize(DataStorageSpec.LongBytesBound warnThresholdBytes, DataStorageSpec.LongBytesBound abortThresholdBytes)

@@ -16,6 +16,7 @@ under the License.
 -->
 
 # TODO
+- [ ] Finish `loop_reduce_complexity` for changes since `origin/trunk`. Four of five rounds completed; maximum cognitive complexity 200 -> 31, with 23 methods above 15. The virtual-table read blocker is fixed and verified. Round five is ready with targets in `tmp/complexity-loop-20260910/round-5-options.md`. Evidence: `.debug/complexity-loop-2026-09-10.md`; live state: `tmp/complexity-loop-20260910/progress.md`.
 - [ ] During final end-to-end performance testing, measure coordinator-local command-copy allocation (FUL-020). The copy optimization is declined for this patch; revisit only with performance evidence and correctness validation.
 
 # DONE

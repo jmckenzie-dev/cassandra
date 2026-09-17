@@ -21,6 +21,20 @@ if [[ "${1:-}" == --long ]]; then
 elif [[ "${1:-}" == --mixed-version ]]; then
     shift
     bash run_tests.sh test org.apache.cassandra.distributed.upgrade.storage.paging.MixedVersionPagingAcrossTombstonesFuzzTest "$@"
+elif [[ "${1:-}" == --complexity ]]; then
+    shift
+    bash run_tests.sh test org.apache.cassandra.config.DatabaseDescriptorInitializationTest "$@"
+    bash run_tests.sh test org.apache.cassandra.metrics.TableMetricsTest "$@"
+    bash run_tests.sh test org.apache.cassandra.db.SinglePartitionReadCommandCQLTest "$@"
+    bash run_tests.sh test org.apache.cassandra.db.ReadCommandVerbHandlerOutOfRangeTest "$@"
+    bash run_tests.sh test org.apache.cassandra.db.ReadCommandVerbHandlerTest "$@"
+    bash run_tests.sh test org.apache.cassandra.service.reads.DataResolverTest "$@"
+    bash run_tests.sh test org.apache.cassandra.service.reads.DigestResolverTest "$@"
+    bash run_tests.sh test org.apache.cassandra.distributed.test.MutationRoutingPropertyTest "$@"
+    bash run_tests.sh test org.apache.cassandra.distributed.test.ReadRoutingPropertyTest "$@"
+    bash run_tests.sh test org.apache.cassandra.distributed.test.EffectiveOwnershipPropertyTest "$@"
+    bash run_tests.sh test org.apache.cassandra.distributed.test.DrainDurabilityPropertyTest "$@"
+    bash run_tests.sh test org.apache.cassandra.distributed.test.accord.AccordTimestampPreservationTest "$@"
 else
     bash run_tests.sh test org.apache.cassandra.service.pager.RandomizedPagingStateTest "$@"
     bash run_tests.sh test org.apache.cassandra.db.ReadCommandTest "$@"
