@@ -71,6 +71,7 @@ public class TCMMetrics
     public final Meter reconstructLogStateCall;
     public final Counter snapshotStoreFailures;
     public final Counter snapshotRetentionFailures;
+    public final Counter schemaFlushScheduleFailures;
     public final Gauge<Long> lastSnapshotSize;
 
     private final AtomicLong lastSnapshotSizeValue = new AtomicLong(0);
@@ -139,6 +140,7 @@ public class TCMMetrics
 
         snapshotStoreFailures = Metrics.counter(factory.createMetricName("SnapshotStoreFailures"));
         snapshotRetentionFailures = Metrics.counter(factory.createMetricName("SnapshotRetentionFailures"));
+        schemaFlushScheduleFailures = Metrics.counter(factory.createMetricName("SchemaFlushScheduleFailures"));
         lastSnapshotSize = Metrics.register(factory.createMetricName("LastSnapshotSize"), lastSnapshotSizeValue::get);
     }
 
