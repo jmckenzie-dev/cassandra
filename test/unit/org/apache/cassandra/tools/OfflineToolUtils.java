@@ -91,6 +91,7 @@ public abstract class OfflineToolUtils
     /** We have some threads that show up in the presence of other JDK's; account for those here */
     private static final String[] EXTRA_JDK_THREADS = new String[]{
             "Native reference cleanup thread",      // Corretto janitor thread
+            "Attach Listener",                      // started when ToolRunner attaches its System.exit trap agent
     };
 
     /**

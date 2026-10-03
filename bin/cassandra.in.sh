@@ -114,7 +114,7 @@ if [ -z $JAVA ] ; then
 fi
 
 # Matches variable 'java.supported' in build.xml
-java_versions_supported="11 17 21"
+java_versions_supported="25"
 java_version_string=$(IFS=" "; echo "${java_versions_supported}")
 
 # Determine the sort of JVM we'll be running on.

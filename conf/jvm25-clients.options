@@ -30,6 +30,10 @@
 # access must be granted explicitly.
 --enable-native-access=ALL-UNNAMED
 
+# JDK 24+ warns on the first sun.misc.Unsafe memory-access call (JEP 498).  Dependencies
+# such as high-scale-lib still use it, so allow it without the warning.
+--sun-misc-unsafe-memory-access=allow
+
 ###################
 #  JPMS SETTINGS  #
 ###################

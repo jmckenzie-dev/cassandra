@@ -247,6 +247,8 @@
 
     <resources id="_jvm25_arg_items">
         <string>-Djdk.attach.allowAttachSelf=true</string>
+        <!-- Tests attach Byteman at run time; JDK 21+ warns on stderr unless dynamic agent loading is enabled (JEP 451). -->
+        <string>-XX:+EnableDynamicAgentLoading</string>
 
         <string>-XX:+UseZGC</string>
         <!-- ZGenerational is the only mode in JDK 25 (non-generational ZGC removed by JEP 490);
@@ -258,6 +260,8 @@
 
         <!-- FFM (java.lang.foreign) is final in JDK 25; restricted native access must be granted explicitly. -->
         <string>--enable-native-access=ALL-UNNAMED</string>
+        <!-- JDK 24+ warns on sun.misc.Unsafe memory access (JEP 498); dependencies still use it. -->
+        <string>--sun-misc-unsafe-memory-access=allow</string>
 
         <!-- NOTE: -Djava.security.manager=allow (used on JDK21) is FATAL on JDK25: the Security Manager was
              permanently disabled by JEP 486, so the flag throws java.lang.Error at VM init. It is intentionally

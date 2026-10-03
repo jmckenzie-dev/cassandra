@@ -22,8 +22,6 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.security.AccessControlContext;
-import java.security.AccessController;
 import java.security.Principal;
 import java.util.Collections;
 import java.util.List;
@@ -493,8 +491,7 @@ public class AuditLogManager implements QueryEvents.Listener, AuthEvents.Listene
                 return null;
             }
 
-            AccessControlContext acc = AccessController.getContext();
-            Subject subject = Subject.getSubject(acc);
+            Subject subject = Subject.current();
 
             try
             {

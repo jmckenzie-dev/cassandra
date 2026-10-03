@@ -21,8 +21,6 @@ package org.apache.cassandra.auth.jmx;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.security.AccessControlContext;
-import java.security.AccessController;
 import java.security.Principal;
 import java.util.Collections;
 import java.util.Set;
@@ -161,9 +159,8 @@ public class AuthorizationProxy implements InvocationHandler
     {
         String methodName = method.getName();
 
-        // Retrieve Subject from current AccessControlContext
-        AccessControlContext acc = AccessController.getContext();
-        Subject subject = Subject.getSubject(acc);
+        // The JMX connector runs each call under Subject.callAs, so Subject.current() returns the caller.
+        Subject subject = Subject.current();
 
         try
         {

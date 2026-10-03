@@ -87,7 +87,7 @@ public class Injections
         long pid = getProcessId();
         List<String> properties = new ArrayList<>();
         properties.add("org.jboss.byteman.transform.all=true");
-        Install.install(Long.toString(pid), true, true, FBUtilities.getBroadcastAddressAndPort().getAddress().getHostAddress(), port, properties.toArray(new String[0]));
+        Install.install(Long.toString(pid), true, false, FBUtilities.getBroadcastAddressAndPort().getAddress().getHostAddress(), port, properties.toArray(new String[0]));
         return port;
     }
 

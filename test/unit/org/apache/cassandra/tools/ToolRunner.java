@@ -24,7 +24,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.lang.reflect.InvocationTargetException;
-import java.security.Permission;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -41,11 +41,13 @@ import java.util.stream.Stream;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import com.sun.tools.attach.VirtualMachine;
 
 import org.assertj.core.util.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.NodeToolResult;
@@ -70,27 +72,53 @@ public class ToolRunner
                                                                                   "(?im)^.*Not generating a deterministic id for table.*\\R",
                                                                                   "(?im)^.*`USE <keyspace>` with prepared statements is.*\\R");
 
+    private static final String TRAP_EXIT_PROPERTY = "cassandra.test.tool_runner.trap_exit";
+    private static final String EXIT_MESSAGE_PREFIX = "ToolRunner trapped System.exit with status ";
+    // JDK 24+ removed the Security Manager (JEP 486), so checkExit can no longer block System.exit.
+    // This Byteman rule throws an Error from Runtime.exit instead, while the property is set.
+    private static final String TRAP_EXIT_RULE = "RULE ToolRunner trap System.exit\n" +
+                                                 "CLASS java.lang.Runtime\n" +
+                                                 "METHOD exit(int)\n" +
+                                                 "AT ENTRY\n" +
+                                                 "IF java.lang.Boolean.getBoolean(\"" + TRAP_EXIT_PROPERTY + "\")\n" + // checkstyle: suppress nearby 'blockSystemPropertyUsage'
+                                                 "DO throw new java.lang.Error(\"" + EXIT_MESSAGE_PREFIX + "\" + $1)\n" +
+                                                 "ENDRULE\n";
+    private static boolean exitTrapInstalled;
+
+    /**
+     * Loads Byteman once with the exit rule.  The agent runs without its listener, so it starts no thread
+     * that the offline tool thread checks would flag.
+     */
+    public static synchronized void installExitTrap() throws Exception
+    {
+        if (exitTrapInstalled)
+            return;
+        String bytemanJar = Arrays.stream(CassandraRelevantProperties.JAVA_CLASS_PATH.getString().split(java.io.File.pathSeparator))
+                                  .filter(p -> p.matches(".*/byteman-[0-9][^/]*\\.jar"))
+                                  .findFirst()
+                                  .orElseThrow(() -> new IllegalStateException("byteman jar not on the classpath"));
+        java.io.File script = java.io.File.createTempFile("tool-runner-exit", ".btm");
+        script.deleteOnExit();
+        Files.writeString(script.toPath(), TRAP_EXIT_RULE);
+        // Set as a system property, not as an agent "prop:" option: Byteman prints each "prop:" option to stdout.
+        System.setProperty("org.jboss.byteman.transform.all", "true"); // checkstyle: suppress nearby 'blockSystemPropertyUsage'
+        VirtualMachine vm = VirtualMachine.attach(Long.toString(ProcessHandle.current().pid()));
+        try
+        {
+            vm.loadAgent(bytemanJar, "listener:false,boot:" + bytemanJar + ",script:" + script.getAbsolutePath());
+        }
+        finally
+        {
+            vm.detach();
+        }
+        exitTrapInstalled = true;
+    }
+
     public static int runClassAsTool(String clazz, String... args)
     {
         try
         {
-            // install security manager to get informed about the exit-code
-            System.setSecurityManager(new SecurityManager()
-            {
-                public void checkExit(int status)
-                {
-                    throw new SystemExitException(status);
-                }
-
-                public void checkPermission(Permission perm)
-                {
-                }
-
-                public void checkPermission(Permission perm, Object context)
-                {
-                }
-            });
-
+            System.setProperty(TRAP_EXIT_PROPERTY, "true"); // checkstyle: suppress nearby 'blockSystemPropertyUsage'
             try
             {
                 Class.forName(clazz).getDeclaredMethod("main", String[].class).invoke(null, (Object) args);
@@ -107,22 +135,24 @@ public class ToolRunner
 
             return 0;
         }
-        catch (SystemExitException e)
+        catch (Error e)
         {
-            return e.status;
+            String message = e.getMessage();
+            if (message != null && message.startsWith(EXIT_MESSAGE_PREFIX))
+                return Integer.parseInt(message.substring(EXIT_MESSAGE_PREFIX.length()));
+            throw e;
         }
         catch (InvocationTargetException e)
         {
             throw new RuntimeException(e.getTargetException());
         }
-        catch (Exception e)
+        catch (Throwable e)
         {
             throw new RuntimeException(e);
         }
         finally
         {
-            // uninstall security manager
-            System.setSecurityManager(null);
+            System.clearProperty(TRAP_EXIT_PROPERTY);
         }
     }
 
@@ -298,6 +328,16 @@ public class ToolRunner
 
     public static ToolResult invokeClass(String klass, InputStream stdin, boolean captureLogging, String... args)
     {
+        // Load the agent before the tool output is captured, so agent messages do not land in it.
+        try
+        {
+            installExitTrap();
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
+
         List<String> allArgs = new ArrayList<>();
         allArgs.add(klass);
         allArgs.addAll(Arrays.asList(args));

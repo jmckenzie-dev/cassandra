@@ -1176,9 +1176,6 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
     @Override
     public void close()
     {
-        // Make sure that a nodetool call is not preventing us from stopping the instance
-        System.setSecurityManager(null);
-
         logger.info("Closing cluster {}", this.clusterId);
         FBUtilities.closeQuietly(instanceInitializer);
 
