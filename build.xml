@@ -172,7 +172,7 @@
     </condition>
 
     <property name="jflex.version" value="1.8.2"/>
-    <property name="jamm.version" value="0.4.0"/>
+    <property name="jamm.version" value="0.4.0-sf1"/>
     <property name="ecj.version" value="3.44.0"/>
     <!-- When updating ASM, please, do consider whether you might need to update also FBUtilities#ASM_BYTECODE_VERSION
       and the simulator InterceptClasses#BYTECODE_VERSION, in particular if we are looking to provide Cassandra support
@@ -431,7 +431,7 @@
 
     <target name="realclean" depends="clean" description="Remove the entire build directory and all downloaded artifacts">
         <delete>
-          <fileset dir="${build.lib}" excludes="cassandra-driver-internal-only-*,puresasl-internal-only-*,harry-*"/>
+          <fileset dir="${build.lib}" excludes="cassandra-driver-internal-only-*,puresasl-internal-only-*,harry-*,jamm-${jamm.version}.jar"/>
         </delete>
         <delete dir="${build.dir}" />
         <delete dir="${doc.dir}/build" />

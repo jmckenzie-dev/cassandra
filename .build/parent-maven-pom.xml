@@ -464,11 +464,6 @@
         <version>1.0.6</version>
       </dependency>
       <dependency>
-        <groupId>com.github.jbellis</groupId>
-        <artifactId>jamm</artifactId>
-        <version>${jamm.version}</version>
-      </dependency>
-      <dependency>
         <groupId>tools.profiler</groupId>
         <artifactId>async-profiler</artifactId>
         <version>${async-profiler.version}</version>

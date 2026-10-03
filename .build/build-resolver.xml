@@ -195,6 +195,9 @@
         </retry>
 
 
+        <!-- jamm is a Salesforce fork (bcs/jamm) that is not on Maven Central; the jar is committed in lib/ -->
+        <copy file="${build.lib}/jamm-${jamm.version}.jar" todir="${build.dir.lib}/jars"/>
+
         <!-- jacoco agent jar comes wrapped in a jar -->
         <unzip src="${local.repository}/org/jacoco/org.jacoco.agent/${jacoco.version}/org.jacoco.agent-${jacoco.version}.jar" dest="${build.dir.lib}/jars">
             <patternset>
