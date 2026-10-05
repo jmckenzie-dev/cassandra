@@ -29,6 +29,7 @@ import org.openjdk.jmh.annotations.TearDown;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.io.sstable.SSTableCursorPipeUtil;
 import org.apache.cassandra.io.sstable.SSTableCursorReader;
 import org.apache.cassandra.io.sstable.SSTableCursorWriter;
 import org.apache.cassandra.io.sstable.format.SortedTableWriter;
@@ -51,7 +52,7 @@ public class SSTablePipeCursorBench extends SSTableAbstractPipeBench
     {
         try(SSTableCursorReader cursorReader = SSTableCursorReader.fromDescriptor(desc);
             SortedTableWriter ssTableWriter = (SortedTableWriter) CompactionManager.createWriter(cfs, new org.apache.cassandra.io.util.File(tmpDir), 0, 0, null, false, cursorReader.ssTableReader(), LifecycleTransaction.offline(OperationType.COMPACTION));
-            SSTableCursorWriter cursorWriter = new SSTableCursorWriter(ssTableWriter);){
+            SSTableCursorWriter cursorWriter = SSTableCursorWriter.forCompaction(ssTableWriter);){
             SSTableCursorPipeUtil.copySSTable(cursorReader, cursorWriter);
         }
     }

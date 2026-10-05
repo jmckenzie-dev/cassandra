@@ -24,8 +24,8 @@ import org.junit.Before;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
 
-/** Runs the wide-table scenario on the BTI sstable format. */
-public class BtiPathologicalWideTableDifferentialCompactionTest extends PathologicalWideTableDifferentialCompactionTest
+/** The counter corpus under the BTI output format. */
+public class BtiCounterDifferentialCompactionTest extends CounterDifferentialCompactionTest
 {
     private SSTableFormat<?, ?> originalFormat;
 
