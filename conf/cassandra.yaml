@@ -695,7 +695,8 @@ cursor_compaction_enabled: true
 cursor_flush_enabled: true
 
 # Experimental.  New garbage free single-partition read path, gated by CursorReads.isReadSupported.
-cursor_reads_enabled: true
+# Off: the cursor read path builds whole partitions on heap with no LIMIT or page bound (CASSANDRA-20428).
+cursor_reads_enabled: false
 
 # Experimental.  Move compression and the SSTable write off the compaction thread.
 async_compaction_writer_enabled: true
