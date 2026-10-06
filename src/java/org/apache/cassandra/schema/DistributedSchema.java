@@ -67,6 +67,19 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
     private final Epoch epoch;
     private final UUID version;
     private final Map<String, Keyspace> keyspaceInstances = new HashMap<>();
+    private volatile CachedDiff cachedDiff;
+
+    private static final class CachedDiff
+    {
+        final Keyspaces from;
+        final Keyspaces.KeyspacesDiff diff;
+
+        CachedDiff(Keyspaces from, Keyspaces.KeyspacesDiff diff)
+        {
+            this.from = from;
+            this.diff = diff;
+        }
+    }
 
     public DistributedSchema(Keyspaces keyspaces)
     {
@@ -205,6 +218,25 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
                      .withSwapped(newUserFunctions);
     }
 
+    /**
+     * {@link Keyspaces#diff} from {@code from} to this schema. Each schema change diffs the same pair of schemas
+     * several times, and each diff walks every table in the altered keyspaces, so the last result is kept, keyed by
+     * the identity of {@code from}. Both sides are immutable, so a hit is exact. The cache holds the previous
+     * Keyspaces, which shares all but O(log n) nodes with this one, and never a DistributedSchema, so old
+     * schemas cannot chain. Diffs that drop a keyspace are not kept, so a dropped keyspace's metadata is not retained.
+     */
+    public Keyspaces.KeyspacesDiff diffFrom(Keyspaces from)
+    {
+        CachedDiff cached = cachedDiff;
+        if (cached != null && cached.from == from)
+            return cached.diff;
+
+        Keyspaces.KeyspacesDiff diff = Keyspaces.diff(from, keyspaces);
+        if (diff.dropped.isEmpty())
+            cachedDiff = new CachedDiff(from, diff);
+        return diff;
+    }
+
     public void initializeKeyspaceInstances(DistributedSchema prev, boolean loadSSTables)
     {
         keyspaceInstances.putAll(prev.keyspaceInstances);
@@ -213,7 +245,7 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
         if (!prev.isEmpty() && prev.keyspaceInstances.isEmpty())
             prev = DistributedSchema.empty();
 
-        Keyspaces.KeyspacesDiff ksDiff = Keyspaces.diff(prev.getKeyspaces(), getKeyspaces());
+        Keyspaces.KeyspacesDiff ksDiff = diffFrom(prev.getKeyspaces());
 
         SchemaChangeNotifier schemaChangeNotifier = Schema.instance.schemaChangeNotifier();
         schemaChangeNotifier.notifyPreChanges(new SchemaTransformation.SchemaTransformationResult(prev, this, ksDiff));
@@ -260,7 +292,7 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
         if (!prevSchema.isEmpty() && prevSchema.keyspaceInstances.isEmpty())
             prevSchema = DistributedSchema.empty();
 
-        Keyspaces.KeyspacesDiff ksDiff = Keyspaces.diff(prevSchema.getKeyspaces(), getKeyspaces());
+        Keyspaces.KeyspacesDiff ksDiff = diffFrom(prevSchema.getKeyspaces());
 
         SchemaChangeNotifier schemaChangeNotifier = Schema.instance.schemaChangeNotifier();
 
@@ -325,7 +357,7 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
 
     public static void maybeRebuildViews(DistributedSchema prev, DistributedSchema current)
     {
-        Keyspaces.KeyspacesDiff ksDiff = Keyspaces.diff(prev.getKeyspaces(), current.getKeyspaces());
+        Keyspaces.KeyspacesDiff ksDiff = current.diffFrom(prev.getKeyspaces());
         if (ksDiff.isEmpty() || ksDiff.altered.isEmpty())
             return;
         ksDiff.altered.forEach(delta -> {
