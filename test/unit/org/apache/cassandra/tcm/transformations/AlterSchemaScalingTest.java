@@ -84,6 +84,40 @@ public class AlterSchemaScalingTest
                    growth < MAX_GROWTH);
     }
 
+    /**
+     * Allocation misses walks that only look up: Keyspaces.diff and Keyspaces.withAddedOrUpdated each did a BTree
+     * lookup per table, about 90 ms per CREATE TABLE at 41k tables under the TCM commit lock. CPU time is noisier
+     * than allocation, so the table counts differ 16x (an O(n) walk is ~16x or more) and the bar is 4x.
+     */
+    @Test
+    public void createTableCpuDoesNotScaleWithExistingTables()
+    {
+        long small = cpuPerExecute(metadataWithTables(1000), 1000);
+        long large = cpuPerExecute(metadataWithTables(16000), 16000);
+        double growth = (double) large / small;
+        assertTrue(String.format("execute used %,d ns of CPU at 1,000 tables and %,d ns at 16,000 tables (%.1fx)",
+                                 small, large, growth),
+                   growth < 4.0);
+    }
+
+    private static long cpuPerExecute(ClusterMetadata prev, int newTable)
+    {
+        AlterSchema alter = new AlterSchema(new AddTable(newTable));
+        for (int i = 0; i < 200; i++)
+            sink = alter.execute(prev);
+
+        // The fastest of several batches, so a GC or a scheduler pause in one batch does not count.
+        long best = Long.MAX_VALUE;
+        for (int batch = 0; batch < 5; batch++)
+        {
+            long start = THREADS.getCurrentThreadCpuTime();
+            for (int i = 0; i < 50; i++)
+                sink = alter.execute(prev);
+            best = Math.min(best, (THREADS.getCurrentThreadCpuTime() - start) / 50);
+        }
+        return best;
+    }
+
     @Test
     public void createTableKeepsExistingTablesAndSetsTheEpoch()
     {

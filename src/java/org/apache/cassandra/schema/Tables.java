@@ -109,6 +109,11 @@ public final class Tables implements Iterable<TableMetadata>
         return new Builder();
     }
 
+    BTreeMap<TableId, TableMetadata> byId()
+    {
+        return tablesById;
+    }
+
     public static Tables none()
     {
         return NONE;
@@ -324,48 +329,46 @@ public final class Tables implements Iterable<TableMetadata>
             if (before == after)
                 return NONE;
 
-            // Collect the differences directly instead of filtering whole collections: a schema change touches a
-            // handful of tables, so allocating only for those keeps the cost of a diff proportional to what actually
-            // changed rather than to the size of the schema.
-            Builder created = null;
-            Builder dropped = null;
-            ImmutableList.Builder<Altered<TableMetadata>> altered = ImmutableList.builder();
+            // Untouched tables are carried over by reference (Builder.add stores the instance verbatim), and the
+            // by-id maps share every subtree a change did not touch, so the walk visits only what changed: O(k log n)
+            // for k changed tables, not O(n). compare() of an instance against itself is empty by construction, so
+            // identity is an exact substitute for the comparison of untouched tables.
+            Collector collector = new Collector();
+            BTreeMap.diff(before.tablesById, after.tablesById, collector);
 
-            for (TableMetadata tableAfter : after)
-            {
-                if (!before.containsTable(tableAfter.id))
-                {
-                    if (created == null)
-                        created = builder();
-                    created.add(tableAfter);
-                }
-            }
-
-            for (TableMetadata tableBefore : before)
-            {
-                TableMetadata tableAfter = after.getNullable(tableBefore.id);
-                if (null == tableAfter)
-                {
-                    if (dropped == null)
-                        dropped = builder();
-                    dropped.add(tableBefore);
-                }
-                else if (tableAfter != tableBefore)
-                {
-                    // Untouched tables are carried over by reference (Builder.add stores the instance verbatim), and
-                    // compare() of an instance against itself is empty by construction, so identity is a sound and
-                    // exact substitute for the comparison here.
-                    tableBefore.compare(tableAfter).ifPresent(kind -> altered.add(new Altered<>(tableBefore, tableAfter, kind)));
-                }
-            }
-
-            ImmutableList<Altered<TableMetadata>> alteredTables = altered.build();
-            if (created == null && dropped == null && alteredTables.isEmpty())
+            ImmutableList<Altered<TableMetadata>> alteredTables = collector.altered.build();
+            if (collector.created == null && collector.dropped == null && alteredTables.isEmpty())
                 return NONE;
 
-            return new TablesDiff(created == null ? Tables.none() : created.build(),
-                                  dropped == null ? Tables.none() : dropped.build(),
+            return new TablesDiff(collector.created == null ? Tables.none() : collector.created.build(),
+                                  collector.dropped == null ? Tables.none() : collector.dropped.build(),
                                   alteredTables);
+        }
+
+        private static final class Collector implements BTreeMap.DiffListener<TableId, TableMetadata>
+        {
+            Builder created;
+            Builder dropped;
+            final ImmutableList.Builder<Altered<TableMetadata>> altered = ImmutableList.builder();
+
+            public void onlyLeft(TableId id, TableMetadata table)
+            {
+                if (dropped == null)
+                    dropped = builder();
+                dropped.add(table);
+            }
+
+            public void onlyRight(TableId id, TableMetadata table)
+            {
+                if (created == null)
+                    created = builder();
+                created.add(table);
+            }
+
+            public void changed(TableId id, TableMetadata before, TableMetadata after)
+            {
+                before.compare(after).ifPresent(kind -> altered.add(new Altered<>(before, after, kind)));
+            }
         }
     }
 
