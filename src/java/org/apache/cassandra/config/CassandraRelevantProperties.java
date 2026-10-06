@@ -656,6 +656,20 @@ public enum CassandraRelevantProperties
     TEST_CASSANDRA_TESTTAG("cassandra.testtag", "cassandra.testtag_IS_UNDEFINED"),
     /** Generated examples for the ClusteringDescriptorPrefixView property test. */
     TEST_CLUSTERING_PREFIX_VIEW_EXAMPLES("cassandra.test.clustering_prefix_view.examples", "1000"),
+    /**
+     * Scale knobs for the commit log property tests and the stateful model test.
+     * <ul>
+     * <li>examples: the baseline case count, which the costlier classes scale down;</li>
+     * <li>mutations_per_example: how many mutations one case writes;</li>
+     * <li>seed: pins a run so a failure reproduces;</li>
+     * <li>stateful.steps: the length of the command sequence the stateful model test runs.</li>
+     * </ul>
+     * Override down for a quick local check.
+     */
+    TEST_COMMITLOG_EXAMPLES("cassandra.test.commitlog.examples", "200"),
+    TEST_COMMITLOG_MUTATIONS_PER_EXAMPLE("cassandra.test.commitlog.mutations_per_example", "40"),
+    TEST_COMMITLOG_SEED("cassandra.test.commitlog.seed"),
+    TEST_COMMITLOG_STATEFUL_STEPS("cassandra.test.commitlog.stateful.steps", "150"),
     /** Records the JFR allocation profiles in CursorCompactionAllocationGateTest; they are skipped otherwise. */
     TEST_COMPACTION_ALLOCATION_PROFILE("cassandra.test.compaction.allocation_profile", "false"),
     TEST_COMPACTION_BURN_CHECKPOINT("cassandra.test.compaction_burn_checkpoint", "build/test/logs/burn-checkpoint.tsv"),
