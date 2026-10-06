@@ -230,9 +230,9 @@ public class CompressedSequentialWriter extends SequentialWriter
     @Override
     public long getEstimatedOnDiskBytesWritten()
     {
-        // chunkOffset is a plain long advanced on the pipeline's thread when one is running, so read
-        // the value it publishes rather than racing on the field.
-        return pipeline == null ? chunkOffset : pipeline.estimatedOnDiskBytesWritten();
+        // chunkOffset is a plain long advanced on the pipeline's thread when one is running, so ask the
+        // pipeline instead. bufferOffset is the uncompressed bytes handed to it so far.
+        return pipeline == null ? chunkOffset : pipeline.estimatedOnDiskBytesWritten(bufferOffset);
     }
 
     /** The raw offset, for the pipeline to publish after it writes a chunk. */

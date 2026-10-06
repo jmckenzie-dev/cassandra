@@ -23,6 +23,14 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -43,6 +51,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * The async writer swaps a fresh slot in on every flush instead of clearing one in place. Nothing
@@ -54,6 +63,9 @@ import static org.junit.Assert.assertTrue;
 public class AsyncChunkPipelineTest
 {
     private static final int SLOTS = 4;
+
+    /** Chunks written while the writer thread is held. One fewer than SLOTS, so the producer never blocks. */
+    private static final int HELD_CHUNKS = SLOTS - 1;
 
     @BeforeClass
     public static void setupDD()
@@ -280,6 +292,183 @@ public class AsyncChunkPipelineTest
         finally
         {
             writer.abort(null);
+        }
+    }
+
+    /**
+     * Size-based SSTable switching reads getEstimatedOnDiskBytesWritten on the producer while chunks
+     * are still queued for the writer thread. The estimate must count those chunks, or a switch comes
+     * up to the whole buffer late. Let the first chunk through, hold the writer thread on the second,
+     * then check the estimate matches the synchronous writer's. Every chunk is identical, so the
+     * compression ratio of the one written chunk is exact for the rest.
+     */
+    @Test
+    public void sizeEstimateCountsChunksNotYetWritten() throws Exception
+    {
+        CompressionParams params = CompressionParams.lz4();
+        for (boolean incompressible : new boolean[]{ true, false })
+        {
+            byte[] payload = repeatedChunks(params, incompressible);
+            long syncEstimate = syncEstimate(params, payload);
+
+            for (HeldWriterFactory factory : heldWriterFactories(params))
+            {
+                WriteGate gate = new WriteGate(1);
+                CompressedSequentialWriter writer = factory.open(gate);
+                long estimate = estimateWhileHeld(writer, gate, payload, CompressedSequentialWriter::getEstimatedOnDiskBytesWritten);
+                assertEquals(writer.getClass().getSuperclass().getSimpleName() + (incompressible ? ", incompressible" : ""),
+                             syncEstimate, estimate, 1);
+            }
+        }
+    }
+
+    /**
+     * Until a chunk is written there is no compression ratio to scale the queued chunks by, so the
+     * estimate waits for the first chunk rather than guess. Hold the writer thread on the first chunk
+     * and check the estimate does not return until it is released, then that it is exact.
+     */
+    @Test
+    public void sizeEstimateWaitsForFirstChunk() throws Exception
+    {
+        CompressionParams params = CompressionParams.lz4();
+        byte[] payload = repeatedChunks(params, false);
+        long syncEstimate = syncEstimate(params, payload);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try
+        {
+            for (HeldWriterFactory factory : heldWriterFactories(params))
+            {
+                WriteGate gate = new WriteGate(0);
+                long estimate = estimateWhileHeld(factory.open(gate), gate, payload, w -> {
+                    Future<Long> pending = executor.submit(w::getEstimatedOnDiskBytesWritten);
+                    try
+                    {
+                        pending.get(200, TimeUnit.MILLISECONDS);
+                        fail("estimate returned before the first chunk was written");
+                    }
+                    catch (TimeoutException expected)
+                    {
+                        // still waiting for the held chunk
+                    }
+                    gate.release.countDown();
+                    return pending.get(1, TimeUnit.MINUTES);
+                });
+                assertEquals(syncEstimate, estimate, 1);
+            }
+        }
+        finally
+        {
+            executor.shutdownNow();
+        }
+    }
+
+    /** HELD_CHUNKS copies of one chunk, plus a byte so the last full chunk is flushed. */
+    private static byte[] repeatedChunks(CompressionParams params, boolean incompressible)
+    {
+        byte[] chunk = payload(params.chunkLength(), incompressible);
+        byte[] payload = new byte[chunk.length * HELD_CHUNKS + 1];
+        for (int i = 0; i < HELD_CHUNKS; i++)
+            System.arraycopy(chunk, 0, payload, i * chunk.length, chunk.length);
+        return payload;
+    }
+
+    private static long syncEstimate(CompressionParams params, byte[] payload) throws IOException
+    {
+        File data = FileUtils.createTempFile("estimate_sync", ".db");
+        try (CompressedSequentialWriter writer = new CompressedSequentialWriter(data, new File(data.absolutePath() + ".metadata"),
+                                                                                null, SequentialWriterOption.DEFAULT,
+                                                                                params, collector(), null, 0))
+        {
+            writer.write(payload);
+            long estimate = writer.getEstimatedOnDiskBytesWritten();
+            writer.finish();
+            return estimate;
+        }
+    }
+
+    private interface Estimate
+    {
+        long read(CompressedSequentialWriter writer) throws Exception;
+    }
+
+    private static long estimateWhileHeld(CompressedSequentialWriter writer, WriteGate gate, byte[] payload, Estimate estimator)
+    throws Exception
+    {
+        try (CompressedSequentialWriter w = writer)
+        {
+            long estimate;
+            try
+            {
+                w.write(payload);
+                // The writer thread is now parked on the held chunk, and everything before it is written.
+                assertTrue("writer thread never reached the held chunk", gate.held.await(1, TimeUnit.MINUTES));
+                estimate = estimator.read(w);
+            }
+            finally
+            {
+                gate.release.countDown();
+            }
+            w.finish();
+            return estimate;
+        }
+    }
+
+    private interface HeldWriterFactory
+    {
+        CompressedSequentialWriter open(WriteGate gate);
+    }
+
+    private List<HeldWriterFactory> heldWriterFactories(CompressionParams params)
+    {
+        List<HeldWriterFactory> factories = new ArrayList<>();
+        factories.add(gate -> {
+            File data = FileUtils.createTempFile("estimate_async", ".db");
+            return new CompressedSequentialWriter(data, new File(data.absolutePath() + ".metadata"), null,
+                                                  SequentialWriterOption.DEFAULT, params, collector(), null, asyncBytes(params))
+            {
+                @Override
+                protected void flushData(ByteBuffer src)
+                {
+                    gate.pass();
+                    super.flushData(src);
+                }
+            };
+        });
+        factories.add(gate -> {
+            File data = FileUtils.createTempFile("estimate_direct", ".db");
+            return new DirectCompressedSequentialWriter(data, new File(data.absolutePath() + ".metadata"), null,
+                                                        SequentialWriterOption.DEFAULT, params, collector(), null, asyncBytes(params))
+            {
+                @Override
+                protected void flushData(ByteBuffer src)
+                {
+                    gate.pass();
+                    super.flushData(src);
+                }
+            };
+        });
+        return factories;
+    }
+
+    /** Lets the first {@code passing} chunks through, then holds the writer thread until released. */
+    private static final class WriteGate
+    {
+        final CountDownLatch held = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        private final int passing;
+        private int calls;
+
+        WriteGate(int passing)
+        {
+            this.passing = passing;
+        }
+
+        void pass()
+        {
+            if (calls++ < passing)
+                return;
+            held.countDown();
+            Uninterruptibles.awaitUninterruptibly(release);
         }
     }
 

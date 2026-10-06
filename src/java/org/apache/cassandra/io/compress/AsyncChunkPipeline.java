@@ -291,10 +291,33 @@ class AsyncChunkPipeline
         rethrowFailure();
     }
 
-    /** Lags by whatever is in flight, which only delays an SSTable size switch. */
-    long estimatedOnDiskBytesWritten()
+    /**
+     * Bytes written so far plus an estimate for the chunks not yet written, so a size-based SSTable
+     * switch is not late by everything in flight. Those chunks are counted at the compression ratio
+     * of the chunks already written. The two published fields are read separately, so the result
+     * may be off by one chunk.
+     *
+     * Until the first chunk is written there is no ratio to use, so this waits for it. That happens
+     * at most once per file; later calls never wait.
+     *
+     * @param submittedBytes uncompressed bytes handed to the pipeline so far
+     */
+    long estimatedOnDiskBytesWritten(long submittedBytes)
     {
-        return estimatedOnDisk;
+        while (completed == 0 && submitted > 0)
+        {
+            rethrowFailure();
+            awaitProgress();
+        }
+
+        long writtenBytes = durableOffset;
+        long onDisk = estimatedOnDisk;
+        long pendingBytes = submittedBytes - writtenBytes;
+        if (pendingBytes <= 0)
+            return onDisk;
+        if (writtenBytes == 0)
+            return onDisk + pendingBytes;
+        return onDisk + (long) (pendingBytes * ((double) onDisk / writtenBytes));
     }
 
     /** Republishes after a truncate rewound the writer's offsets. */
