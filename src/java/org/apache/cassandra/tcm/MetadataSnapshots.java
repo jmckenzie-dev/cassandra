@@ -97,10 +97,18 @@ public interface MetadataSnapshots
 
     class SystemKeyspaceMetadataSnapshots implements MetadataSnapshots
     {
-        // Once the serialised ClusterMetadata reaches this fraction of max_mutation_size, warn the operator
-        // that snapshots are approaching the point where storeSnapshot's single-mutation write will start
-        // failing with MutationExceededMaxSizeException.
+        // Once the serialised ClusterMetadata reaches this fraction of snapshotSizeLimit(), warn the operator.
         private static final double SNAPSHOT_SIZE_WARNING_THRESHOLD = 0.75;
+
+        /**
+         * The largest snapshot that works end to end. storeSnapshot bypasses the commit log, so max_mutation_size
+         * does not apply; a stored snapshot must still be readable from its sstable (max_value_size) and fit in a
+         * message to peers that fetch it (internode_max_message_size).
+         */
+        static int snapshotSizeLimit()
+        {
+            return Math.min(DatabaseDescriptor.getMaxValueSize(), DatabaseDescriptor.getInternodeMaxMessageSizeInBytes());
+        }
 
         @Override
         public ClusterMetadata getSnapshot(Epoch epoch)
@@ -168,16 +176,15 @@ public interface MetadataSnapshots
         }
 
         /**
-         * Logs a rate-limited WARN once the serialised snapshot approaches max_mutation_size, since
-         * SystemKeyspace.storeSnapshot writes the whole blob as a single mutation and will start throwing
-         * MutationExceededMaxSizeException (silently dropping snapshots, absent this warning) once it's exceeded.
+         * Logs a rate-limited WARN once the serialised snapshot approaches {@link #snapshotSizeLimit()}: past it, a
+         * stored snapshot cannot be read back or sent to peers.
          */
         private void maybeWarnOnSize(ClusterMetadata metadata, ByteBuffer bytes)
         {
-            int maxMutationSize = DatabaseDescriptor.getMaxMutationSize();
+            int limit = snapshotSizeLimit();
             int serializedSize = bytes.remaining();
             TCMMetrics.instance.recordSnapshotSize(serializedSize);
-            if (serializedSize > maxMutationSize * SNAPSHOT_SIZE_WARNING_THRESHOLD)
+            if (serializedSize > limit * SNAPSHOT_SIZE_WARNING_THRESHOLD)
             {
                 int tableCount = metadata.schema.getKeyspaces()
                                                  .stream()
@@ -185,11 +192,11 @@ public interface MetadataSnapshots
                                                  .sum();
                 NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 5, TimeUnit.MINUTES,
                                   "Serialised cluster metadata snapshot at epoch {} is {} bytes, which is at least " +
-                                  "{}% of the max_mutation_size limit of {} bytes ({} tables in schema). Snapshots " +
-                                  "will start silently failing to store once the serialised size exceeds " +
-                                  "max_mutation_size; consider raising max_mutation_size or reducing the number of tables.",
+                                  "{}% of the snapshot size limit of {} bytes, the smaller of max_value_size and " +
+                                  "internode_max_message_size ({} tables in schema). Past that limit a snapshot cannot " +
+                                  "be read back or sent to other nodes; consider raising those limits or reducing the number of tables.",
                                   metadata.epoch, serializedSize, (int) (SNAPSHOT_SIZE_WARNING_THRESHOLD * 100),
-                                  maxMutationSize, tableCount);
+                                  limit, tableCount);
             }
         }
     }
