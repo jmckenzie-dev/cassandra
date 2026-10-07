@@ -84,6 +84,7 @@ import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.rows.RowIterators;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.ColumnMetadata.ClusteringOrder;
 import org.apache.cassandra.schema.Keyspaces.KeyspacesDiff;
 import org.apache.cassandra.service.accord.topology.FastPathStrategy;
@@ -348,9 +349,10 @@ public final class SchemaKeyspace
     public static Collection<Mutation> convertSchemaDiffToMutations(KeyspacesDiff diff, long timestamp)
     {
         Map<String, Mutation> mutations = new HashMap<>();
+        List<Mutation> created = new ArrayList<>();
 
         diff.dropped.forEach(k -> mutations.put(k.name, makeDropKeyspaceMutation(k, timestamp).build()));
-        diff.created.forEach(k -> mutations.put(k.name, makeCreateKeyspaceMutation(k, timestamp).build()));
+        diff.created.forEach(k -> created.addAll(makeBoundedCreateKeyspaceMutations(k, timestamp, DatabaseDescriptor.getMaxMutationSize() / 2)));
         diff.altered.forEach(kd ->
         {
             KeyspaceMetadata ks = kd.after;
@@ -380,7 +382,63 @@ public final class SchemaKeyspace
             mutations.put(ks.name, builder.build());
         });
 
-        return mutations.values();
+        created.addAll(mutations.values());
+        return created;
+    }
+
+    /**
+     * The rows that create {@code keyspace}, as mutations of at most about {@code budget} bytes each. One mutation
+     * for a whole keyspace passes max_mutation_size at about 24k tables, and node startup or a new node writes
+     * whole keyspaces. system_schema is a copy of the TCM schema, so the rows need not land atomically. The first
+     * mutation holds the keyspace row, types and functions; each table or view goes whole into some mutation, so a
+     * single table larger than the budget gets one of its own.
+     */
+    @VisibleForTesting
+    static List<Mutation> makeBoundedCreateKeyspaceMutations(KeyspaceMetadata keyspace, long timestamp, int budget)
+    {
+        Mutation.SimpleBuilder head = makeCreateKeyspaceMutation(keyspace.name, keyspace.params, timestamp);
+        keyspace.types.forEach(type -> addTypeToSchemaMutation(type, head));
+        keyspace.userFunctions.udfs().forEach(udf -> addFunctionToSchemaMutation(udf, head));
+        keyspace.userFunctions.udas().forEach(uda -> addAggregateToSchemaMutation(uda, head));
+
+        List<Mutation> out = new ArrayList<>();
+        List<Mutation> batch = new ArrayList<>();
+        batch.add(head.build());
+        long batchBytes = batch.get(0).serializedSize(MessagingService.current_version);
+
+        List<Mutation> parts = new ArrayList<>();
+        for (TableMetadata table : keyspace.tables)
+        {
+            Mutation.SimpleBuilder part = schemaPartition(keyspace.name, timestamp);
+            addTableToSchemaMutation(table, true, part);
+            parts.add(part.build());
+        }
+        for (ViewMetadata view : keyspace.views)
+        {
+            Mutation.SimpleBuilder part = schemaPartition(keyspace.name, timestamp);
+            addViewToSchemaMutation(view, true, part);
+            parts.add(part.build());
+        }
+
+        for (Mutation part : parts)
+        {
+            long bytes = part.serializedSize(MessagingService.current_version);
+            if (batchBytes + bytes > budget)
+            {
+                out.add(Mutation.merge(batch));
+                batch = new ArrayList<>();
+                batchBytes = 0;
+            }
+            batch.add(part);
+            batchBytes += bytes;
+        }
+        out.add(Mutation.merge(batch));
+        return out;
+    }
+
+    private static Mutation.SimpleBuilder schemaPartition(String keyspace, long timestamp)
+    {
+        return Mutation.simpleBuilder(SchemaConstants.SCHEMA_KEYSPACE_NAME, decorate(Keyspaces, keyspace)).timestamp(timestamp);
     }
 
     /**

@@ -1386,6 +1386,28 @@ public final class SystemKeyspace
     }
 
     /**
+     * Whether system_schema already holds the schema with {@code version}, written by this release: the
+     * schema_version recorded after the last applied schema change matches, and so does release_version. This is
+     * read before persistLocalMetadata updates release_version, so an upgrade does not match. It can also run before
+     * commit log replay and see an older value; that only causes a write that was not needed.
+     */
+    public static boolean schemaTablesHold(UUID version)
+    {
+        String req = "SELECT schema_version, release_version FROM system.%s WHERE key='%s'";
+        UntypedResultSet result = executeInternal(format(req, LOCAL, LOCAL));
+        if (result.isEmpty())
+            return false;
+        UntypedResultSet.Row row = result.one();
+        UUID storedVersion = row.has("schema_version") ? row.getUUID("schema_version") : null;
+        String storedRelease = row.has("release_version") ? row.getString("release_version") : null;
+        boolean holds = version.equals(storedVersion) && FBUtilities.getReleaseVersionString().equals(storedRelease);
+        if (!holds)
+            logger.debug("system_schema needs a full write: schema version {} release {}, system.local has {} release {}",
+                         version, FBUtilities.getReleaseVersionString(), storedVersion, storedRelease);
+        return holds;
+    }
+
+    /**
      * Gets the stored rack for the local node, or null if none have been set yet.
      */
     public static String getRack()

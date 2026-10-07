@@ -32,12 +32,16 @@ import java.util.stream.Collectors;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.functions.UserFunction;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Mutation;
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -49,6 +53,7 @@ import org.apache.cassandra.tracing.TraceKeyspace;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.SCHEMA_TABLES_FULL_WRITE_ON_STARTUP;
 import static org.apache.cassandra.db.TypeSizes.sizeof;
 
 /**
@@ -56,6 +61,7 @@ import static org.apache.cassandra.db.TypeSizes.sizeof;
  */
 public class DistributedSchema implements MetadataValue<DistributedSchema>
 {
+    private static final Logger logger = LoggerFactory.getLogger(DistributedSchema.class);
     public static final Serializer serializer = new Serializer();
 
     public static DistributedSchema empty()
@@ -250,6 +256,14 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
         // progress as nodes report disagreement. Also, tooling should not mutate system tables.
         if (epoch.isEqualOrAfter(Epoch.FIRST) && !DatabaseDescriptor.isClientOrToolInitialized())
         {
+            // At startup prev is empty, so the diff is the whole schema. Each applied change already wrote its own
+            // diff to system_schema, so skip the rewrite when system.local shows system_schema holds this schema.
+            if (prev.getKeyspaces().isEmpty() && !ksDiff.isEmpty()
+                && !SCHEMA_TABLES_FULL_WRITE_ON_STARTUP.getBoolean() && SystemKeyspace.schemaTablesHold(getVersion()))
+            {
+                logger.info("system_schema already holds the schema at epoch {}; not rewriting it", epoch.getEpoch());
+                return;
+            }
             Collection<Mutation> mutations = SchemaKeyspace.convertSchemaDiffToMutations(ksDiff, FBUtilities.timestampMicros());
             SchemaKeyspace.applyChanges(mutations);
         }

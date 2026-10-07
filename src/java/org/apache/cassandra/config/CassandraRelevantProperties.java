@@ -564,6 +564,11 @@ public enum CassandraRelevantProperties
     SAI_VECTOR_SEARCH_MAX_TOP_K("cassandra.sai.vector_search.max_top_k", "1000"),
 
     SCHEMA_PULL_INTERVAL_MS("cassandra.schema_pull_interval_ms", "60000"),
+    /**
+     * Rewrite all of system_schema from the TCM schema at startup, even when system.local shows it already holds
+     * that schema. Use to repair system_schema rows.
+     */
+    SCHEMA_TABLES_FULL_WRITE_ON_STARTUP("cassandra.schema_tables_full_write_on_startup"),
     SCHEMA_UPDATE_HANDLER_FACTORY_CLASS("cassandra.schema.update_handler_factory.class"),
     SEARCH_CONCURRENCY_FACTOR("cassandra.search_concurrency_factor", "1"),
 
