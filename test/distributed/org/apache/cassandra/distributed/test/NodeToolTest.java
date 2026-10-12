@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.util.function.Consumer;
 
 import org.junit.AfterClass;
+import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -30,6 +31,7 @@ import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.NodeToolResult;
+import org.apache.cassandra.distributed.shared.ClusterUtils;
 
 import static org.junit.Assert.assertEquals;
 
@@ -79,6 +81,9 @@ public class NodeToolTest extends TestBaseImpl
     @Test
     public void testNodetoolSystemExit()
     {
+        // Without a Security Manager (JDK 24+) the System.exit below cannot be trapped and ends the test JVM
+        Assume.assumeTrue("needs a Security Manager to trap System.exit",
+                          ClusterUtils.trySetSecurityManager(System.getSecurityManager()));
         // Verify currently calls System.exit, this test uses that knowlege to test System.exit behavior in jvm-dtest
         NODE.nodetoolResult("verify", "--check-tokens", "--force")
             .asserts()

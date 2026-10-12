@@ -1276,7 +1276,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 }
                 finally
                 {
-                    System.setSecurityManager(before);
+                    ClusterUtils.trySetSecurityManager(before);
                 }
                 return new NodeToolResult(commandAndArgs, rc,
                                           new ArrayList<>(nodetool.notifications.notifications),
