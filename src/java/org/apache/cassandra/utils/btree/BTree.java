@@ -600,6 +600,107 @@ public class BTree
         }
     }
 
+    /** Receives the elements that differ between two trees; see {@link #diff}. */
+    public interface DiffListener<V>
+    {
+        void onlyLeft(V left);
+        void onlyRight(V right);
+        /** {@code left} and {@code right} compare equal but are different instances. */
+        void changed(V left, V right);
+    }
+
+    /**
+     * Reports, in order, the elements of two trees sorted by {@code comparator} that differ: present in one tree only,
+     * or equal by the comparator but not the same instance. Elements that are the same instance are not reported.
+     *
+     * <p>Updates copy only the path to what changed and keep every other subtree by reference, so subtrees that are
+     * the same instance are skipped without a visit. Branches of the same length whose separators compare equal
+     * cover the same key ranges, so their children are compared in pairs. Elsewhere, for example after a node
+     * split, the two subtrees are merged in order. For trees that differ by k updates this is O(k log n), not O(n).
+     */
+    public static <V> void diff(Object[] left, Object[] right, Comparator<? super V> comparator, DiffListener<V> listener)
+    {
+        if (left == right)
+            return;
+        if (!isLeaf(left) && !isLeaf(right) && left.length == right.length && sameSeparators(left, right, comparator))
+        {
+            int keyEnd = getBranchKeyEnd(left);
+            int childStart = getChildStart(left);
+            for (int i = 0; i < keyEnd; i++)
+            {
+                diff((Object[]) left[childStart + i], (Object[]) right[childStart + i], comparator, listener);
+                if (left[i] != right[i])
+                    listener.changed((V) left[i], (V) right[i]);
+            }
+            diff((Object[]) left[childStart + keyEnd], (Object[]) right[childStart + keyEnd], comparator, listener);
+            return;
+        }
+        merge(left, right, comparator, listener);
+    }
+
+    private static <V> boolean sameSeparators(Object[] left, Object[] right, Comparator<? super V> comparator)
+    {
+        for (int i = 0, keyEnd = getBranchKeyEnd(left); i < keyEnd; i++)
+            if (left[i] != right[i] && comparator.compare((V) left[i], (V) right[i]) != 0)
+                return false;
+        return true;
+    }
+
+    private static <V> void merge(Object[] left, Object[] right, Comparator<? super V> comparator, DiffListener<V> listener)
+    {
+        if (isLeaf(left) && isLeaf(right))
+        {
+            mergeLeaves(left, right, comparator, listener);
+            return;
+        }
+        Iterator<V> l = iterator(left);
+        Iterator<V> r = iterator(right);
+        V a = l.hasNext() ? l.next() : null;
+        V b = r.hasNext() ? r.next() : null;
+        while (a != null || b != null)
+        {
+            int c = a == null ? 1 : b == null ? -1 : comparator.compare(a, b);
+            if (c < 0)
+            {
+                listener.onlyLeft(a);
+                a = l.hasNext() ? l.next() : null;
+            }
+            else if (c > 0)
+            {
+                listener.onlyRight(b);
+                b = r.hasNext() ? r.next() : null;
+            }
+            else
+            {
+                if (a != b)
+                    listener.changed(a, b);
+                a = l.hasNext() ? l.next() : null;
+                b = r.hasNext() ? r.next() : null;
+            }
+        }
+    }
+
+    // Trees with the same shape but no shared nodes reach here once per leaf pair, so this does not allocate.
+    private static <V> void mergeLeaves(Object[] left, Object[] right, Comparator<? super V> comparator, DiffListener<V> listener)
+    {
+        int i = 0, j = 0, leftEnd = getLeafKeyEnd(left), rightEnd = getLeafKeyEnd(right);
+        while (i < leftEnd || j < rightEnd)
+        {
+            int c = i == leftEnd ? 1 : j == rightEnd ? -1 : comparator.compare((V) left[i], (V) right[j]);
+            if (c < 0)
+                listener.onlyLeft((V) left[i++]);
+            else if (c > 0)
+                listener.onlyRight((V) right[j++]);
+            else
+            {
+                if (left[i] != right[j])
+                    listener.changed((V) left[i], (V) right[j]);
+                i++;
+                j++;
+            }
+        }
+    }
+
     public static <V> Iterator<V> iterator(Object[] btree)
     {
         return iterator(btree, ASC);

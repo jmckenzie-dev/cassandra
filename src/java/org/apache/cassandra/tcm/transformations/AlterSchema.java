@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 
@@ -104,10 +105,24 @@ public class AlterSchema implements Transformation
         return schemaTransformation.compatibleWith(metadata);
     }
 
+    private static void validateEpochs(ClusterMetadata prev, KeyspaceMetadata keyspace, Iterable<TableMetadata> tables)
+    {
+        for (TableMetadata tm : tables)
+        {
+            if (tm.epoch.isAfter(prev.nextEpoch()))
+                throw new InvalidRequestException(String.format("Invalid schema transformation. " +
+                                                                "Resultant epoch for table metadata of %s.%s (%d) " +
+                                                                "is greater than for cluster metadata (%d)",
+                                                                keyspace.name, tm.name, tm.epoch.getEpoch(),
+                                                                prev.nextEpoch().getEpoch()));
+        }
+    }
+
     @Override
     public final Result execute(ClusterMetadata prev)
     {
         Keyspaces newKeyspaces;
+        Keyspaces.KeyspacesDiff diff;
         try
         {
             // Applying the schema transformation may produce client warnings. If this is being executed by a follower
@@ -120,16 +135,14 @@ public class AlterSchema implements Transformation
             schemaTransformation.enterExecution();
             // Guard against an invalid SchemaTransformation supplying a TableMetadata with a future epoch
             newKeyspaces = schemaTransformation.apply(prev);
-            newKeyspaces.forEach(ksm -> {
-               ksm.tables.forEach(tm -> {
-                   if (tm.epoch.isAfter(prev.nextEpoch()))
-                       throw new InvalidRequestException(String.format("Invalid schema transformation. " +
-                                                                       "Resultant epoch for table metadata of %s.%s (%d) " +
-                                                                       "is greater than for cluster metadata (%d)",
-                                                                       ksm.name, tm.name, tm.epoch.getEpoch(),
-                                                                       prev.nextEpoch().getEpoch()));
-               });
-            });
+            // Unchanged tables passed this check when they were created or altered, so check only the diff.
+            // A full scan here made every DDL cost O(tables).
+            diff = Keyspaces.diff(prev.schema.getKeyspaces(), newKeyspaces);
+            for (KeyspaceMetadata keyspace : diff.created)
+                validateEpochs(prev, keyspace, keyspace.tables);
+            for (KeyspaceDiff altered : diff.altered)
+                validateEpochs(prev, altered.after, Iterables.concat(altered.tables.created,
+                                                                     Iterables.transform(altered.tables.altered, t -> t.after)));
         }
         catch (AlreadyExistsException t)
         {
@@ -157,8 +170,6 @@ public class AlterSchema implements Transformation
             schemaTransformation.exitExecution();
         }
 
-        Keyspaces.KeyspacesDiff diff = Keyspaces.diff(prev.schema.getKeyspaces(), newKeyspaces);
-
         // Used to ensure that any new or modified TableMetadata has the correct epoch
         Epoch nextEpoch = prev.nextEpoch();
 
@@ -171,7 +182,10 @@ public class AlterSchema implements Transformation
         // * Any existing keyspace with an altered set of replication params
         // * Dropping all keyspaces with a specific set of replication params
         Set<KeyspaceMetadata> affectsPlacements = new HashSet<>();
-        Map<ReplicationParams, Set<KeyspaceMetadata>> keyspacesByReplication = groupByReplication(prev.schema.getKeyspaces());
+        // KeyspaceMetadata hashes its tables, so build this only when a keyspace is created or dropped.
+        Map<ReplicationParams, Set<KeyspaceMetadata>> keyspacesByReplication = diff.created.isEmpty() && diff.dropped.isEmpty()
+                                                                               ? Collections.emptyMap()
+                                                                               : groupByReplication(prev.schema.getKeyspaces());
 
         // Scan dropped keyspaces to check if any existing replication scheme will become unused after this change
         Map<ReplicationParams, Set<KeyspaceMetadata>> intendedToDrop = groupByReplication(diff.dropped);
@@ -199,14 +213,15 @@ public class AlterSchema implements Transformation
             if (!alteredKSM.before.params.replication.equals(alteredKSM.after.params.replication))
                 affectsPlacements.add(alteredKSM.before);
 
-            Tables tables = Tables.of(alteredKSM.after.tables);
+            // Tables and Views are immutable; a copy here rebuilt the whole keyspace's table map on every DDL.
+            Tables tables = alteredKSM.after.tables;
             for (TableMetadata created : normaliseTableEpochs(nextEpoch, alteredKSM.tables.created.stream()))
                 tables = tables.withSwapped(created);
 
             for (TableMetadata altered : normaliseTableEpochs(nextEpoch, alteredKSM.tables.altered.stream().map(altered -> altered.after)))
                 tables = tables.withSwapped(altered);
 
-            Views views = Views.of(alteredKSM.after.views);
+            Views views = alteredKSM.after.views;
             for (ViewMetadata created : normaliseViewEpochs(nextEpoch, alteredKSM.views.created.stream()))
                 views = views.withSwapped(created);
 

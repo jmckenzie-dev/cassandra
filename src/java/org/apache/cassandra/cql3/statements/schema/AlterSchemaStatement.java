@@ -199,7 +199,7 @@ abstract public class AlterSchemaStatement implements CQLStatement.SingleKeyspac
 
         ClusterMetadata result = commit(metadata);
 
-        KeyspacesDiff diff = Keyspaces.diff(metadata.schema.getKeyspaces(), result.schema.getKeyspaces());
+        KeyspacesDiff diff = result.schema.diffFrom(metadata.schema.getKeyspaces());
         clientWarnings(diff).forEach(ClientWarn.instance::warn);
 
         // Even though the preliminary local application produced a non-empty diff, there may have been concurrent

@@ -48,6 +48,7 @@ import org.apache.cassandra.tcm.serialization.Version;
 import org.apache.cassandra.tracing.TraceKeyspace;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.btree.BTreeMap;
 
 import static org.apache.cassandra.db.TypeSizes.sizeof;
 
@@ -67,6 +68,19 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
     private final Epoch epoch;
     private final UUID version;
     private final Map<String, Keyspace> keyspaceInstances = new HashMap<>();
+    private volatile CachedDiff cachedDiff;
+
+    private static final class CachedDiff
+    {
+        final Keyspaces from;
+        final Keyspaces.KeyspacesDiff diff;
+
+        CachedDiff(Keyspaces from, Keyspaces.KeyspacesDiff diff)
+        {
+            this.from = from;
+            this.diff = diff;
+        }
+    }
 
     public DistributedSchema(Keyspaces keyspaces)
     {
@@ -205,6 +219,25 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
                      .withSwapped(newUserFunctions);
     }
 
+    /**
+     * {@link Keyspaces#diff} from {@code from} to this schema. Each schema change diffs the same pair of schemas
+     * several times, and each diff walks every table in the altered keyspaces, so the last result is kept, keyed by
+     * the identity of {@code from}. Both sides are immutable, so a hit is exact. The cache holds the previous
+     * Keyspaces, which shares all but O(log n) nodes with this one, and never a DistributedSchema, so old
+     * schemas cannot chain. Diffs that drop a keyspace are not kept, so a dropped keyspace's metadata is not retained.
+     */
+    public Keyspaces.KeyspacesDiff diffFrom(Keyspaces from)
+    {
+        CachedDiff cached = cachedDiff;
+        if (cached != null && cached.from == from)
+            return cached.diff;
+
+        Keyspaces.KeyspacesDiff diff = Keyspaces.diff(from, keyspaces);
+        if (diff.dropped.isEmpty())
+            cachedDiff = new CachedDiff(from, diff);
+        return diff;
+    }
+
     public void initializeKeyspaceInstances(DistributedSchema prev, boolean loadSSTables)
     {
         keyspaceInstances.putAll(prev.keyspaceInstances);
@@ -213,7 +246,7 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
         if (!prev.isEmpty() && prev.keyspaceInstances.isEmpty())
             prev = DistributedSchema.empty();
 
-        Keyspaces.KeyspacesDiff ksDiff = Keyspaces.diff(prev.getKeyspaces(), getKeyspaces());
+        Keyspaces.KeyspacesDiff ksDiff = diffFrom(prev.getKeyspaces());
 
         SchemaChangeNotifier schemaChangeNotifier = Schema.instance.schemaChangeNotifier();
         schemaChangeNotifier.notifyPreChanges(new SchemaTransformation.SchemaTransformationResult(prev, this, ksDiff));
@@ -260,7 +293,7 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
         if (!prevSchema.isEmpty() && prevSchema.keyspaceInstances.isEmpty())
             prevSchema = DistributedSchema.empty();
 
-        Keyspaces.KeyspacesDiff ksDiff = Keyspaces.diff(prevSchema.getKeyspaces(), getKeyspaces());
+        Keyspaces.KeyspacesDiff ksDiff = diffFrom(prevSchema.getKeyspaces());
 
         SchemaChangeNotifier schemaChangeNotifier = Schema.instance.schemaChangeNotifier();
 
@@ -325,7 +358,7 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
 
     public static void maybeRebuildViews(DistributedSchema prev, DistributedSchema current)
     {
-        Keyspaces.KeyspacesDiff ksDiff = Keyspaces.diff(prev.getKeyspaces(), current.getKeyspaces());
+        Keyspaces.KeyspacesDiff ksDiff = current.diffFrom(prev.getKeyspaces());
         if (ksDiff.isEmpty() || ksDiff.altered.isEmpty())
             return;
         ksDiff.altered.forEach(delta -> {
@@ -457,14 +490,37 @@ public class DistributedSchema implements MetadataValue<DistributedSchema>
     private void validate(DistributedSchema previous)
     {
         keyspaces.forEach(ksm -> {
-            if (previous != null && previous.keyspaces.getNullable(ksm.name) == ksm)
+            KeyspaceMetadata before = previous == null ? null : previous.keyspaces.getNullable(ksm.name);
+            if (before == ksm)
                 return;
 
-            ksm.tables.forEach(tm -> Preconditions.checkArgument(tm.keyspace.equals(ksm.name), "Table %s metadata points to keyspace %s while defined in keyspace %s", tm.name, tm.keyspace, ksm.name));
+            // Tables the previous schema already validated are the same instances; check only new or changed ones.
+            if (before == null)
+                ksm.tables.forEach(tm -> validateTable(ksm, tm));
+            else
+                BTreeMap.diff(before.tables.byId(), ksm.tables.byId(), new BTreeMap.DiffListener<>()
+                {
+                    public void onlyLeft(TableId id, TableMetadata table) {}
+
+                    public void onlyRight(TableId id, TableMetadata table)
+                    {
+                        validateTable(ksm, table);
+                    }
+
+                    public void changed(TableId id, TableMetadata previousTable, TableMetadata table)
+                    {
+                        validateTable(ksm, table);
+                    }
+                });
             ksm.views.forEach(vm -> Preconditions.checkArgument(vm.keyspace().equals(ksm.name), "View %s metadata points to keyspace %s while defined in keyspace %s", vm.name(), vm.keyspace(), ksm.name));
             ksm.types.forEach(ut -> Preconditions.checkArgument(ut.keyspace.equals(ksm.name), "Type %s points to keyspace %s while defined in keyspace %s", ut.name, ut.keyspace, ksm.name));
             ksm.userFunctions.forEach(f -> Preconditions.checkArgument(f.name().keyspace.equals(ksm.name), "Function %s points to keyspace %s while defined in keyspace %s", f.name().name, f.name().keyspace, ksm.name));
         });
+    }
+
+    private static void validateTable(KeyspaceMetadata ksm, TableMetadata tm)
+    {
+        Preconditions.checkArgument(tm.keyspace.equals(ksm.name), "Table %s metadata points to keyspace %s while defined in keyspace %s", tm.name, tm.keyspace, ksm.name);
     }
 
     public String conciseToString()

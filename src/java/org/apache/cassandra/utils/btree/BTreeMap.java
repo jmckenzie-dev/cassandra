@@ -51,6 +51,41 @@ public class BTreeMap<K, V> extends AbstractBTreeMap<K, V> implements NavigableM
         return BTreeMap.<K, V>empty(naturalOrder());
     }
 
+    /** Receives the entries that differ between two maps; see {@link #diff}. */
+    public interface DiffListener<K, V>
+    {
+        void onlyLeft(K key, V left);
+        void onlyRight(K key, V right);
+        /** The key is in both maps, with values that are different instances. */
+        void changed(K key, V left, V right);
+    }
+
+    /**
+     * Reports the entries of two maps with the same key order that differ, skipping subtrees the maps share by
+     * reference: O(k log n) for maps that differ by k updates. See {@link BTree#diff}.
+     */
+    public static <K, V> void diff(BTreeMap<K, V> left, BTreeMap<K, V> right, DiffListener<K, V> listener)
+    {
+        BTree.<Map.Entry<K, V>>diff(left.tree, right.tree, left.comparator, new BTree.DiffListener<>()
+        {
+            public void onlyLeft(Map.Entry<K, V> entry)
+            {
+                listener.onlyLeft(entry.getKey(), entry.getValue());
+            }
+
+            public void onlyRight(Map.Entry<K, V> entry)
+            {
+                listener.onlyRight(entry.getKey(), entry.getValue());
+            }
+
+            public void changed(Map.Entry<K, V> l, Map.Entry<K, V> r)
+            {
+                if (l.getValue() != r.getValue())
+                    listener.changed(l.getKey(), l.getValue(), r.getValue());
+            }
+        });
+    }
+
     @Override
     public BTreeMap<K, V> with(K key, V value)
     {

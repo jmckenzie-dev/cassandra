@@ -222,10 +222,15 @@ public final class Keyspaces implements Iterable<KeyspaceMetadata>
                                                                       KeyspaceMetadata before,
                                                                       KeyspaceMetadata after)
     {
-        BTreeMap<TableId, TableMetadata> tbls = tables;
+        // Tables: walk only what differs between the two by-id maps, which share every untouched subtree, so a
+        // change of k tables costs O(k log n). Views are few per keyspace and have no by-id map, so they are scanned.
+        TableDelta delta = new TableDelta(tables, before, after);
+        BTreeMap.diff(before.tables.byId(), after.tables.byId(), delta);
+        BTreeMap<TableId, TableMetadata> tbls = delta.tables;
 
-        for (TableMetadata table : after.tablesAndViews())
+        for (ViewMetadata view : after.views)
         {
+            TableMetadata table = view.metadata;
             if (tbls.get(table.id) == table)
                 continue;
 
@@ -233,14 +238,49 @@ public final class Keyspaces implements Iterable<KeyspaceMetadata>
             tbls = existedBefore ? tbls.withForce(table.id, table) : tbls.with(table.id, table);
         }
 
-        for (TableMetadata table : before.tablesAndViews())
+        for (ViewMetadata view : before.views)
         {
+            TableMetadata table = view.metadata;
             boolean stillExists = after.tables.containsTable(table.id) || containsViewId(after.views, table.id);
             if (!stillExists)
                 tbls = tbls.without(table.id);
         }
 
         return tbls;
+    }
+
+    private static final class TableDelta implements BTreeMap.DiffListener<TableId, TableMetadata>
+    {
+        private final KeyspaceMetadata before;
+        private final KeyspaceMetadata after;
+        private BTreeMap<TableId, TableMetadata> tables;
+
+        TableDelta(BTreeMap<TableId, TableMetadata> tables, KeyspaceMetadata before, KeyspaceMetadata after)
+        {
+            this.tables = tables;
+            this.before = before;
+            this.after = after;
+        }
+
+        public void onlyLeft(TableId id, TableMetadata table)
+        {
+            if (!containsViewId(after.views, id))
+                tables = tables.without(id);
+        }
+
+        public void onlyRight(TableId id, TableMetadata table)
+        {
+            if (tables.get(id) == table)
+                return;
+            // A new id that already belongs to another keyspace fails in with(), as before.
+            tables = containsViewId(before.views, id) ? tables.withForce(id, table) : tables.with(id, table);
+        }
+
+        public void changed(TableId id, TableMetadata previous, TableMetadata table)
+        {
+            if (tables.get(id) != table)
+                tables = tables.withForce(id, table);
+        }
     }
 
     /**
