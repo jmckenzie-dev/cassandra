@@ -18,8 +18,10 @@
 
 package org.apache.cassandra.tcm;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -46,26 +48,30 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.tcm.listeners.MetadataSnapshotListener;
 import org.apache.cassandra.tcm.log.Entry;
 import org.apache.cassandra.tcm.transformations.ForceSnapshot;
+import org.apache.cassandra.utils.Clock.Global;
+import org.apache.cassandra.utils.NoSpamLogger;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 /**
- * Covers the D1 fix: {@link MetadataSnapshots.SystemKeyspaceMetadataSnapshots#storeSnapshot} writes the whole
- * serialised {@link ClusterMetadata} as a single mutation, and that mutation is rejected with
- * {@link MutationExceededMaxSizeException} once it exceeds {@code max_mutation_size}. This test verifies:
+ * {@link MetadataSnapshots.SystemKeyspaceMetadataSnapshots#storeSnapshot} writes the serialised {@link ClusterMetadata}
+ * without the commit log and flushes it, so {@code max_mutation_size} no longer bounds it. Single-mutation writes used
+ * to fail with {@link MutationExceededMaxSizeException} at about 24k tables on the default 16 MiB. This test verifies:
  * <ul>
  *     <li>a small snapshot stores cleanly, with no warning-threshold side effects</li>
- *     <li>an oversized snapshot fails with {@link MutationExceededMaxSizeException}, and the attempted size and
- *     failure are still recorded via {@link TCMMetrics}</li>
- *     <li>{@link MetadataSnapshotListener#notify} swallows that failure (so the log-processing thread survives)
+ *     <li>a snapshot larger than {@code max_mutation_size} stores and reads back</li>
+ *     <li>{@link MetadataSnapshotListener#notify} swallows a store failure (so the log-processing thread survives)
  *     while still incrementing {@link TCMMetrics#snapshotStoreFailures}</li>
+ *     <li>the size warning fires against the limits that still apply: max_value_size and internode_max_message_size</li>
  * </ul>
  * test/conf/cassandra.yaml sets {@code commitlog_segment_size: 5MiB}, which makes
- * {@code max_mutation_size = commitlog_segment_size / 2 = 2,621,440} bytes for this test JVM. A one
- * partition-key-int + one regular-text-column table serialises at roughly 527 bytes as part of a
- * {@link ClusterMetadata}, so 5,000 such tables (~2.6MB) reliably clears that limit.
+ * {@code max_mutation_size = commitlog_segment_size / 2 = 2,621,440} bytes for this test JVM.
  */
 public class MetadataSnapshotSizeWarningTest
 {
@@ -117,7 +123,7 @@ public class MetadataSnapshotSizeWarningTest
             assertEquals("A small snapshot must not increment the failure counter",
                          failuresBefore, TCMMetrics.instance.snapshotStoreFailures.getCount());
             assertTrue("A small snapshot must be well under the warning threshold",
-                       TCMMetrics.instance.lastSnapshotSize.getValue() < DatabaseDescriptor.getMaxMutationSize() * 0.75);
+                       TCMMetrics.instance.lastSnapshotSize.getValue() < MetadataSnapshots.SystemKeyspaceMetadataSnapshots.snapshotSizeLimit() * 0.75);
         }
         finally
         {
@@ -126,28 +132,22 @@ public class MetadataSnapshotSizeWarningTest
     }
 
     @Test
-    public void oversizeSnapshotFailsWithMutationExceededMaxSizeExceptionAndIsRecorded()
+    public void snapshotLargerThanMaxMutationSizeStoresAndReadsBack() throws IOException
     {
         truncateSnapshotsTable();
         try
         {
+            long failuresBefore = TCMMetrics.instance.snapshotStoreFailures.getCount();
             MetadataSnapshots snapshots = new MetadataSnapshots.SystemKeyspaceMetadataSnapshots();
-            ClusterMetadata oversize = ClusterMetadataTestHelper.minimalForTesting(Epoch.create(3), Murmur3Partitioner.instance, schemaWithTables(5000));
+            ClusterMetadata large = ClusterMetadataTestHelper.minimalForTesting(Epoch.create(3), Murmur3Partitioner.instance, schemaWithTables(8000));
+            assertTrue("Test setup: the snapshot must exceed max_mutation_size " + DatabaseDescriptor.getMaxMutationSize(),
+                       MetadataSnapshots.toBytes(large).remaining() > DatabaseDescriptor.getMaxMutationSize());
 
-            try
-            {
-                snapshots.storeSnapshot(oversize);
-                fail("Expected storeSnapshot to fail once the serialised size exceeds max_mutation_size");
-            }
-            catch (RuntimeException e)
-            {
-                Throwable cause = e instanceof MutationExceededMaxSizeException ? e : e.getCause();
-                assertTrue("Expected MutationExceededMaxSizeException, got " + e,
-                           cause instanceof MutationExceededMaxSizeException);
-            }
+            snapshots.storeSnapshot(large);
 
-            assertTrue("The attempted serialised size must be recorded even though the store failed",
-                       TCMMetrics.instance.lastSnapshotSize.getValue() > DatabaseDescriptor.getMaxMutationSize() * 0.75);
+            assertEquals(large, snapshots.getSnapshot(large.epoch));
+            assertEquals(large, snapshots.getLatestSnapshot());
+            assertEquals(failuresBefore, TCMMetrics.instance.snapshotStoreFailures.getCount());
         }
         finally
         {
@@ -156,28 +156,35 @@ public class MetadataSnapshotSizeWarningTest
     }
 
     @Test
-    public void listenerSwallowsOversizeFailureButCountsIt()
+    public void listenerSwallowsStoreFailureButCountsIt()
     {
         truncateSnapshotsTable();
         try
         {
-            MetadataSnapshots realSnapshots = new MetadataSnapshots.SystemKeyspaceMetadataSnapshots();
+            MetadataSnapshots failingSnapshots = new MetadataSnapshots.SystemKeyspaceMetadataSnapshots()
+            {
+                @Override
+                public void storeSnapshot(ClusterMetadata metadata)
+                {
+                    throw new RuntimeException("injected store failure");
+                }
+            };
             StubClusterMetadataService service = StubClusterMetadataService.builder(Murmur3Partitioner.instance)
-                                                                            .withSnapshots(realSnapshots)
+                                                                            .withSnapshots(failingSnapshots)
                                                                             .build();
             ClusterMetadataService.unsetInstance();
             ClusterMetadataService.setInstance(service);
 
             long failuresBefore = TCMMetrics.instance.snapshotStoreFailures.getCount();
 
-            ClusterMetadata oversize = ClusterMetadataTestHelper.minimalForTesting(Epoch.create(4), Murmur3Partitioner.instance, schemaWithTables(5000));
-            Entry entry = new Entry(Entry.Id.NONE, oversize.epoch, new ForceSnapshot(oversize));
+            ClusterMetadata snapshot = ClusterMetadataTestHelper.minimalForTesting(Epoch.create(4), Murmur3Partitioner.instance, schemaWithTables(10));
+            Entry entry = new Entry(Entry.Id.NONE, snapshot.epoch, new ForceSnapshot(snapshot));
             ClusterMetadata previous = ClusterMetadataTestHelper.minimalForTesting(Murmur3Partitioner.instance);
             Transformation.Result result = entry.transform.execute(previous);
 
             MetadataSnapshotListener listener = new MetadataSnapshotListener();
             // Must not throw: the listener is required to swallow storeSnapshot failures so the log-processing
-            // thread survives a snapshot that is too large to store.
+            // thread survives a snapshot that cannot be stored.
             listener.notify(entry, result);
 
             assertEquals("The listener must increment snapshotStoreFailures on a caught storeSnapshot failure",
@@ -185,6 +192,93 @@ public class MetadataSnapshotSizeWarningTest
         }
         finally
         {
+            truncateSnapshotsTable();
+        }
+    }
+
+    /**
+     * Covers the CASSANDRA-21664 size warning: once the serialised snapshot reaches 75% of the snapshot size limit
+     * (the smaller of max_value_size and internode_max_message_size),
+     * {@link MetadataSnapshots.SystemKeyspaceMetadataSnapshots#storeSnapshot} logs a rate-limited WARN. This test
+     * lowers max_value_size to 4 MiB so a snapshot in the [75%, 100%) band stays small, and checks that the warning
+     * fires and the snapshot still stores and reads back.
+     */
+    @Test
+    public void warningBandSnapshotStoresSuccessfullyAndLogsWarning() throws IOException
+    {
+        truncateSnapshotsTable();
+        Logger logger = null;
+        ListAppender<ILoggingEvent> listAppender = null;
+        int maxValueSize = DatabaseDescriptor.getMaxValueSize();
+        try
+        {
+            DatabaseDescriptor.setMaxValueSize(4 * 1024 * 1024);
+            // Advance NoSpamLogger's clock past the 5-minute suppression window so a warning logged by an earlier
+            // test does not suppress this one.
+            NoSpamLogger.unsafeSetClock(() -> Global.nanoTime() + TimeUnit.MINUTES.toNanos(10));
+
+            // Attach a ListAppender to capture log output from MetadataSnapshots
+            logger = (Logger) org.slf4j.LoggerFactory.getLogger(MetadataSnapshots.class);
+            listAppender = new ListAppender<>();
+            listAppender.start();
+            logger.addAppender(listAppender);
+
+            long failuresBefore = TCMMetrics.instance.snapshotStoreFailures.getCount();
+
+            // Calculate table count to land in the warning band [75%, 100%) of the snapshot size limit. The
+            // per-table serialised cost is measured directly rather than assumed: a hardcoded 527-byte
+            // estimate held for the plain _jdkNN test variants but was ~39% low against the latest_jdkNN
+            // variants (different dependency versions), pushing the snapshot past 100% of the limit and
+            // into the oversize-throw path instead of the warning-band success path this test exercises.
+            // Two measurements at different table counts isolate the per-table slope from the fixed
+            // overhead of the rest of ClusterMetadata (schema keyspace, node states, epoch, ...), so the
+            // estimate self-corrects under any JDK, dependency profile, or future metadata format change.
+            int limit = MetadataSnapshots.SystemKeyspaceMetadataSnapshots.snapshotSizeLimit();
+            assertEquals("Test setup: max_value_size must set the limit", 4 * 1024 * 1024, limit);
+            int calibrationLow = 200;
+            int calibrationHigh = 1000;
+            long sizeAtLow = MetadataSnapshots.toBytes(ClusterMetadataTestHelper.minimalForTesting(
+                Epoch.create(1), Murmur3Partitioner.instance, schemaWithTables(calibrationLow))).remaining();
+            long sizeAtHigh = MetadataSnapshots.toBytes(ClusterMetadataTestHelper.minimalForTesting(
+                Epoch.create(1), Murmur3Partitioner.instance, schemaWithTables(calibrationHigh))).remaining();
+            double bytesPerTable = (sizeAtHigh - sizeAtLow) / (double) (calibrationHigh - calibrationLow);
+            double overhead = sizeAtLow - calibrationLow * bytesPerTable;
+
+            double targetFraction = 0.80; // 80% of the limit
+            int tableCount = (int) ((limit * targetFraction - overhead) / bytesPerTable);
+
+            MetadataSnapshots snapshots = new MetadataSnapshots.SystemKeyspaceMetadataSnapshots();
+            ClusterMetadata warningBand = ClusterMetadataTestHelper.minimalForTesting(Epoch.create(5), Murmur3Partitioner.instance, schemaWithTables(tableCount));
+
+            // Must not throw: the snapshot is below the limit, so the store should succeed
+            snapshots.storeSnapshot(warningBand);
+
+            // Verify the snapshot stored successfully and can be retrieved
+            assertEquals(warningBand, snapshots.getSnapshot(warningBand.epoch));
+
+            assertEquals("A warning-band snapshot must store successfully and not increment the failure counter",
+                         failuresBefore, TCMMetrics.instance.snapshotStoreFailures.getCount());
+
+            // Guard: verify the serialised size actually landed in the warning band [75%, 100%)
+            long recordedSize = TCMMetrics.instance.lastSnapshotSize.getValue();
+            assertTrue("Serialised size " + recordedSize + " must be at least 75% of the limit " + limit,
+                       recordedSize >= limit * 0.75);
+            assertTrue("Serialised size " + recordedSize + " must be below the limit " + limit + " (test setup error if not)",
+                       recordedSize < limit);
+
+            boolean foundWarning = listAppender.list.stream()
+                                                     .anyMatch(event -> event.getLevel() == Level.WARN
+                                                                        && event.getFormattedMessage().contains("Serialised cluster metadata snapshot")
+                                                                        && event.getFormattedMessage().contains("of the snapshot size limit"));
+            assertTrue("Expected a WARN log about snapshot size approaching the limit, but none was found. " +
+                       "Captured log events: " + listAppender.list.size(), foundWarning);
+        }
+        finally
+        {
+            DatabaseDescriptor.setMaxValueSize(maxValueSize);
+            if (logger != null && listAppender != null)
+                logger.detachAppender(listAppender);
+            NoSpamLogger.unsafeSetClock(Global::nanoTime);
             truncateSnapshotsTable();
         }
     }

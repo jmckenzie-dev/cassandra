@@ -2217,8 +2217,13 @@ public final class SystemKeyspace
     {
         Preconditions.checkArgument(epoch.isAfter(Epoch.FIRST), "Cannot store a snapshot for an epoch less than " + Epoch.FIRST.getEpoch());
         logger.info("Storing snapshot of cluster metadata at epoch {}", epoch);
-        String query = String.format("INSERT INTO %s.%s (epoch, snapshot) VALUES (?, ?)", SchemaConstants.SYSTEM_KEYSPACE_NAME, SNAPSHOT_TABLE_NAME);
-        executeInternal(query, epoch.getEpoch(), snapshot);
+        // The blocking flush below makes the snapshot durable, so the commit log adds nothing. Skipping it also
+        // skips the max_mutation_size check, which a single snapshot passes at about 24k tables. The sizes that
+        // still apply are max_value_size (reading the sstable) and internode_max_message_size (sending it).
+        PartitionUpdate.SimpleBuilder update = PartitionUpdate.simpleBuilder(Snapshots, epoch.getEpoch())
+                                                              .timestamp(FBUtilities.timestampMicros());
+        update.row().add("snapshot", snapshot);
+        new Mutation(update.build()).apply(false);
         forceBlockingFlush(SNAPSHOT_TABLE_NAME);
     }
 
