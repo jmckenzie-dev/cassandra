@@ -115,6 +115,8 @@ import static org.apache.cassandra.utils.FBUtilities.getBroadcastAddressAndPort;
                                   Function<Processor, Processor> wrapProcessor,
                                   Runnable initMessaging) throws InterruptedException, ExecutionException, IOException, StartupException
     {
+        // StartupMode.get reads the local log, so recover journalled entries first
+        ((SystemKeyspaceStorage) LogStorage.SystemKeyspace).recoverJournal();
         switch (StartupMode.get(seeds))
         {
             case FIRST_CMS:

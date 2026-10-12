@@ -2398,6 +2398,18 @@ drop_compact_storage_enabled: false
 # scaling test creating 1,000 tables: 118s at 0ms versus 33s at the 1000ms default.
 # schema_flush_coalescing_window: 1000ms
 #
+# Controls how each entry of system.local_metadata_log is made durable. flush (the default)
+# flushes the table on every entry, which caps a node at roughly 10 schema changes per second.
+# journal appends each entry to a small journal file under <system data directory>/system/
+# metadata-log-journal and forces the file, then flushes the table in the background at most
+# every 10 seconds and deletes the journal files that flush covers. Entries are as durable as
+# in flush mode. Startup replays journal files in both modes, before it reads the table, so a
+# node that crashed in journal mode recovers its entries after a restart in flush mode.
+# DOWNGRADE NOTE: an older binary ignores the journal files. After a crash in journal mode,
+# start this version once (or drain before you stop the node) before you downgrade, or the
+# older binary starts at an older epoch.
+# metadata_log_durability: flush
+#
 # How many of the newest cluster metadata snapshots to keep in system.metadata_snapshots. A snapshot
 # is stored every metadata_snapshot_frequency epochs and is as large as the schema (about 30 MB at
 # 43,000 tables); without a limit they accumulate forever. After each store the node deletes all but

@@ -19,10 +19,17 @@
 package org.apache.cassandra.tcm.log;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -30,17 +37,26 @@ import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.concurrent.ScheduledExecutors;
+import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.config.Config;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.exceptions.StartupException;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.tcm.ClusterMetadataService;
 import org.apache.cassandra.tcm.Epoch;
 import org.apache.cassandra.tcm.MetadataSnapshots;
 import org.apache.cassandra.tcm.Transformation;
+import org.apache.cassandra.utils.concurrent.Future;
+import org.apache.cassandra.utils.concurrent.ImmediateFuture;
 
 import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
+import static org.apache.cassandra.exceptions.StartupException.ERR_WRONG_DISK_STATE;
+import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 public class SystemKeyspaceStorage implements LogStorage
 {
@@ -60,8 +76,16 @@ public class SystemKeyspaceStorage implements LogStorage
     // An Entry keeps its parsed statement, so bound the tail by serialized size too
     private static final long TAIL_MAX_BYTES = 16 * 1024 * 1024;
 
+    private static final long JOURNAL_FLUSH_DELAY_MS = TimeUnit.SECONDS.toMillis(10);
+    private static final String INSERT_QUERY = String.format("INSERT INTO %s.%s (epoch, entry_id, transformation, kind) VALUES (?,?,?,?)",
+                                                             SchemaConstants.SYSTEM_KEYSPACE_NAME, NAME);
+
     private final Supplier<MetadataSnapshots> snapshots;
     private final long tailMaxBytes;
+    private final MetadataLogJournal journal;
+    private final long journalFlushDelayMs;
+    private final Supplier<Future<?>> tableFlush;
+    private final AtomicBoolean journalFlushScheduled = new AtomicBoolean(false);
 
     /**
      * The most recent entries this node appended, keyed by epoch and always a contiguous run, so that a committing
@@ -98,20 +122,60 @@ public class SystemKeyspaceStorage implements LogStorage
     @VisibleForTesting
     SystemKeyspaceStorage(Supplier<MetadataSnapshots> snapshots, long tailMaxBytes)
     {
+        this(snapshots, tailMaxBytes, defaultJournal(), JOURNAL_FLUSH_DELAY_MS, SystemKeyspaceStorage::flushLogTable);
+    }
+
+    @VisibleForTesting
+    SystemKeyspaceStorage(Supplier<MetadataSnapshots> snapshots,
+                          long tailMaxBytes,
+                          MetadataLogJournal journal,
+                          long journalFlushDelayMs,
+                          Supplier<Future<?>> tableFlush)
+    {
         this.snapshots = snapshots;
         this.tailMaxBytes = tailMaxBytes;
+        this.journal = journal;
+        this.journalFlushDelayMs = journalFlushDelayMs;
+        this.tableFlush = tableFlush;
+    }
+
+    public static MetadataLogJournal defaultJournal()
+    {
+        return new MetadataLogJournal(() -> journalDirectory(DatabaseDescriptor.getLocalSystemKeyspacesDataFileLocations()[0]),
+                                      MetadataLogJournal.FILE_CHANNELS);
+    }
+
+    /** The journal directory under the system keyspace directory of a data directory, so it moves with the system keyspace. */
+    public static Path journalDirectory(String dataDirectory)
+    {
+        return Path.of(dataDirectory, SchemaConstants.SYSTEM_KEYSPACE_NAME, MetadataLogJournal.DIRECTORY_NAME);
+    }
+
+    private static Future<?> flushLogTable()
+    {
+        return Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME).getColumnFamilyStore(NAME)
+                       .forceFlush(ColumnFamilyStore.FlushReason.INTERNALLY_FORCED);
+    }
+
+    public static void insert(long epoch, long entryId, ByteBuffer transformation, int kindId)
+    {
+        executeInternal(INSERT_QUERY, epoch, entryId, transformation, kindId);
     }
 
     // This method is always called from a single thread, so doesn't have to be synchonised.
     public void append(Entry entry)
     {
+        if (DatabaseDescriptor.getMetadataLogDurability() == Config.MetadataLogDurability.journal)
+        {
+            appendToJournal(entry);
+            return;
+        }
+
         try
         {
             // TODO get lowest supported metadata version from ClusterMetadata
             ByteBuffer serializedTransformation = entry.transform.kind().toVersionedBytes(entry.transform);
-            String query = String.format("INSERT INTO %s.%s (epoch, entry_id, transformation, kind) VALUES (?,?,?,?)",
-                                         SchemaConstants.SYSTEM_KEYSPACE_NAME, NAME);
-            executeInternal(query, entry.epoch.getEpoch(), entry.id.entryId, serializedTransformation, entry.transform.kind().id);
+            insert(entry.epoch.getEpoch(), entry.id.entryId, serializedTransformation, entry.transform.kind().id);
             remember(entry, serializedTransformation.remaining());
             // todo; should probably not flush every time, but it simplifies tests
             Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME).getColumnFamilyStore(NAME).forceBlockingFlush(ColumnFamilyStore.FlushReason.INTERNALLY_FORCED);
@@ -120,6 +184,115 @@ public class SystemKeyspaceStorage implements LogStorage
         {
             logger.error("Could not persist the entry {} proceeding with in-memory commit.", entry, t);
         }
+    }
+
+    /**
+     * The INSERT and the journal write are one unit: both failures throw, and nothing is written to the journal
+     * after a failed INSERT, so a journal file never holds an entry that is missing from the memtable.
+     */
+    private void appendToJournal(Entry entry)
+    {
+        ByteBuffer serializedTransformation;
+        try
+        {
+            serializedTransformation = entry.transform.kind().toVersionedBytes(entry.transform);
+        }
+        catch (IOException e)
+        {
+            throw new UncheckedIOException(e);
+        }
+        long epoch = entry.epoch.getEpoch();
+        int kindId = entry.transform.kind().id;
+        journal.append(new MetadataLogJournal.Record(epoch, entry.id.entryId, kindId, serializedTransformation),
+                       () -> insert(epoch, entry.id.entryId, serializedTransformation, kindId));
+        remember(entry, serializedTransformation.remaining());
+        scheduleJournalFlush();
+    }
+
+    private void scheduleJournalFlush()
+    {
+        if (!journalFlushScheduled.compareAndSet(false, true))
+            return;
+        try
+        {
+            ScheduledExecutors.nonPeriodicTasks.schedule(() -> { flushJournal(); }, journalFlushDelayMs, TimeUnit.MILLISECONDS);
+        }
+        catch (RejectedExecutionException e)
+        {
+            journalFlushScheduled.set(false);
+            logger.warn("Could not schedule a flush of {}; its journal files stay until a later flush or the next startup", NAME, e);
+        }
+    }
+
+    /**
+     * Rolls the journal, flushes the table, and deletes the files that this roll closed once the flush succeeds. Does
+     * not wait for the flush, so no shared thread blocks on it. The returned future completes after the delete, or
+     * fails; a failed flush keeps the files, and the next startup recovers them.
+     */
+    @VisibleForTesting
+    Future<?> flushJournal()
+    {
+        // Reset before flushing so that entries appended during the flush schedule the next one.
+        journalFlushScheduled.set(false);
+        try
+        {
+            List<Path> closed = journal.roll();
+            if (closed.isEmpty())
+                return ImmediateFuture.success(null);
+            return tableFlush.get()
+                             .map(position -> {
+                                 journal.delete(closed);
+                                 return null;
+                             })
+                             .addCallback(ok -> {}, t -> logger.warn("Flush of {} failed or its journal files were not deleted; keeping {}", NAME, closed, t));
+        }
+        catch (Throwable t)
+        {
+            logger.warn("Failed to roll the journal of {}", NAME, t);
+            return ImmediateFuture.failure(t);
+        }
+    }
+
+    /**
+     * Inserts the entries left in journal files into the table, flushes it, and deletes the files. Runs at the start
+     * of {@code Startup.initialize}, before anything reads the table, in every durability mode.
+     */
+    public void recoverJournal() throws StartupException
+    {
+        long start = nanoTime();
+        MetadataLogJournal.Contents contents;
+        try
+        {
+            contents = journal.read(CassandraRelevantProperties.TCM_METADATA_LOG_JOURNAL_SKIP_BAD_FILES.getBoolean());
+        }
+        catch (IOException e)
+        {
+            throw new StartupException(ERR_WRONG_DISK_STATE,
+                                       e.getMessage() + ". The file holds acknowledged entries. Set -D" +
+                                       CassandraRelevantProperties.TCM_METADATA_LOG_JOURNAL_SKIP_BAD_FILES.getKey() +
+                                       "=true to skip it, which loses the entries in it.", e);
+        }
+        if (contents.files.isEmpty())
+            return;
+
+        long minEpoch = Long.MAX_VALUE;
+        long maxEpoch = Long.MIN_VALUE;
+        for (MetadataLogJournal.Record record : contents.records)
+        {
+            insert(record.epoch, record.entryId, record.transformation, record.kindId);
+            minEpoch = Math.min(minEpoch, record.epoch);
+            maxEpoch = Math.max(maxEpoch, record.epoch);
+        }
+        if (!contents.records.isEmpty())
+            Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME).getColumnFamilyStore(NAME)
+                    .forceBlockingFlush(ColumnFamilyStore.FlushReason.INTERNALLY_FORCED);
+        contents.skipped.forEach(journal::quarantine);
+        journal.delete(contents.files.stream().filter(f -> !contents.skipped.contains(f)).collect(Collectors.toList()));
+        logger.info("Recovered {} metadata log entries (epochs {}) from {} journal files in {} ms",
+                    contents.records.size(),
+                    contents.records.isEmpty() ? "none" : minEpoch + ".." + maxEpoch,
+                    contents.files.size(),
+                    TimeUnit.NANOSECONDS.toMillis(nanoTime() - start));
     }
 
     private void remember(Entry entry, int bytes)
@@ -200,6 +373,7 @@ public class SystemKeyspaceStorage implements LogStorage
     public void truncate()
     {
         invalidateTail();
+        journal.truncate();
         Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME).getColumnFamilyStore(NAME).truncateBlockingWithoutSnapshot();
     }
 

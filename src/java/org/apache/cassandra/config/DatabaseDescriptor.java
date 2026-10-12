@@ -724,6 +724,7 @@ public class DatabaseDescriptor
             throw new ConfigurationException("concurrent_counter_writes must be at least 2, but was " + conf.concurrent_counter_writes, false);
 
         validateMetadataSnapshotsRetained(conf.metadata_snapshots_retained);
+        validateMetadataLogDurability(conf.metadata_log_durability);
 
         if (conf.networking_cache_size == null)
             conf.networking_cache_size = new DataStorageSpec.IntMebibytesBound(Math.min(128, (int) (Runtime.getRuntime().maxMemory() / (16 * 1048576))));
@@ -6373,6 +6374,23 @@ public class DatabaseDescriptor
     public static void setSchemaFlushCoalescingWindow(DurationSpec.IntMillisecondsBound window)
     {
         conf.schema_flush_coalescing_window = window;
+    }
+
+    public static Config.MetadataLogDurability getMetadataLogDurability()
+    {
+        return conf.metadata_log_durability;
+    }
+
+    public static void setMetadataLogDurability(Config.MetadataLogDurability durability)
+    {
+        validateMetadataLogDurability(durability);
+        conf.metadata_log_durability = durability;
+    }
+
+    private static void validateMetadataLogDurability(Config.MetadataLogDurability durability)
+    {
+        if (durability == null)
+            throw new ConfigurationException("metadata_log_durability must be one of flush or journal", false);
     }
 
     public static String getCMSRetryDelay()

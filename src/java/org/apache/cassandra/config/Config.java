@@ -1000,6 +1000,19 @@ public class Config
     public volatile DurationSpec.IntMillisecondsBound schema_flush_coalescing_window = new DurationSpec.IntMillisecondsBound("1000ms");
 
     /**
+     * How each entry of {@code system.local_metadata_log} is made durable. {@code flush} (the default) flushes the
+     * table on every entry. {@code journal} appends the entry to a small journal file and forces it, and flushes the
+     * table in the background at most every 10 seconds; startup recovers the entries left in journal files.
+     */
+    public volatile MetadataLogDurability metadata_log_durability = MetadataLogDurability.flush;
+
+    public enum MetadataLogDurability
+    {
+        flush,
+        journal
+    }
+
+    /**
      * Client mode means that the process is a pure client, that uses C* code base but does
      * not read or write local C* database files.
      *
