@@ -18,12 +18,14 @@
 
 package org.apache.cassandra.metrics;
 
+import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import com.codahale.metrics.Clock;
+import com.sun.management.ThreadMXBean;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -200,6 +202,105 @@ public class ThreadLocalMeterTest
                                       small, reallocationsForSmall, large, reallocationsForLarge);
         Assert.assertTrue(detail, reallocationsForSmall <= 30);
         Assert.assertTrue(detail, reallocationsForLarge <= 30);
+    }
+
+    /**
+     * {@code allMeters} used to be a {@code CopyOnWriteArrayList}, so registering a meter copied every registered
+     * meter and creating M meters cost O(M^2): with 10,000 tables (about 450,000 meters) node startup spent most
+     * of its time copying this list. With {@code live} meters registered, a copy-on-write add allocates at least
+     * {@code live} references (200-400 KB at 50,000); a queue node costs a few dozen bytes. The bound sits far
+     * between the two and above the amortized growth of the other shared arrays a new meter can trigger.
+     */
+    @Test
+    public void meterRegistrationDoesNotCopyRegisteredMeters()
+    {
+        int live = 50_000;
+        int measured = 1_000;
+        List<ThreadLocalMeter> meters = new ArrayList<>(live + measured);
+        for (int i = 0; i < live; i++)
+            meters.add(new ThreadLocalMeter());
+
+        ThreadMXBean threads = (ThreadMXBean) ManagementFactory.getThreadMXBean();
+        long threadId = Thread.currentThread().getId();
+        long start = threads.getThreadAllocatedBytes(threadId);
+        for (int i = 0; i < measured; i++)
+            meters.add(new ThreadLocalMeter());
+        long bytesPerMeter = (threads.getThreadAllocatedBytes(threadId) - start) / measured;
+
+        assertThat(bytesPerMeter).as("bytes allocated per new meter with %,d meters registered", live)
+                                 .isLessThan(16 * 1024);
+        Assert.assertEquals(live + measured, meters.size());
+    }
+
+    /** A meter that throws while ticking must not stop the ticker from reaching the meters behind it. */
+    @Test
+    public void failingMeterDoesNotStopTickingOthers()
+    {
+        ThrowingClock badClock = new ThrowingClock();
+        ThreadLocalMeter failing = new ThreadLocalMeter(badClock);
+        DeterministicClock clock = new DeterministicClock(0);
+        ThreadLocalMeter healthy = new ThreadLocalMeter(clock);
+        com.codahale.metrics.Meter codahaleMeter = new com.codahale.metrics.Meter(clock);
+        healthy.mark(10);
+        codahaleMeter.mark(10);
+        clock.setTime(TimeUnit.SECONDS.toNanos(10));
+        long failuresBefore = MeterTickerMetrics.TickerStats.THREAD_LOCAL.tickFailures.get();
+        badClock.fail = true;
+        try
+        {
+            ThreadLocalMeter.tickAll();
+        }
+        finally
+        {
+            // allMeters is static: a meter left failing would break every later tickAll in this JVM
+            badClock.fail = false;
+        }
+
+        assertThat(MeterTickerMetrics.TickerStats.THREAD_LOCAL.tickFailures.get()).isGreaterThan(failuresBefore);
+        assertMeter(healthy, codahaleMeter);
+        Assert.assertNotNull(failing);
+    }
+
+    /** RegisteredMeters counts each new meter and drops it once the ticker removes its cleared reference. */
+    @Test
+    public void tickerStatsTrackRegistrationAndCleanup()
+    {
+        MeterTickerMetrics.TickerStats stats = MeterTickerMetrics.TickerStats.THREAD_LOCAL;
+        long registeredBefore = stats.registered.get();
+        long clearedBefore = stats.clearedRemoved.get();
+        int count = 100;
+        List<ThreadLocalMeter> meters = new ArrayList<>(count);
+        for (int i = 0; i < count; i++)
+            meters.add(new ThreadLocalMeter());
+        assertEquals(registeredBefore + count, stats.registered.get());
+
+        meters.clear();
+        Util.spinAssertEquals(true, () -> {
+            System.gc();
+            ThreadLocalMeter.tickAll();
+            return stats.clearedRemoved.get() - clearedBefore >= count;
+        }, 20);
+        assertThat(stats.registered.get()).isLessThanOrEqualTo(registeredBefore);
+        assertEquals(stats.registered.get(), ThreadLocalMeter.getTickingMetersCount());
+        assertThat(stats.lastPassNanos).isGreaterThan(0);
+    }
+
+    private static class ThrowingClock extends DeterministicClock
+    {
+        volatile boolean fail;
+
+        ThrowingClock()
+        {
+            super(0);
+        }
+
+        @Override
+        public long now()
+        {
+            if (fail)
+                throw new IllegalStateException("clock failure injected by the test");
+            return super.now();
+        }
     }
 
     /** Reallocations of the shared {@code rates} array attributable to creating {@code count} fresh meters. */

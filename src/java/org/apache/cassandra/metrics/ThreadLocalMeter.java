@@ -19,10 +19,10 @@
 package org.apache.cassandra.metrics;
 
 import java.lang.ref.WeakReference;
-import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Iterator;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -30,8 +30,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.codahale.metrics.Clock;
 import com.google.common.annotations.VisibleForTesting;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.utils.MonotonicClock;
+import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.ReflectionUtils;
 
 import static java.lang.Math.exp;
@@ -69,7 +73,12 @@ public class ThreadLocalMeter extends com.codahale.metrics.Meter implements Mete
     private static final double NON_INITIALIZED = Double.MIN_VALUE;
 
     private static final int BACKGROUND_TICK_INTERVAL_SEC = INTERVAL_SEC;
-    private static final List<WeakReference<ThreadLocalMeter>> allMeters = new CopyOnWriteArrayList<>();
+    // Not a CopyOnWriteArrayList: each add would copy every registered meter, making table creation O(n^2).
+    private static final Queue<WeakReference<ThreadLocalMeter>> allMeters = new ConcurrentLinkedQueue<>();
+    private static final Object tickAllGuard = new Object();
+    private static final MeterTickerMetrics.TickerStats tickerStats = MeterTickerMetrics.TickerStats.THREAD_LOCAL;
+    private static final Logger logger = LoggerFactory.getLogger(ThreadLocalMeter.class);
+    private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 1, TimeUnit.MINUTES);
 
     /**
      * CASSANDRA-19332
@@ -194,6 +203,7 @@ public class ThreadLocalMeter extends com.codahale.metrics.Meter implements Mete
         this.uncountedMetricId = ThreadLocalMetrics.allocateMetricId();
         this.rateGroupId = allocateRateGroupOffset();
         allMeters.add(new WeakReference<>(this));
+        tickerStats.registered.incrementAndGet();
         ThreadLocalMetrics.destroyWhenUnreachable(this, new MeterCleaner(countMetricId, uncountedMetricId, rateGroupId));
         ReflectionUtils.setFieldToNull(this, com.codahale.metrics.Meter.class, "count"); // to reduce metrics memory footprint
     }
@@ -288,27 +298,38 @@ public class ThreadLocalMeter extends com.codahale.metrics.Meter implements Mete
         }
     }
 
+    // One pass at a time: two passes could both remove the same cleared reference and miscount.
     @VisibleForTesting
     static void tickAll()
     {
-            List<WeakReference<ThreadLocalMeter>> emptyRefsToRemove = null;
-            for (WeakReference<ThreadLocalMeter> threadLocalMeterRef : allMeters)
+        synchronized (tickAllGuard)
+        {
+            long start = MonotonicClock.Global.preciseTime.now();
+            Iterator<WeakReference<ThreadLocalMeter>> iterator = allMeters.iterator();
+            while (iterator.hasNext())
             {
-                ThreadLocalMeter meter = threadLocalMeterRef.get();
-                if (meter != null)
+                ThreadLocalMeter meter = iterator.next().get();
+                if (meter == null)
+                {
+                    iterator.remove();
+                    tickerStats.registered.decrementAndGet();
+                    tickerStats.clearedRemoved.incrementAndGet();
+                    continue;
+                }
+                // One failing meter must not stop ticking and cleanup for the meters behind it.
+                try
                 {
                     meter.tickIfNessesary();
                 }
-                else
+                catch (RuntimeException e)
                 {
-                    if (emptyRefsToRemove == null)
-                        emptyRefsToRemove = new ArrayList<>();
-                    emptyRefsToRemove.add(threadLocalMeterRef);
+                    // Errors (OOM and the like) still reach the scheduler's handler and JVMStabilityInspector.
+                    tickerStats.tickFailures.incrementAndGet();
+                    noSpamLogger.error("Failed to tick a meter; continuing with the others", e);
                 }
             }
-            if (emptyRefsToRemove != null)
-                allMeters.removeAll(emptyRefsToRemove);
-
+            tickerStats.lastPassNanos = MonotonicClock.Global.preciseTime.now() - start;
+        }
     }
 
     private void tickIfNessesary()
