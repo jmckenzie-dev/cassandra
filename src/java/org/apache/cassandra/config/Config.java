@@ -264,6 +264,11 @@ public class Config
      */
     public volatile int metadata_snapshot_frequency = 100;
 
+    /**
+     * How many of the newest cluster metadata snapshots to keep in system.metadata_snapshots. -1 keeps all.
+     */
+    public volatile int metadata_snapshots_retained = 5;
+
 
     public volatile double phi_convict_threshold = 8.0;
 
@@ -993,6 +998,19 @@ public class Config
      * instead of one per statement.
      */
     public volatile DurationSpec.IntMillisecondsBound schema_flush_coalescing_window = new DurationSpec.IntMillisecondsBound("1000ms");
+
+    /**
+     * How each entry of {@code system.local_metadata_log} is made durable. {@code flush} (the default) flushes the
+     * table on every entry. {@code journal} appends the entry to a small journal file and forces it, and flushes the
+     * table in the background at most every 10 seconds; startup recovers the entries left in journal files.
+     */
+    public volatile MetadataLogDurability metadata_log_durability = MetadataLogDurability.flush;
+
+    public enum MetadataLogDurability
+    {
+        flush,
+        journal
+    }
 
     /**
      * Client mode means that the process is a pure client, that uses C* code base but does

@@ -2188,6 +2188,26 @@ drop_compact_storage_enabled: false
 # tables_warn_threshold: 1000
 # tables_fail_threshold: -1
 #
+# Controls how each entry of system.local_metadata_log is made durable. flush (the default)
+# flushes the table on every entry, which caps a node at roughly 10 schema changes per second.
+# journal appends each entry to a small journal file under <system data directory>/system/
+# metadata-log-journal and forces the file, then flushes the table in the background at most
+# every 10 seconds and deletes the journal files that flush covers. Entries are as durable as
+# in flush mode. Startup replays journal files in both modes, before it reads the table, so a
+# node that crashed in journal mode recovers its entries after a restart in flush mode.
+# DOWNGRADE NOTE: an older binary ignores the journal files. After a crash in journal mode,
+# start this version once (or drain before you stop the node) before you downgrade, or the
+# older binary starts at an older epoch.
+# metadata_log_durability: flush
+#
+# How many of the newest cluster metadata snapshots to keep in system.metadata_snapshots. A snapshot
+# is stored every metadata_snapshot_frequency epochs and is as large as the schema (about 30 MB at
+# 43,000 tables); without a limit they accumulate forever. After each store the node deletes all but
+# the newest N. Trade-off: reverting or dumping cluster metadata at an epoch older than the oldest
+# kept snapshot (nodetool cms, offline metadata dump) replays the local log from the start, which is
+# slow, and fails if the local log has gaps. Must be at least 2; -1 keeps every snapshot.
+# metadata_snapshots_retained: 5
+#
 # Guardrail to enable or disable the ability to create uncompressed tables
 # uncompressed_tables_enabled: true
 #

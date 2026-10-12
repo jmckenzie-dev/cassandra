@@ -21,10 +21,14 @@ package org.apache.cassandra.tools;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Path;
+import java.util.List;
 
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import org.apache.cassandra.ServerTestUtils;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -34,8 +38,10 @@ import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.tcm.Epoch;
 import org.apache.cassandra.tcm.MetadataSnapshots;
+import org.apache.cassandra.tcm.Transformation;
 import org.apache.cassandra.tcm.log.Entry;
 import org.apache.cassandra.tcm.log.LogState;
+import org.apache.cassandra.tcm.log.MetadataLogJournal;
 import org.apache.cassandra.tcm.log.SystemKeyspaceStorage;
 import org.apache.cassandra.tcm.transformations.CustomTransformation;
 
@@ -51,6 +57,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 public class OfflineClusterMetadataDumpIntegrationTest extends OfflineToolUtils
 {
+    @Rule
+    public TemporaryFolder folder = new TemporaryFolder();
+
     private SystemKeyspaceStorage storage;
 
     @BeforeClass
@@ -77,6 +86,29 @@ public class OfflineClusterMetadataDumpIntegrationTest extends OfflineToolUtils
         return new Entry(new Entry.Id(epoch),
                          Epoch.create(epoch),
                          CustomTransformation.make((int) epoch));
+    }
+
+    @Test
+    public void testJournalEntriesAreMergedIntoTheLog() throws IOException
+    {
+        // Entry 1 is in the table; 2 and 3 are only in the journal, as after a crash
+        storage.append(entry(1));
+        Path journalDir = SystemKeyspaceStorage.journalDirectory(folder.newFolder().getPath());
+        MetadataLogJournal journal = new MetadataLogJournal(() -> journalDir, MetadataLogJournal.FILE_CHANNELS);
+        for (long epoch = 2; epoch <= 3; epoch++)
+        {
+            Transformation transform = entry(epoch).transform;
+            journal.append(new MetadataLogJournal.Record(epoch, epoch, transform.kind().id, transform.kind().toVersionedBytes(transform)), () -> {});
+        }
+        TestOutput testOutput = new TestOutput();
+
+        OfflineClusterMetadataDump.BaseCommand.mergeJournalEntries(List.of(journalDir), testOutput.getOutput());
+        LogState logState = OfflineClusterMetadataDump.BaseCommand.getLogState(storage, MetadataSnapshots.NO_OP, null, null, testOutput.getOutput());
+
+        assertThat(testOutput.getStderr()).contains("Merged 2 entries from the metadata log journal");
+        assertThat(logState.entries).hasSize(3);
+        assertThat(logState.entries.get(2).epoch.getEpoch()).isEqualTo(3);
+        assertThat(journal.read(false).files).hasSize(1); // read-only: the file is still there
     }
 
     @Test

@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -52,6 +53,7 @@ import org.apache.cassandra.tcm.MetadataSnapshots;
 import org.apache.cassandra.tcm.log.Entry;
 import org.apache.cassandra.tcm.log.LogReader;
 import org.apache.cassandra.tcm.log.LogState;
+import org.apache.cassandra.tcm.log.MetadataLogJournal;
 import org.apache.cassandra.tcm.log.SystemKeyspaceStorage;
 import org.apache.cassandra.tcm.membership.NodeVersion;
 import org.apache.cassandra.tcm.serialization.VerboseMetadataSerializer;
@@ -284,6 +286,8 @@ public class OfflineClusterMetadataDump implements Runnable
                 }
             }
 
+            mergeJournalEntries(logTablePaths);
+
             // Find and import SSTables for metadata_snapshots
             Set<String> snapshotTablePaths = findTablePaths(SystemKeyspace.SNAPSHOT_TABLE_NAME, SchemaConstants.SYSTEM_KEYSPACE_NAME);
             if (!snapshotTablePaths.isEmpty())
@@ -293,6 +297,43 @@ public class OfflineClusterMetadataDump implements Runnable
                 if (verbose)
                 {
                     output.out.println("Imported SSTables from: " + snapshotTablePaths);
+                }
+            }
+        }
+
+        private void mergeJournalEntries(Set<String> logTablePaths)
+        {
+            Set<Path> journalDirs = new LinkedHashSet<>();
+            for (String logTablePath : logTablePaths)
+                journalDirs.add(Path.of(logTablePath).resolveSibling(MetadataLogJournal.DIRECTORY_NAME));
+            if (dataDirs != null)
+                for (String dataDir : dataDirs)
+                    journalDirs.add(SystemKeyspaceStorage.journalDirectory(dataDir));
+            mergeJournalEntries(journalDirs, output);
+        }
+
+        /**
+         * Entries from the last seconds before a crash can be only in the metadata log journal, which is not an
+         * sstable. Reads the journal files without changing them and inserts their entries into the imported table.
+         */
+        @VisibleForTesting
+        static void mergeJournalEntries(Collection<Path> journalDirs, Output out)
+        {
+            for (Path journalDir : journalDirs)
+            {
+                try
+                {
+                    MetadataLogJournal.Contents contents = new MetadataLogJournal(() -> journalDir, MetadataLogJournal.FILE_CHANNELS).read(false);
+                    for (MetadataLogJournal.Record record : contents.records)
+                        SystemKeyspaceStorage.insert(record.epoch, record.entryId, record.transformation, record.kindId);
+                    if (!contents.records.isEmpty())
+                        out.err.println("Merged " + contents.records.size() + " entries from the metadata log journal " + journalDir +
+                                        ", which are not in the sstables yet");
+                }
+                catch (IOException e)
+                {
+                    out.err.println("WARNING: Could not read the metadata log journal " + journalDir + ": " + e.getMessage() +
+                                    ". The newest entries may be missing.");
                 }
             }
         }

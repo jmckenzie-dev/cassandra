@@ -75,6 +75,7 @@ import org.apache.cassandra.io.util.PathUtils;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.tcm.log.MetadataLogJournal;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JavaUtils;
 import org.apache.cassandra.utils.NativeLibrary;
@@ -821,6 +822,9 @@ public class StartupChecks
                     {
                         String tablePart = nameParts[nameParts.length - 1];
                         String ksPart = nameParts[nameParts.length - 2];
+
+                        if (ksPart.equals(SchemaConstants.SYSTEM_KEYSPACE_NAME) && tablePart.equals(MetadataLogJournal.DIRECTORY_NAME))
+                            return FileVisitResult.SKIP_SUBTREE;
 
                         if (tablePart.contains("-"))
                             tablePart = tablePart.split("-")[0];

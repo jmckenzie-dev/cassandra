@@ -644,6 +644,11 @@ public enum CassandraRelevantProperties
     // transactional cluster metadata relevant properties
     // TODO: not a fan of being forced to prefix these to satisfy the alphabetic ordering constraint
     //       but it makes sense to group logically related properties together
+    /**
+     * Skip a metadata log journal file that fails validation at startup instead of failing the start. This loses the
+     * entries in that file, including entries that were acknowledged.
+     */
+    TCM_METADATA_LOG_JOURNAL_SKIP_BAD_FILES("cassandra.metadata_log_journal_skip_bad_files", "false"),
     TCM_SHADOW_ROUND_MAX_ATTEMPTS("cassandra.shadow_round_max_attempts", "3"),
     TCM_SHADOW_ROUND_TIMEOUT("cassandra.shadow_round_timeout_millis", "15000"),
     /**
