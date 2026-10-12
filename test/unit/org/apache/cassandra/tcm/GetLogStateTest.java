@@ -31,6 +31,7 @@ import org.junit.Test;
 import org.apache.cassandra.ServerTestUtils;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.service.StorageService;
@@ -116,7 +117,7 @@ public class GetLogStateTest
         Epoch toQuery = Epoch.create(lastSnapshot.getEpoch() - 3);
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, null, toQuery, maxEpoch);
-        QueryProcessor.executeInternal("DELETE FROM system.local_metadata_log WHERE epoch = ?", toDelete.getEpoch());
+        deleteLogEntry(toDelete.getEpoch());
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, epochToSnapshot.lastEntry().getValue(), null, maxEpoch);
     }
@@ -137,7 +138,7 @@ public class GetLogStateTest
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, lastSnapshot, lastSnapshot.epoch, maxEpoch);
 
-        QueryProcessor.executeInternal("DELETE FROM system.local_metadata_log WHERE epoch = ?", toDelete.getEpoch());
+        deleteLogEntry(toDelete.getEpoch());
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertEquals(lastSnapshot, logState.baseState);
         boolean containsExpectedEntries = logState.entries.stream()
@@ -163,7 +164,7 @@ public class GetLogStateTest
         Epoch toDelete = Epoch.create(toQuery.getEpoch() + 1);
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, lastSnapshot, lastSnapshot.epoch, maxEpoch);
-        QueryProcessor.executeInternal("DELETE FROM system.local_metadata_log WHERE epoch = ?", toDelete.getEpoch());
+        deleteLogEntry(toDelete.getEpoch());
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, lastSnapshot, lastSnapshot.epoch, maxEpoch);
     }
@@ -181,7 +182,7 @@ public class GetLogStateTest
         Epoch toDelete = Epoch.create(maxEpoch.getEpoch() - 1);
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, null, toQuery, maxEpoch);
-        QueryProcessor.executeInternal("DELETE FROM system.local_metadata_log WHERE epoch = ?", toDelete.getEpoch());
+        deleteLogEntry(toDelete.getEpoch());
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertEquals(lastSnapshot, logState.baseState);
         boolean containsExpectedEntries = logState.entries.stream()
@@ -204,7 +205,7 @@ public class GetLogStateTest
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, null, toQuery, maxEpoch);
 
-        QueryProcessor.executeInternal("DELETE snapshot FROM system.metadata_snapshots WHERE epoch = ?", lastSnapshot.getEpoch());
+        deleteSnapshot(lastSnapshot.getEpoch());
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, null, toQuery, maxEpoch);
     }
@@ -224,7 +225,7 @@ public class GetLogStateTest
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, lastSnapshot, lastSnapshot.epoch, maxEpoch);
 
-        QueryProcessor.executeInternal("DELETE snapshot FROM system.metadata_snapshots WHERE epoch = ?", lastSnapshot.epoch.getEpoch());
+        deleteSnapshot(lastSnapshot.epoch.getEpoch());
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, previousSnapshot, previousSnapshot.epoch, maxEpoch);
     }
@@ -248,7 +249,7 @@ public class GetLogStateTest
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, lastSnapshot, lastSnapshot.epoch, maxEpoch);
 
-        toCorrupt.forEach(cm -> QueryProcessor.executeInternal("DELETE snapshot FROM system.metadata_snapshots WHERE epoch = ?", cm.epoch.getEpoch()));
+        toCorrupt.forEach(cm -> deleteSnapshot(cm.epoch.getEpoch()));
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, validSnapshot, validSnapshot.epoch, maxEpoch);
     }
@@ -272,7 +273,7 @@ public class GetLogStateTest
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, lastSnapshot, lastSnapshot.epoch, maxEpoch);
 
-        toCorrupt.forEach(cm -> QueryProcessor.executeInternal("DELETE snapshot FROM system.metadata_snapshots WHERE epoch = ?", cm.epoch.getEpoch()));
+        toCorrupt.forEach(cm -> deleteSnapshot(cm.epoch.getEpoch()));
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, null, toQuery, maxEpoch);
     }
@@ -289,8 +290,8 @@ public class GetLogStateTest
         Epoch toQuery = Epoch.create(lastSnapshot.getEpoch() - 3);
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, null, toQuery, maxEpoch);
-        QueryProcessor.executeInternal("DELETE FROM system.local_metadata_log WHERE epoch = ?", toDelete.getEpoch());
-        QueryProcessor.executeInternal("DELETE snapshot FROM system.metadata_snapshots WHERE epoch = ?", lastSnapshot.getEpoch());
+        deleteLogEntry(toDelete.getEpoch());
+        deleteSnapshot(lastSnapshot.getEpoch());
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, null, toDelete, maxEpoch);
     }
@@ -308,8 +309,8 @@ public class GetLogStateTest
         Epoch toQuery = Epoch.create(lastSnapshot.getEpoch() - 3);
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, null, toQuery, maxEpoch);
-        QueryProcessor.executeInternal("DELETE FROM system.local_metadata_log WHERE epoch = ?", toDelete.getEpoch());
-        QueryProcessor.executeInternal("DELETE snapshot FROM system.metadata_snapshots WHERE epoch = ?", lastSnapshot.getEpoch());
+        deleteLogEntry(toDelete.getEpoch());
+        deleteSnapshot(lastSnapshot.getEpoch());
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertNull(logState.baseState);
         boolean containsExpectedEntries = logState.entries.stream()
@@ -336,8 +337,8 @@ public class GetLogStateTest
         Epoch toDelete = Epoch.create(toQuery.getEpoch() + 2);
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, epochToSnapshot.lastEntry().getValue(), epochToSnapshot.lastKey(), maxEpoch);
-        QueryProcessor.executeInternal("DELETE FROM system.local_metadata_log WHERE epoch = ?", toDelete.getEpoch());
-        toCorrupt.forEach(e -> QueryProcessor.executeInternal("DELETE snapshot FROM system.metadata_snapshots WHERE epoch = ?", e.getEpoch()));
+        deleteLogEntry(toDelete.getEpoch());
+        toCorrupt.forEach(e -> deleteSnapshot(e.getEpoch()));
 
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertNull(logState.baseState);
@@ -366,8 +367,8 @@ public class GetLogStateTest
         LogState logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertCorrectLogState(logState, epochToSnapshot.lastEntry().getValue(), epochToSnapshot.lastKey(), maxEpoch);
 
-        QueryProcessor.executeInternal("DELETE FROM system.local_metadata_log WHERE epoch = ?", toDelete.getEpoch());
-        toCorrupt.forEach(e -> QueryProcessor.executeInternal("DELETE snapshot FROM system.metadata_snapshots WHERE epoch = ?", e.getEpoch()));
+        deleteLogEntry(toDelete.getEpoch());
+        toCorrupt.forEach(e -> deleteSnapshot(e.getEpoch()));
         logState = SystemKeyspaceStorage.SystemKeyspace.getLogState(toQuery);
         assertNull(logState.baseState);
         boolean containsExpectedEntries = logState.entries.stream()
@@ -428,6 +429,19 @@ public class GetLogStateTest
             prev = e.epoch;
         }
         assertEquals(prev, endEpoch);
+    }
+
+    // Rows are deleted behind the node's in-memory copies of the log tail and the snapshot epochs, so drop those too
+    private static void deleteLogEntry(long epoch)
+    {
+        QueryProcessor.executeInternal("DELETE FROM system.local_metadata_log WHERE epoch = ?", epoch);
+        ((SystemKeyspaceStorage) SystemKeyspaceStorage.SystemKeyspace).invalidateTail();
+    }
+
+    private static void deleteSnapshot(long epoch)
+    {
+        QueryProcessor.executeInternal("DELETE snapshot FROM system.metadata_snapshots WHERE epoch = ?", epoch);
+        SystemKeyspace.invalidateSnapshotEpochs();
     }
 
     private void clearAndPopulate()

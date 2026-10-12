@@ -20,6 +20,8 @@ package org.apache.cassandra.tcm.log;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Map;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -54,7 +56,33 @@ public class SystemKeyspaceStorage implements LogStorage
      */
     public static final long GENERATION = 0;
 
+    private static final int TAIL_SIZE = 1024;
+    // An Entry keeps its parsed statement, so bound the tail by serialized size too
+    private static final long TAIL_MAX_BYTES = 16 * 1024 * 1024;
+
     private final Supplier<MetadataSnapshots> snapshots;
+    private final long tailMaxBytes;
+
+    /**
+     * The most recent entries this node appended, keyed by epoch and always a contiguous run, so that a committing
+     * client catching up a few epochs does not re-read and re-parse them (an AlterSchema entry re-parses its CQL).
+     * Empty after a restart. Sharing the Entry is safe: after commit, an AlterSchema is only read (its CQL and
+     * execution timestamp are serialized, apply() does not write it), and readers never modify entries.
+     */
+    private final ConcurrentSkipListMap<Long, WeightedEntry> tail = new ConcurrentSkipListMap<>();
+    private long tailBytes; // guarded by tail; readers do not lock
+
+    private static final class WeightedEntry
+    {
+        final Entry entry;
+        final int bytes;
+
+        WeightedEntry(Entry entry, int bytes)
+        {
+            this.entry = entry;
+            this.bytes = bytes;
+        }
+    }
 
     public SystemKeyspaceStorage()
     {
@@ -64,7 +92,14 @@ public class SystemKeyspaceStorage implements LogStorage
     @VisibleForTesting
     public SystemKeyspaceStorage(Supplier<MetadataSnapshots> snapshots)
     {
+        this(snapshots, TAIL_MAX_BYTES);
+    }
+
+    @VisibleForTesting
+    SystemKeyspaceStorage(Supplier<MetadataSnapshots> snapshots, long tailMaxBytes)
+    {
         this.snapshots = snapshots;
+        this.tailMaxBytes = tailMaxBytes;
     }
 
     // This method is always called from a single thread, so doesn't have to be synchonised.
@@ -77,12 +112,53 @@ public class SystemKeyspaceStorage implements LogStorage
             String query = String.format("INSERT INTO %s.%s (epoch, entry_id, transformation, kind) VALUES (?,?,?,?)",
                                          SchemaConstants.SYSTEM_KEYSPACE_NAME, NAME);
             executeInternal(query, entry.epoch.getEpoch(), entry.id.entryId, serializedTransformation, entry.transform.kind().id);
+            remember(entry, serializedTransformation.remaining());
             // todo; should probably not flush every time, but it simplifies tests
             Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME).getColumnFamilyStore(NAME).forceBlockingFlush(ColumnFamilyStore.FlushReason.INTERNALLY_FORCED);
         }
         catch (Throwable t)
         {
             logger.error("Could not persist the entry {} proceeding with in-memory commit.", entry, t);
+        }
+    }
+
+    private void remember(Entry entry, int bytes)
+    {
+        synchronized (tail)
+        {
+            long epoch = entry.epoch.getEpoch();
+            Map.Entry<Long, WeightedEntry> last = tail.lastEntry();
+            // A gap (e.g. after a ForceSnapshot) ends the contiguous run
+            if (last != null && last.getKey() + 1 != epoch)
+                clearTail();
+            if (bytes > tailMaxBytes)
+            {
+                // Not kept, so the run would have a hole: drop it and let readers use the table
+                clearTail();
+                return;
+            }
+            tail.put(epoch, new WeightedEntry(entry, bytes));
+            tailBytes += bytes;
+            while (epoch - tail.firstKey() >= TAIL_SIZE || tailBytes > tailMaxBytes)
+                tailBytes -= tail.pollFirstEntry().getValue().bytes;
+        }
+    }
+
+    private void clearTail()
+    {
+        synchronized (tail)
+        {
+            tail.clear();
+            tailBytes = 0;
+        }
+    }
+
+    @VisibleForTesting
+    long tailBytes()
+    {
+        synchronized (tail)
+        {
+            return tailBytes;
         }
     }
 
@@ -115,8 +191,15 @@ public class SystemKeyspaceStorage implements LogStorage
         return snapshots.get();
     }
 
+    @VisibleForTesting
+    public void invalidateTail()
+    {
+        clearTail();
+    }
+
     public void truncate()
     {
+        invalidateTail();
         Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME).getColumnFamilyStore(NAME).truncateBlockingWithoutSnapshot();
     }
 
@@ -139,9 +222,29 @@ public class SystemKeyspaceStorage implements LogStorage
     {
         // during gossip upgrade we have epoch = Long.MIN_VALUE + 1 (and the reverse partitioner doesn't support negative keys)
         since = since.isBefore(Epoch.EMPTY) ? Epoch.EMPTY : since;
+        EntryHolder fromTail = fromTail(since);
+        if (fromTail != null)
+            return fromTail;
         UntypedResultSet resultSet = executeInternal(String.format("SELECT epoch, kind, transformation, entry_id FROM %s.%s WHERE token(epoch) <= token(?)", SchemaConstants.SYSTEM_KEYSPACE_NAME, NAME),
                                                      since.getEpoch());
         return toEntryHolder(since, resultSet);
+    }
+
+    /**
+     * Returns the entries after {@code since} if the tail holds all of them, else null. The tail can change while it
+     * is read (trimmed at the front, or cleared at a gap), so check the count rather than trust the range.
+     */
+    private EntryHolder fromTail(Epoch since)
+    {
+        Map.Entry<Long, WeightedEntry> first = tail.firstEntry();
+        Map.Entry<Long, WeightedEntry> last = tail.lastEntry();
+        if (first == null || last == null || since.getEpoch() >= last.getKey() || first.getKey() > since.getEpoch() + 1)
+            return null;
+
+        EntryHolder holder = new EntryHolder(since);
+        for (WeightedEntry weighted : tail.subMap(since.getEpoch() + 1, true, last.getKey(), true).values())
+            holder.add(weighted.entry);
+        return holder.entries.size() == last.getKey() - since.getEpoch() ? holder : null;
     }
 
     public EntryHolder getEntries(Epoch since, Epoch until) throws IOException

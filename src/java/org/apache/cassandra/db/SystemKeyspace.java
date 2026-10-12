@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -92,6 +93,8 @@ import org.apache.cassandra.locator.MetaStrategy;
 import org.apache.cassandra.metrics.RestorableMeter;
 import org.apache.cassandra.metrics.TopPartitionTracker;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.notifications.INotificationConsumer;
+import org.apache.cassandra.notifications.TruncationNotification;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
@@ -2159,6 +2162,71 @@ public final class SystemKeyspace
         String query = String.format("INSERT INTO %s.%s (epoch, snapshot) VALUES (?, ?)", SchemaConstants.SYSTEM_KEYSPACE_NAME, SNAPSHOT_TABLE_NAME);
         executeInternal(query, epoch.getEpoch(), snapshot);
         forceBlockingFlush(SNAPSHOT_TABLE_NAME);
+        addSnapshotEpoch(epoch);
+    }
+
+    /**
+     * The epochs above {@code above} of the rows in metadata_snapshots. A SELECT epoch materialises the multi-MB
+     * snapshot blob, so listing from the table on every commit costs about the snapshot size in allocation. storeSnapshot
+     * is the only writer and a truncation drops the set; rows deleted by hand are not seen, which only tests do.
+     */
+    private static final class SnapshotEpochs
+    {
+        final long above;
+        final ConcurrentSkipListSet<Long> epochs = new ConcurrentSkipListSet<>();
+
+        SnapshotEpochs(long above)
+        {
+            this.above = above;
+        }
+    }
+
+    private static final Object snapshotEpochsLock = new Object();
+    private static SnapshotEpochs snapshotEpochs; // guarded by snapshotEpochsLock; null when not loaded
+    private static boolean snapshotTruncationSubscribed;
+
+    private static void addSnapshotEpoch(Epoch epoch)
+    {
+        synchronized (snapshotEpochsLock)
+        {
+            if (snapshotEpochs != null && epoch.getEpoch() > snapshotEpochs.above)
+                snapshotEpochs.epochs.add(epoch.getEpoch());
+        }
+    }
+
+    @VisibleForTesting
+    public static void invalidateSnapshotEpochs()
+    {
+        synchronized (snapshotEpochsLock)
+        {
+            snapshotEpochs = null;
+        }
+    }
+
+    // Loads from the table on first use, reading only the rows above the first search epoch (recent on the commit path).
+    private static SnapshotEpochs snapshotEpochsFor(Epoch search)
+    {
+        synchronized (snapshotEpochsLock)
+        {
+            if (snapshotEpochs != null)
+                return snapshotEpochs;
+
+            if (!snapshotTruncationSubscribed)
+            {
+                INotificationConsumer onTruncate = (notification, sender) -> {
+                    if (notification instanceof TruncationNotification)
+                        invalidateSnapshotEpochs();
+                };
+                Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME).getColumnFamilyStore(SNAPSHOT_TABLE_NAME).getTracker().subscribe(onTruncate);
+                snapshotTruncationSubscribed = true;
+            }
+
+            SnapshotEpochs loaded = new SnapshotEpochs(search.getEpoch());
+            for (Epoch epoch : readSnapshotEpochsSince(search))
+                loaded.epochs.add(epoch.getEpoch());
+            snapshotEpochs = loaded;
+            return loaded;
+        }
     }
 
     public static ByteBuffer getSnapshot(Epoch epoch)
@@ -2201,10 +2269,23 @@ public final class SystemKeyspace
         return null;
     }
 
+    // Newest first, like the table (the partitioner reverses epochs)
     public static List<Epoch> listSnapshotsSince(Epoch search)
     {
         // during gossip upgrade we have epoch = Long.MIN_VALUE + 1 (and the reverse partitioner doesn't support negative keys)
         search = search.isBefore(Epoch.EMPTY) ? Epoch.EMPTY : search;
+        SnapshotEpochs cached = snapshotEpochsFor(search);
+        if (search.getEpoch() < cached.above)
+            return readSnapshotEpochsSince(search);
+
+        List<Epoch> epochs = new ArrayList<>();
+        for (long epoch : cached.epochs.descendingSet().headSet(search.getEpoch(), false))
+            epochs.add(Epoch.create(epoch));
+        return epochs;
+    }
+
+    private static List<Epoch> readSnapshotEpochsSince(Epoch search)
+    {
         String query = String.format("SELECT epoch FROM %s.%s WHERE token(epoch) < token(?)", SchemaConstants.SYSTEM_KEYSPACE_NAME, SNAPSHOT_TABLE_NAME);
         UntypedResultSet res = executeInternal(query, search.getEpoch());
         if (res == null)
