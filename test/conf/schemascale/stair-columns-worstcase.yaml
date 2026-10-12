@@ -1,0 +1,46 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Worst case on the column axis: one table at a time, as wide as it gets.
+#   test/bin/schema-scale --detach --profile stair-columns-worstcase --variant stock --mode process --spread 1
+# 03: one CREATE per size, up to 100k columns. 04: one table grown by ALTER ADD, one column per DDL, to 50k.
+# Each step gets a wall-clock node profile across its DDL and the step files (histogram, NMT, JFR slice) in
+# steps/create-c<N>/ and steps/alter-c<N>/. Then a graceful restart and the wide-row workload (JSON insert
+# and SELECT * on the widest tables). Slow DDL is recorded, not a stop: ddlP99Ms is set high.
+name: stair-columns-worstcase
+variants:
+  stock: {}
+node:
+  tables_warn_threshold: -1
+  tables_fail_threshold: -1
+  keyspaces_warn_threshold: -1
+  columns_per_table_warn_threshold: -1
+  columns_per_table_fail_threshold: -1
+  max_mutation_size: 16MiB
+  metadata_snapshot_frequency: 100
+  memtable_heap_space: 2GiB
+  memtable_offheap_space: 4GiB
+
+keyspaceSpread: [1]
+rampColumns: {tables: 1, createSizes: [1000, 2000, 5000, 10000, 20000, 50000, 100000],
+              alterAddMax: 50000, alterCheckpointEvery: 1000, columnType: int}
+stop: {heapPostGcBytes: 25GiB, ddlP99Ms: 600000, snapshotOverMaxMutation: true, rampTimeout: 6h, abortOnBreak: false}
+workload: {sampleTables: 0, rowsPerTable: 1, wideSelectStar: true}
+restart: {graceful: true, kill: false}
+captureEveryStep: true
+captureFinal: true
+profiling: {asyncProfiler: true, histogramEvery: 1000000, snapshotSizeEvery: 5, gcEvery: 1,
+            nodeProfiler: mbean, nodeProfileEvents: [wall], nodeProfileSeconds: 600}

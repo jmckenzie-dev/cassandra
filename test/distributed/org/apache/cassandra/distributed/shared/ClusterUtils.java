@@ -1653,7 +1653,26 @@ public class ClusterUtils
 
     public static void preventSystemExit()
     {
-        System.setSecurityManager(new PreventSystemExit());
+        trySetSecurityManager(new PreventSystemExit());
+    }
+
+    /**
+     * Installs the given security manager where the JVM allows it. JDK 24+ removed the Security Manager (JEP 486) and
+     * throws from setSecurityManager, so there a System.exit from in-JVM nodetool cannot be trapped.
+     *
+     * @return whether the security manager was set
+     */
+    public static boolean trySetSecurityManager(SecurityManager securityManager)
+    {
+        try
+        {
+            System.setSecurityManager(securityManager);
+            return true;
+        }
+        catch (UnsupportedOperationException e)
+        {
+            return false;
+        }
     }
 
     public static void awaitInPeers(Cluster cluster, int[] nodes, IInstance expectedInPeers)

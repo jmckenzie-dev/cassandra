@@ -1,0 +1,479 @@
+#!/bin/bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Launcher for the schema scale harness.
+#
+# Usage: test/bin/schema-scale [--detach] --profile <name|path> [options]
+#   --detach         must be the first flag; run under nohup and return at once (for runs of hours)
+#   --profile P      profile name (test/conf/schemascale/P.yaml) or path to a yaml file (required)
+#   --variant V      variant from the profile (default: stock)
+#   --spread N       keyspace spread (default: 1)
+#   --mode M         injvm | process (default: injvm)
+#   --jdk 21|25      JDK to use (default: 25)
+#   --java-home DIR  use this JDK home instead of searching
+#   --build          run 'ant -Dno-build-accord=true maybe-build-test' first
+#   --matrix         run every variant x every keyspaceSpread value of the profile
+#   --fail-on-break  harness exits non-zero when a ramp records a break
+#   --set k=v        profile override, repeatable, passed to the harness (no spaces in k=v)
+#                    Stair-step keys: stop.heapPostGcBytes=25GiB, captureEveryStep=true, captureFinal=true,
+#                    restartEvery=5. Profile 'stair-tables' uses them; see test/conf/schemascale/stair-tables.yaml.
+#                    Step 8 keys (process mode): snapshotAt=[10000], startFrom=t10000 (or a snapshot dir),
+#                    snapshotDir=logs/schema-snapshots, captureAt=[1000,5000], captureRestart=false,
+#                    rampTables.ddlConcurrency=16, profiling.nodeProfiler=mbean|agentpath|off,
+#                    profiling.nodeProfileSeconds=30, profiling.nodeProfileEvents=[cpu,wall].
+#                    Quote values with [ ] so the shell does not glob them: --set 'captureAt=[1000,5000]'.
+#                    Profiles: stair-tables-parallel, coldstart, ddl-sweep.
+#   --dry-run        print the commands and run nothing
+#
+# Environment:
+#   XMX                 heap size, default 31g; above 32g is rejected (forms: 31g, 32768m, 31744M)
+#   RSS_LIMIT           process tree RSS cap, default 48g; the watchdog kills the biggest process above it
+#   WATCHDOG_INTERVAL   watchdog sampling interval in seconds, default 10
+#   MIN_FREE_DISK       free disk under logs/ needed to start a run, default 80g (a heap dump of a 31g heap is ~35 GB)
+#   DISK_STOP           the watchdog stops the run when free disk falls below this, default 40g; writes <run>/DISK_LOW
+#   SWAP_GROWTH         swap growth during a run that marks its timings invalid, default 1g; writes <run>/SWAPPED.
+#                       The watchdog writes <run>/memory.csv (time, tree RSS, swap used, free disk) every interval.
+#   NODE_JVM_OPTS       extra node JVM options (process mode), appended after the launcher's GC flags
+#   JFRCONV             path to async-profiler jfrconv; passed on to schema-scale-post (node-cpu/wall.jfr flame graphs)
+#   SCHEMA_SCALE_NO_CAFFEINATE
+#                       set to 1 to let macOS sleep during a run. By default the launcher runs
+#                       'caffeinate -ims -w <pid>' for its own lifetime, and after each run writes any sleep
+#                       events found by 'pmset -g log' into launcher.log and <run>/SLEPT.
+#   SCHEMA_SCALE_CMD_OVERRIDE
+#                       test hook: a shell command string that runs instead of the ant command.
+#                       The variables RUN, PROFILE_PATH, VARIANT and SPREAD are exported to it.
+#
+# Output: everything goes to the console and to logs/<ts>-schema-scale.log.
+#         A stair-tables run also writes steps/, final/ (heap.hprof), growth.md; an RSS_LIMIT kill keeps what was
+#         captured and the launcher still runs schema-scale-post.
+#         Each run also writes logs/<ts>-<profile>-<variant>-ks<spread>/launcher.log.
+# Exit code: the exit code of the harness (first non-zero code when running a matrix).
+
+set -o pipefail
+
+export CASSANDRA_HOME="${SCHEMA_SCALE_HOME:-$(cd "$(dirname "$0")/../../" && pwd)}"
+export SCHEMA_SCALE_ORIG_PWD="${SCHEMA_SCALE_ORIG_PWD:-$PWD}"
+ORIG_PWD="$SCHEMA_SCALE_ORIG_PWD"
+cd "$CASSANDRA_HOME" || exit 1
+
+# Run from a copy of this script. Bash reads a script while it runs, so editing test/bin/schema-scale
+# during a long run would otherwise break the run (it did once: "syntax error near unexpected token fi").
+if [ -z "${SCHEMA_SCALE_SELF:-}" ]; then
+    mkdir -p logs/.launcher
+    SCHEMA_SCALE_SELF="$CASSANDRA_HOME/logs/.launcher/schema-scale-$(date +%Y%m%d-%H%M%S)-$$.sh"
+    cp "$CASSANDRA_HOME/test/bin/schema-scale" "$SCHEMA_SCALE_SELF" || exit 1
+    export SCHEMA_SCALE_SELF SCHEMA_SCALE_HOME="$CASSANDRA_HOME"
+    exec bash "$SCHEMA_SCALE_SELF" "$@"
+fi
+
+# --detach: rerun under nohup, print the pid and log, and return at once. The run then outlives
+# the calling shell, terminal or agent session; poll the log or 'ps -p <pid>' to follow it.
+if [ "${1:-}" = "--detach" ]; then
+    shift
+    mkdir -p logs
+    DETACH_LOG="logs/$(date +%Y%m%d-%H%M%S)-schema-scale-detached.out"
+    nohup bash "$SCHEMA_SCALE_SELF" "$@" </dev/null > "$DETACH_LOG" 2>&1 &
+    echo "schema-scale: detached pid $! log $CASSANDRA_HOME/$DETACH_LOG"
+    echo "schema-scale: the exit code is the last line of the log: 'schema-scale: exit rc=<n>'"
+    exit 0
+fi
+
+# Log everything to console and logs/, keep the exit code
+if [ -z "${SCHEMA_SCALE_WRAPPED:-}" ]; then
+    mkdir -p logs
+    MAIN_LOG="logs/$(date +%Y%m%d-%H%M%S)-schema-scale.log"
+    SCHEMA_SCALE_WRAPPED=1 bash "$SCHEMA_SCALE_SELF" "$@" > >(tee -i -a "$MAIN_LOG") 2>&1 &
+    INNER=$!
+    trap 'kill -TERM "$INNER" 2>/dev/null' INT TERM
+    wait "$INNER"
+    rc=$?
+    # a trapped signal ends the first wait early; wait again for the real exit code
+    while kill -0 "$INNER" 2>/dev/null; do wait "$INNER"; rc=$?; done
+    sleep 0.3
+    echo "schema-scale: exit rc=$rc"
+    exit "$rc"
+fi
+
+PROFILE=""
+VARIANT="stock"
+SPREAD="1"
+MODE="injvm"
+JDK="25"
+JAVA_HOME_ARG=""
+DO_BUILD=0
+MATRIX=0
+FAIL_ON_BREAK=0
+DRY_RUN=0
+SETS=()
+
+die() { echo "schema-scale: $*" >&2; exit 2; }
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --profile)       PROFILE="${2:?--profile needs a value}"; shift 2 ;;
+        --variant)       VARIANT="${2:?--variant needs a value}"; shift 2 ;;
+        --spread)        SPREAD="${2:?--spread needs a value}"; shift 2 ;;
+        --mode)          MODE="${2:?--mode needs a value}"; shift 2 ;;
+        --jdk)           JDK="${2:?--jdk needs a value}"; shift 2 ;;
+        --java-home)     JAVA_HOME_ARG="${2:?--java-home needs a value}"; shift 2 ;;
+        --build)         DO_BUILD=1; shift ;;
+        --matrix)        MATRIX=1; shift ;;
+        --fail-on-break) FAIL_ON_BREAK=1; shift ;;
+        --dry-run)       DRY_RUN=1; shift ;;
+        --set)
+            case "${2:-}" in
+                *=*) ;;
+                *) die "--set needs k=v, got '${2:-}'" ;;
+            esac
+            case "$2" in
+                *[[:space:]]*) die "--set value must not contain whitespace: '$2'" ;;
+            esac
+            SETS+=("$2"); shift 2 ;;
+        -h|--help)       sed -n "17,54p" "$CASSANDRA_HOME/test/bin/schema-scale"; exit 0 ;;
+        *)               die "unknown argument: $1" ;;
+    esac
+done
+
+[ -n "$PROFILE" ] || die "--profile is required"
+case "$MODE" in injvm|process) ;; *) die "--mode must be injvm or process" ;; esac
+case "$JDK" in 21|25) ;; *) die "--jdk must be 21 or 25" ;; esac
+case "$SPREAD" in ''|*[!0-9]*) die "--spread must be a positive integer" ;; esac
+
+# Convert a size such as 31g, 32768m, 31744M, 48G or plain bytes to bytes
+to_bytes() {
+    local s="$1" num unit
+    num="${s%%[!0-9]*}"
+    unit="${s#"$num"}"
+    [ -n "$num" ] || return 1
+    case "$unit" in
+        ""|b|B)    echo "$num" ;;
+        k|K|kb|KB) echo $((num * 1024)) ;;
+        m|M|mb|MB) echo $((num * 1024 * 1024)) ;;
+        g|G|gb|GB) echo $((num * 1024 * 1024 * 1024)) ;;
+        t|T|tb|TB) echo $((num * 1024 * 1024 * 1024 * 1024)) ;;
+        *)         return 1 ;;
+    esac
+}
+
+# Memory limits are checked before any JVM starts
+XMX="${XMX:-31g}"
+RSS_LIMIT="${RSS_LIMIT:-48g}"
+WATCHDOG_INTERVAL="${WATCHDOG_INTERVAL:-10}"
+XMX_BYTES="$(to_bytes "$XMX")" || die "cannot parse XMX='$XMX' (use forms like 31g or 32768m)"
+RSS_BYTES="$(to_bytes "$RSS_LIMIT")" || die "cannot parse RSS_LIMIT='$RSS_LIMIT'"
+XMX_MIB=$((XMX_BYTES / 1048576))
+[ "$XMX_MIB" -gt 0 ] || die "XMX='$XMX' is too small"
+if [ "$XMX_MIB" -gt 32768 ]; then
+    die "XMX='$XMX' is ${XMX_MIB} MiB; the hard cap is 32g (32768 MiB). Lower XMX."
+fi
+case "$WATCHDOG_INTERVAL" in ''|*[!0-9]*) die "WATCHDOG_INTERVAL must be whole seconds" ;; esac
+MIN_FREE_DISK="${MIN_FREE_DISK:-80g}"
+DISK_STOP="${DISK_STOP:-40g}"
+SWAP_GROWTH="${SWAP_GROWTH:-1g}"
+MIN_FREE_BYTES="$(to_bytes "$MIN_FREE_DISK")" || die "cannot parse MIN_FREE_DISK='$MIN_FREE_DISK'"
+DISK_STOP_BYTES="$(to_bytes "$DISK_STOP")" || die "cannot parse DISK_STOP='$DISK_STOP'"
+SWAP_GROWTH_BYTES="$(to_bytes "$SWAP_GROWTH")" || die "cannot parse SWAP_GROWTH='$SWAP_GROWTH'"
+MIN_FREE_KB=$((MIN_FREE_BYTES / 1024))
+DISK_STOP_KB=$((DISK_STOP_BYTES / 1024))
+SWAP_GROWTH_MB=$((SWAP_GROWTH_BYTES / 1048576))
+
+# Free KiB on the file system that holds $1
+free_kb() {
+    df -Pk "$1" | awk 'NR == 2 { print $4 }'
+}
+
+# Swap in use in whole MiB; 0 where vm.swapusage does not exist
+swap_used_mb() {
+    sysctl -n vm.swapusage 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "used") { v = $(i + 2); sub(/M$/, "", v); printf "%d\n", v; exit } } END { if (NR == 0) print 0 }'
+}
+
+# Resolve the profile file
+if [ -f "$PROFILE" ]; then
+    PROFILE_PATH="$PROFILE"
+elif [ -f "$ORIG_PWD/$PROFILE" ]; then
+    PROFILE_PATH="$ORIG_PWD/$PROFILE"
+elif [ -f "test/conf/schemascale/${PROFILE}.yaml" ]; then
+    PROFILE_PATH="test/conf/schemascale/${PROFILE}.yaml"
+else
+    die "profile not found: '$PROFILE' (looked for the path and test/conf/schemascale/${PROFILE}.yaml)"
+fi
+PROFILE_NAME="$(basename "$PROFILE_PATH" .yaml)"
+
+# Find the JDK. The java on PATH is not used.
+find_jdk() {
+    local want="$1" d
+    for d in /opt/homebrew/Cellar/openjdk@"$want"/*/libexec/openjdk.jdk/Contents/Home \
+             /opt/homebrew/opt/openjdk@"$want"/libexec/openjdk.jdk/Contents/Home \
+             /Library/Java/JavaVirtualMachines/openjdk-"$want".jdk/Contents/Home; do
+        if [ -x "$d/bin/java" ]; then
+            echo "$d"
+            return 0
+        fi
+    done
+    return 1
+}
+
+if [ -n "$JAVA_HOME_ARG" ]; then
+    JAVA_HOME="$JAVA_HOME_ARG"
+else
+    JAVA_HOME="$(find_jdk "$JDK")" || die "no JDK $JDK found under /opt/homebrew or /Library/Java; use --java-home"
+fi
+[ -x "$JAVA_HOME/bin/java" ] || die "JAVA_HOME has no bin/java: $JAVA_HOME"
+if [ -f "$JAVA_HOME/release" ]; then
+    JDK_FOUND="$(sed -n 's/^JAVA_VERSION="\([0-9]*\).*/\1/p' "$JAVA_HOME/release")"
+    [ -z "$JDK_FOUND" ] || [ "$JDK_FOUND" = "$JDK" ] || die "JAVA_HOME is JDK $JDK_FOUND but --jdk is $JDK"
+fi
+export JAVA_HOME
+export PATH="$JAVA_HOME/bin:$PATH"
+
+# Variants and spreads for --matrix
+profile_list() {
+    uv run --no-project --quiet --with pyyaml python - "$PROFILE_PATH" "$1" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    p = yaml.safe_load(f) or {}
+if sys.argv[2] == "variants":
+    print("\n".join(str(v) for v in (p.get("variants") or {"stock": {}})))
+else:
+    print("\n".join(str(s) for s in (p.get("keyspaceSpread") or [1])))
+PY
+}
+
+RUNS=()
+if [ "$MATRIX" -eq 1 ]; then
+    VARIANTS="$(profile_list variants)" || die "cannot read variants from $PROFILE_PATH (needs uv and pyyaml)"
+    SPREADS="$(profile_list spreads)" || die "cannot read keyspaceSpread from $PROFILE_PATH"
+    for v in $VARIANTS; do
+        for s in $SPREADS; do
+            RUNS+=("$v:$s")
+        done
+    done
+    [ "${#RUNS[@]}" -gt 0 ] || die "matrix is empty"
+else
+    RUNS+=("$VARIANT:$SPREAD")
+fi
+
+SELF=$$
+WD_PID=""
+
+stop_watchdog() {
+    if [ -n "$WD_PID" ]; then
+        { kill "$WD_PID"; wait "$WD_PID"; } 2>/dev/null
+        WD_PID=""
+    fi
+}
+# Signal all descendants of this script (the ant JVM, a node JVM, tee)
+kill_tree() {
+    local pids
+    pids="$(ps -A -o pid=,ppid= | awk -v root="$SELF" '
+        { pid[NR]=$1; ppid[NR]=$2; n=NR }
+        END {
+            inset[root]=1
+            do {
+                changed=0
+                for (i=1;i<=n;i++) if (!(pid[i] in inset) && (ppid[i] in inset)) { inset[pid[i]]=1; changed=1 }
+            } while (changed)
+            for (i=1;i<=n;i++) if (pid[i]!=root && (pid[i] in inset)) print pid[i]
+        }')"
+    # shellcheck disable=SC2086
+    [ -z "$pids" ] || kill -TERM $pids 2>/dev/null
+}
+
+trap stop_watchdog EXIT
+trap 'stop_watchdog; kill_tree; exit 130' INT
+trap 'stop_watchdog; kill_tree; exit 143' TERM
+
+# Prints "<tree_rss_kb> <biggest_pid>" for all descendants of $1
+tree_rss() {
+    ps -A -o pid=,ppid=,rss= 2>/dev/null | awk -v root="$1" '
+        { pid[NR]=$1; ppid[NR]=$2; rss[NR]=$3; n=NR }
+        END {
+            inset[root]=1
+            do {
+                changed=0
+                for (i=1;i<=n;i++) if (!(pid[i] in inset) && (ppid[i] in inset)) { inset[pid[i]]=1; changed=1 }
+            } while (changed)
+            for (i=1;i<=n;i++) if ((pid[i] in inset) && pid[i]!=root) {
+                sum+=rss[i]
+                if (rss[i]>max) { max=rss[i]; mp=pid[i] }
+            }
+            print sum+0, mp+0
+        }'
+}
+
+# TERM, then KILL after 15 s, the biggest process of the tree
+kill_biggest() {
+    local run="$1" pid="$2" marker="$3"
+    kill -TERM "$pid" 2>/dev/null
+    sleep 15
+    if kill -0 "$pid" 2>/dev/null; then
+        echo "$marker: pid ${pid} still alive after 15 s; sending SIGKILL" | tee -a "$run/launcher.log" >&2
+        kill -KILL "$pid" 2>/dev/null
+    fi
+}
+
+# Sample the process tree RSS, swap and free disk into memory.csv; on an RSS or disk breach, kill the biggest process
+watchdog() {
+    local run="$1" limit_kb=$((RSS_BYTES / 1024)) sample rss pid nap free swap
+    trap '{ kill "$nap"; wait "$nap"; } 2>/dev/null; exit 0' TERM
+    [ -f "$run/memory.csv" ] || echo "time,tree_rss_kb,swap_used_mb,free_disk_kb" > "$run/memory.csv"
+    while true; do
+        sleep "$WATCHDOG_INTERVAL" &
+        nap=$!
+        wait "$nap"
+        sample="$(tree_rss "$SELF")"
+        rss="${sample% *}"
+        pid="${sample#* }"
+        free="$(free_kb "$run")"
+        swap="$(swap_used_mb)"
+        echo "$(date '+%Y-%m-%dT%H:%M:%S'),${rss:-0},${swap:-0},${free:-0}" >> "$run/memory.csv"
+        if [ "${rss:-0}" -gt "$limit_kb" ] && [ "${pid:-0}" -gt 0 ]; then
+            echo "RSS_LIMIT: tree rss ${rss} KiB exceeds limit ${limit_kb} KiB (${RSS_LIMIT}); killing pid ${pid}" | tee -a "$run/launcher.log" >&2
+            echo "pid=$pid rss_kb=$rss limit_kb=$limit_kb" > "$run/RSS_LIMIT"
+            kill_biggest "$run" "$pid" RSS_LIMIT
+            return 0
+        fi
+        if [ "${free:-0}" -gt 0 ] && [ "$free" -lt "$DISK_STOP_KB" ] && [ "${pid:-0}" -gt 0 ]; then
+            echo "DISK_LOW: ${free} KiB free is under ${DISK_STOP}; killing pid ${pid}" | tee -a "$run/launcher.log" >&2
+            echo "pid=$pid free_kb=$free stop_kb=$DISK_STOP_KB" > "$run/DISK_LOW"
+            kill_biggest "$run" "$pid" DISK_LOW
+            return 0
+        fi
+    done
+}
+
+# macOS: keep the machine awake while this script lives. caffeinate exits with us, even on SIGKILL.
+# -s only works on AC power, and a closed lid still sleeps without an external display.
+keep_awake() {
+    [ "$(uname -s)" = "Darwin" ] || return 0
+    [ "${SCHEMA_SCALE_NO_CAFFEINATE:-0}" = "1" ] && { echo "schema-scale: caffeinate off (SCHEMA_SCALE_NO_CAFFEINATE=1)"; return 0; }
+    command -v caffeinate >/dev/null || { echo "schema-scale: WARNING: caffeinate not found; macOS may sleep during the run" >&2; return 0; }
+    caffeinate -ims -w "$SELF" &
+    echo "schema-scale: caffeinate pid $! keeps the machine awake until pid $SELF exits"
+    if ! pmset -g batt 2>/dev/null | grep -q "AC Power"; then
+        echo "schema-scale: WARNING: on battery; caffeinate -s has no effect and the machine can still sleep" >&2
+    fi
+}
+
+# Print macOS sleep events between two 'date +%Y-%m-%d %H:%M:%S' stamps
+sleep_events() {
+    [ "$(uname -s)" = "Darwin" ] || return 0
+    pmset -g log 2>/dev/null | awk -v from="$1" -v to="$2" '
+        /Entering Sleep/ { ts = $1 " " $2; if (ts >= from && ts <= to) print ts, "sleep:", substr($0, index($0, "due to")) }'
+}
+
+gc_flags() {
+    echo "-XX:MaxDirectMemorySize=8g -Xlog:gc*,safepoint:file=$1/gc.log:time,uptime,level,tags:filecount=5,filesize=50m -XX:NativeMemoryTracking=summary -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=$1 -XX:-PerfDisableSharedMem"
+}
+
+if [ "$DO_BUILD" -eq 1 ]; then
+    echo "schema-scale: building (JAVA_HOME=$JAVA_HOME)"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo "DRY-RUN: ant -Dno-build-accord=true maybe-build-test </dev/null"
+    else
+        ant -Dno-build-accord=true maybe-build-test </dev/null
+        rc=$?
+        [ "$rc" -eq 0 ] || { echo "schema-scale: build failed (rc=$rc)" >&2; exit "$rc"; }
+    fi
+fi
+
+[ "$DRY_RUN" -eq 1 ] || keep_awake
+
+FINAL_RC=0
+for entry in "${RUNS[@]}"; do
+    v="${entry%%:*}"
+    s="${entry##*:}"
+    STAMP="$(date +%Y%m%d-%H%M%S)"
+    RUN="$CASSANDRA_HOME/logs/${STAMP}-${PROFILE_NAME}-${v}-ks${s}"
+    export RUN PROFILE_PATH
+    export VARIANT="$v" SPREAD="$s"
+
+    # harness JVM args; in process mode the node JVM gets the heap and diagnostics instead
+    GCF="$(gc_flags "$RUN")"
+    if [ "$MODE" = "process" ]; then
+        VMARGS="-Xmx2g -Dschemascale.rssLimit=$RSS_BYTES -Dlogback.configurationFile=$CASSANDRA_HOME/test/conf/schemascale/logback-process.xml"
+        export MAX_HEAP_SIZE="$XMX" MAX_DIRECT_MEMORY_SIZE="8G"
+        # NODE_JVM_OPTS: extra node JVM options for one experiment, e.g. -Dorg.apache.cassandra.disable_mbean_registration=true
+        export JVM_EXTRA_OPTS="$GCF${NODE_JVM_OPTS:+ $NODE_JVM_OPTS}"
+    else
+        VMARGS="-Xmx$XMX $GCF -Dschemascale.rssLimit=$RSS_BYTES"
+        export MAX_HEAP_SIZE="$XMX" MAX_DIRECT_MEMORY_SIZE="8G"
+    fi
+
+    HARGS="--profile $PROFILE_PATH --variant $v --spread $s --mode $MODE --run-dir $RUN"
+    [ "$FAIL_ON_BREAK" -eq 1 ] && HARGS="$HARGS --fail-on-break"
+    for kv in ${SETS[@]+"${SETS[@]}"}; do HARGS="$HARGS --set $kv"; done
+
+    echo "schema-scale: run=$RUN mode=$MODE jdk=$JDK JAVA_HOME=$JAVA_HOME XMX=$XMX RSS_LIMIT=$RSS_LIMIT"
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        if [ -n "${SCHEMA_SCALE_CMD_OVERRIDE:-}" ]; then
+            echo "DRY-RUN: bash -c '$SCHEMA_SCALE_CMD_OVERRIDE'"
+        else
+            echo "DRY-RUN: ant -Dno-build-accord=true schema-scale-run \"-Dvmargs=$VMARGS\" \"-Dargs=$HARGS\" </dev/null"
+        fi
+        echo "DRY-RUN: $CASSANDRA_HOME/test/bin/schema-scale-post $RUN"
+        continue
+    fi
+
+    mkdir -p "$RUN"
+    FREE="$(free_kb "$RUN")"
+    if [ "${FREE:-0}" -lt "$MIN_FREE_KB" ]; then
+        echo "schema-scale: only $((FREE / 1048576)) GiB free under $(dirname "$RUN"); MIN_FREE_DISK is $MIN_FREE_DISK. Free disk or lower MIN_FREE_DISK." | tee -a "$RUN/launcher.log" >&2
+        [ "$FINAL_RC" -ne 0 ] || FINAL_RC=1
+        continue
+    fi
+    SWAP_START_MB="$(swap_used_mb)"
+    echo "schema-scale: $((FREE / 1048576)) GiB free disk, ${SWAP_START_MB} MiB swap in use" | tee -a "$RUN/launcher.log"
+    RUN_START="$(date '+%Y-%m-%d %H:%M:%S')"
+    WD_PID=""
+    watchdog "$RUN" &
+    WD_PID=$!
+
+    # Background job plus wait, so INT/TERM traps run at once
+    (
+        if [ -n "${SCHEMA_SCALE_CMD_OVERRIDE:-}" ]; then
+            bash -c "$SCHEMA_SCALE_CMD_OVERRIDE" </dev/null 2>&1 | tee -a "$RUN/launcher.log"
+        else
+            ant -Dno-build-accord=true schema-scale-run "-Dvmargs=$VMARGS" "-Dargs=$HARGS" </dev/null 2>&1 | tee -a "$RUN/launcher.log"
+        fi
+        exit "${PIPESTATUS[0]}"
+    ) &
+    wait $!
+    rc=$?
+    stop_watchdog
+
+    echo "schema-scale: run finished rc=$rc run=$RUN" | tee -a "$RUN/launcher.log"
+    SLEPT="$(sleep_events "$RUN_START" "$(date '+%Y-%m-%d %H:%M:%S')" | grep ' sleep: ')"
+    if [ -n "$SLEPT" ]; then
+        echo "$SLEPT" > "$RUN/SLEPT"
+        { echo "schema-scale: WARNING: the machine slept during this run; timings are not valid:"; echo "$SLEPT"; } | tee -a "$RUN/launcher.log" >&2
+    fi
+    SWAP_MAX_MB="$(awk -F, 'NR > 1 && $3 > m { m = $3 } END { print m + 0 }' "$RUN/memory.csv" 2>/dev/null)"
+    if [ "$((${SWAP_MAX_MB:-0} - SWAP_START_MB))" -gt "$SWAP_GROWTH_MB" ]; then
+        echo "start_mb=$SWAP_START_MB max_mb=$SWAP_MAX_MB growth_limit_mb=$SWAP_GROWTH_MB" > "$RUN/SWAPPED"
+        echo "schema-scale: WARNING: swap grew from ${SWAP_START_MB} to ${SWAP_MAX_MB} MiB during this run; startup and DDL timings are not valid" | tee -a "$RUN/launcher.log" >&2
+    fi
+    "$CASSANDRA_HOME/test/bin/schema-scale-post" "$RUN" 2>&1 | tee -a "$RUN/launcher.log"
+    # per-step class histograms (stair-tables profile): growth report; a run without them just skips
+    if ls "$RUN"/steps/t*/class-histogram.txt >/dev/null 2>&1; then
+        "$CASSANDRA_HOME/test/bin/schema-scale-growth" "$RUN" 2>&1 | tee -a "$RUN/launcher.log"
+    fi
+    [ "$rc" -eq 0 ] || [ "$FINAL_RC" -ne 0 ] || FINAL_RC=$rc
+done
+
+exit "$FINAL_RC"

@@ -2079,6 +2079,50 @@
       </java>
   </target>
 
+  <!-- Run the schema scale harness (in-JVM dtest cluster) with the dtest JVM arguments, including the JDK 21/25 add-opens.
+      ant schema-scale-run -Dvmargs="-Xmx31g" -Dargs="(harness flags, for example profile and run-dir)"
+      Prefer test/bin/schema-scale, which sets vmargs/args, logging and memory limits. -->
+  <target name="schema-scale-run" depends="maybe-build-test" description="Run the schema scale harness: -Dmainclass, -Dvmargs, -Dargs">
+      <property name="mainclass" value="org.apache.cassandra.distributed.test.schemascale.SchemaScaleHarness" />
+      <property name="vmargs" value="" />
+      <property name="args" value="" />
+      <mkdir dir="${tmp.dir}"/>
+      <java classname="${mainclass}"
+            fork="true"
+            failonerror="true">
+          <jvmarg value="-server" />
+          <jvmarg value="-ea" />
+          <jvmarg value="-Dstorage-config=${test.conf}"/>
+          <jvmarg value="-Djava.awt.headless=true"/>
+          <jvmarg line="-javaagent:${build.dir.lib}/jars/jamm-${jamm.version}.jar" />
+          <jvmarg value="-Djava.io.tmpdir=${tmp.dir}"/>
+          <jvmarg value="${jvm_xss}"/>
+          <jvmarg value="-Djava.security.egd=file:/dev/urandom" />
+          <jvmarg value="-Dcassandra.test.accord.allow_test_modes=true"/>
+          <jvmarg value="-Dcassandra.use_nix_recursive_delete=${cassandra.use_nix_recursive_delete}"/>
+          <jvmarg value="-Dio.netty.allocator.useCacheForAllThreads=true"/>
+          <jvmarg value="-Dio.netty.allocator.maxOrder=11"/>
+          <jvmarg value="-Dlogback.configurationFile=test/conf/logback-dtest.xml"/>
+          <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
+          <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
+          <jvmarg value="-Dcassandra.skip_sync=true" />
+          <jvmarg line="${java-jvmargs}"/>
+          <jvmarg line="${_std-test-jvmargs}" />
+          <jvmarg line="${vmargs}" />
+          <arg line="${args}" />
+          <classpath>
+              <pathelement location="${test.classes}"/>
+              <path refid="cassandra.classpath.test" />
+              <pathelement location="${test.conf}"/>
+              <path refid="cassandra.classpath" />
+              <fileset dir="${test.lib}">
+                  <include name="**/*.jar" />
+                  <exclude name="**/ant-*.jar"/>
+              </fileset>
+          </classpath>
+      </java>
+  </target>
+
   <target name="_maybe_update_idea_to_java11plus" depends="init">
     <replace file="${eclipse.project.name}.iml" token="JDK_11" value="JDK_${ant.java.version}"/>
     <replace file=".idea/misc.xml" token="JDK_11" value="JDK_${ant.java.version}"/>

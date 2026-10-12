@@ -1,0 +1,45 @@
+#!/bin/bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Which classes grow with the table count.
+# Usage: test/bin/schema-scale-growth <run-dir>
+#
+# Reads <run-dir>/steps/t*/class-histogram.txt. Writes <run-dir>/growth.csv (top 30 classes by bytes per
+# table), growth-all.csv and growth.md. Needs uv; it fetches pandas.
+#
+# Output: console and logs/<ts>-schema-scale-growth.log. Exit code: 0 on success, 1 when the run holds
+# fewer than two usable histograms, 2 on a bad argument.
+
+set -o pipefail
+
+CASSANDRA_HOME="$(cd "$(dirname "$0")/../../" && pwd)"
+export SCHEMA_SCALE_GROWTH_PWD="${SCHEMA_SCALE_GROWTH_PWD:-$PWD}"
+cd "$CASSANDRA_HOME" || exit 1
+
+if [ -z "${SCHEMA_SCALE_GROWTH_WRAPPED:-}" ]; then
+    mkdir -p logs
+    GROWTH_LOG="logs/$(date +%Y%m%d-%H%M%S)-schema-scale-growth.log"
+    SCHEMA_SCALE_GROWTH_WRAPPED=1 bash "$CASSANDRA_HOME/test/bin/schema-scale-growth" "$@" 2>&1 | tee -i -a "$GROWTH_LOG"
+    exit "${PIPESTATUS[0]}"
+fi
+
+RUN="${1:-}"
+[ -n "$RUN" ] || { echo "usage: schema-scale-growth <run-dir>" >&2; exit 2; }
+case "$RUN" in /*) ;; *) RUN="$SCHEMA_SCALE_GROWTH_PWD/$RUN" ;; esac
+[ -d "$RUN" ] || { echo "schema-scale-growth: not a directory: $RUN" >&2; exit 2; }
+
+exec uv run --no-project --quiet --with pandas python "$CASSANDRA_HOME/test/bin/schema-scale-growth.py" "$RUN"

@@ -1,0 +1,96 @@
+#!/bin/bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Runs Eclipse Memory Analyzer (MAT) reports on the final heap dump of a run.
+# Usage: test/bin/schema-scale-mat <run-dir>
+#
+# Reads <run-dir>/final/heap.hprof. Writes the leak suspects, system overview and top components reports
+# and mat.log into <run-dir>/mat/. MAT also writes index files next to the dump; they can take several GiB.
+#
+# Environment:
+#   MAT_APP   MAT application, default /Applications/MemoryAnalyzer.app
+#   MAT_XMX   MAT heap, default 24g. The script passes it after -vmargs. MAT otherwise reads -Xmx from
+#             MemoryAnalyzer.ini (Contents/Eclipse/MemoryAnalyzer.ini); edit that line to change the default.
+#
+# Install: brew install --cask memoryanalyzer
+# Output: console and logs/<ts>-schema-scale-mat.log.
+# Exit codes: 0 ok, 2 bad argument or missing dump, 3 MAT not installed, else the MAT exit code.
+
+set -o pipefail
+
+CASSANDRA_HOME="$(cd "$(dirname "$0")/../../" && pwd)"
+export SCHEMA_SCALE_MAT_PWD="${SCHEMA_SCALE_MAT_PWD:-$PWD}"
+cd "$CASSANDRA_HOME" || exit 1
+
+if [ -z "${SCHEMA_SCALE_MAT_WRAPPED:-}" ]; then
+    mkdir -p logs
+    MAT_LOG="logs/$(date +%Y%m%d-%H%M%S)-schema-scale-mat.log"
+    SCHEMA_SCALE_MAT_WRAPPED=1 bash "$CASSANDRA_HOME/test/bin/schema-scale-mat" "$@" 2>&1 | tee -i -a "$MAT_LOG"
+    exit "${PIPESTATUS[0]}"
+fi
+
+RUN="${1:-}"
+[ -n "$RUN" ] || { echo "usage: schema-scale-mat <run-dir>" >&2; exit 2; }
+case "$RUN" in /*) ;; *) RUN="$SCHEMA_SCALE_MAT_PWD/$RUN" ;; esac
+[ -d "$RUN" ] || { echo "schema-scale-mat: not a directory: $RUN" >&2; exit 2; }
+
+MAT_APP="${MAT_APP:-/Applications/MemoryAnalyzer.app}"
+MAT_XMX="${MAT_XMX:-24g}"
+
+PARSE=""
+for candidate in "$MAT_APP/Contents/MacOS/ParseHeapDump.sh" "$MAT_APP/Contents/Eclipse/ParseHeapDump.sh"; do
+    if [ -x "$candidate" ]; then PARSE="$candidate"; break; fi
+done
+if [ -z "$PARSE" ] && [ -d "$MAT_APP" ]; then
+    PARSE="$(find "$MAT_APP" -name ParseHeapDump.sh -type f 2>/dev/null | head -1)"
+fi
+if [ -z "$PARSE" ]; then
+    echo "schema-scale-mat: Eclipse Memory Analyzer not found at $MAT_APP" >&2
+    echo "Install it with: brew install --cask memoryanalyzer" >&2
+    echo "Then run this script again, or set MAT_APP to the application path." >&2
+    exit 3
+fi
+
+# MAT needs Java 17+. Its launcher otherwise picks the java on PATH (JDK 11 here), fails, and on macOS
+# can then wait on an error dialog. Pass -vm explicitly.
+MAT_JAVA="${MAT_JAVA:-}"
+if [ -z "$MAT_JAVA" ]; then
+    for home in "${JAVA_HOME:-}" /opt/homebrew/Cellar/openjdk@25/*/libexec/openjdk.jdk/Contents/Home /opt/homebrew/opt/openjdk@25; do
+        [ -n "$home" ] && [ -x "$home/bin/java" ] || continue
+        major="$("$home/bin/java" -XshowSettings:properties -version 2>&1 | awk -F'= ' '/java.specification.version/ {print $2}')"
+        if [ "${major:-0}" -ge 17 ] 2>/dev/null; then MAT_JAVA="$home/bin/java"; break; fi
+    done
+fi
+[ -n "$MAT_JAVA" ] || { echo "schema-scale-mat: no Java 17+ found; set MAT_JAVA to a java binary" >&2; exit 2; }
+
+DUMP="$RUN/final/heap.hprof"
+[ -f "$DUMP" ] || { echo "schema-scale-mat: no heap dump at $DUMP" >&2; exit 2; }
+
+OUT="$RUN/mat"
+mkdir -p "$OUT"
+echo "schema-scale-mat: parser=$PARSE java=$MAT_JAVA dump=$DUMP ($(du -h "$DUMP" | cut -f1)) xmx=$MAT_XMX out=$OUT"
+
+"$PARSE" "$DUMP" org.eclipse.mat.api:suspects org.eclipse.mat.api:overview org.eclipse.mat.api:top_components \
+    -vm "$MAT_JAVA" -vmargs "-Xmx$MAT_XMX" </dev/null 2>&1 | tee -a "$OUT/mat.log"
+rc=${PIPESTATUS[0]}
+
+# MAT writes the report zips next to the dump; move them into mat/
+for z in "$RUN"/final/*_Leak_Suspects.zip "$RUN"/final/*_System_Overview.zip "$RUN"/final/*_Top_Components.zip; do
+    [ -f "$z" ] && mv "$z" "$OUT/"
+done
+echo "schema-scale-mat: finished rc=$rc; reports in $OUT"
+exit "$rc"

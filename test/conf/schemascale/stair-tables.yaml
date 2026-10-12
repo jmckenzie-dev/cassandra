@@ -1,0 +1,42 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Stair-step tables to a heap ceiling. One axis: tables. Run it in process mode:
+#   test/bin/schema-scale --profile stair-tables --variant stock --mode process --spread 1
+# A checkpoint every 1000 tables forces a GC, reads the post-GC heap and writes steps/t<tables>/.
+# The ramp stops at stop.heapPostGcBytes and writes final/ with a heap dump before the node stops.
+# No rampColumns, grid, restart, workload or hold sections, so those phases do not run.
+name: stair-tables
+variants:
+  stock: {}
+node:
+  tables_warn_threshold: -1
+  tables_fail_threshold: -1
+  keyspaces_warn_threshold: -1
+  columns_per_table_warn_threshold: -1
+  columns_per_table_fail_threshold: -1
+  max_mutation_size: 16MiB
+  metadata_snapshot_frequency: 100
+  memtable_heap_space: 2GiB
+  memtable_offheap_space: 4GiB
+
+keyspaceSpread: [1]
+rampTables: {max: 1000000, checkpointEvery: 1000, schema: "pk int, c int, v text, PRIMARY KEY (pk, c)"}
+stop: {heapPostGcBytes: 25GiB, ddlP99Ms: 600000, snapshotOverMaxMutation: false, rampTimeout: 12h, abortOnBreak: false}
+captureEveryStep: true
+captureFinal: true
+restartEvery: 5
+profiling: {asyncProfiler: true, histogramEvery: 1000000, snapshotSizeEvery: 5, gcEvery: 1}
