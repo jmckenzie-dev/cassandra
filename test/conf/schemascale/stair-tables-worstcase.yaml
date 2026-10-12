@@ -1,0 +1,44 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Worst case: every table in one keyspace, to the 25 GiB heap stop.
+#   test/bin/schema-scale --detach --profile stair-tables-worstcase --variant stock --mode process --spread 1
+# Default max_mutation_size (16 MiB). The stock run broke at about 24k tables on it: node startup writes each
+# keyspace's whole schema as one mutation, and TCM snapshots are one mutation too, both about 700 bytes per
+# table. Earlier runs raised it to 512 MiB (1 GiB segments) to see past that wall; that hid a break users hit.
+# Saves the schema every 10k tables so later runs can start from any of them.
+name: stair-tables-worstcase
+variants:
+  stock: {}
+node:
+  tables_warn_threshold: -1
+  tables_fail_threshold: -1
+  keyspaces_warn_threshold: -1
+  columns_per_table_warn_threshold: -1
+  columns_per_table_fail_threshold: -1
+  max_mutation_size: 16MiB
+  metadata_snapshot_frequency: 100
+  memtable_heap_space: 2GiB
+  memtable_offheap_space: 4GiB
+
+keyspaceSpread: [1]
+rampTables: {max: 1000000, checkpointEvery: 1000, ddlConcurrency: 16, schema: "pk int, c int, v text, PRIMARY KEY (pk, c)"}
+stop: {heapPostGcBytes: 25GiB, ddlP99Ms: 600000, snapshotOverMaxMutation: true, rampTimeout: 12h, abortOnBreak: false}
+captureAt: [1000, 2000, 5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000, 45000, 50000, 60000, 70000, 80000, 90000, 100000]
+snapshotAt: [10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 100000]
+captureFinal: true
+profiling: {asyncProfiler: true, histogramEvery: 1000000, snapshotSizeEvery: 5, gcEvery: 1,
+            nodeProfiler: mbean, nodeProfileEvents: [cpu, wall], nodeProfileSeconds: 10}

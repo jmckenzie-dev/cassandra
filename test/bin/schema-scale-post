@@ -1,0 +1,129 @@
+#!/bin/bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Post-process a schema scale run directory.
+# Usage: test/bin/schema-scale-post <run-dir>
+#
+# For every *.jfr under the run dir: writes 'jfr summary' and 'jfr view' output
+# (hot-methods, allocation-by-class, allocation-by-site, gc-pauses) into <run-dir>/views/.
+# If JFRCONV is set, also writes alloc/wall/cpu HTML flame graphs for every *.jfr.
+# Node profiles (steps/t*/node-cpu.jfr, node-wall.jfr) always get a cpu or wall HTML flame graph when a
+# jfrconv is found: JFRCONV, then jfrconv on PATH, then tmp/ap-dist/**/jfrconv. Without one, the
+# script prints the jfrconv command for each file.
+# Copies NMT files (nmt*) into views/ when the harness left them elsewhere in the run dir.
+#
+# Environment:
+#   JAVA_HOME   JDK that provides jfr (default: JDK 25 under /opt/homebrew). The java on PATH is not used.
+#   JFRCONV     optional path to async-profiler jfrconv (bin/jfrconv of an async-profiler 4.x download)
+#
+# Output: console and logs/<ts>-schema-scale-post.log. Exit code: 0 unless the run dir is bad.
+
+set -o pipefail
+
+CASSANDRA_HOME="$(cd "$(dirname "$0")/../../" && pwd)"
+export SCHEMA_SCALE_POST_PWD="${SCHEMA_SCALE_POST_PWD:-$PWD}"
+cd "$CASSANDRA_HOME" || exit 1
+
+if [ -z "${SCHEMA_SCALE_POST_WRAPPED:-}" ]; then
+    mkdir -p logs
+    POST_LOG="logs/$(date +%Y%m%d-%H%M%S)-schema-scale-post.log"
+    SCHEMA_SCALE_POST_WRAPPED=1 bash "$CASSANDRA_HOME/test/bin/schema-scale-post" "$@" 2>&1 | tee -i -a "$POST_LOG"
+    exit "${PIPESTATUS[0]}"
+fi
+
+RUN="${1:-}"
+case "$RUN" in ""|/*) ;; *) RUN="$SCHEMA_SCALE_POST_PWD/$RUN" ;; esac
+[ -n "$RUN" ] || { echo "usage: schema-scale-post <run-dir>" >&2; exit 2; }
+[ -d "$RUN" ] || { echo "schema-scale-post: not a directory: $RUN" >&2; exit 2; }
+
+# Ambient JAVA_HOME counts only if it is JDK 21+ (older jfr has no 'view' command)
+jdk_major() { sed -n 's/^JAVA_VERSION="\([0-9]*\).*/\1/p' "$1/release" 2>/dev/null; }
+if [ -z "${JAVA_HOME:-}" ] || [ ! -x "$JAVA_HOME/bin/jfr" ] || [ "$(jdk_major "$JAVA_HOME")" -lt 21 ] 2>/dev/null; then
+    JAVA_HOME=""
+    for d in /opt/homebrew/Cellar/openjdk@25/*/libexec/openjdk.jdk/Contents/Home \
+             /opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home \
+             /opt/homebrew/Cellar/openjdk@21/*/libexec/openjdk.jdk/Contents/Home \
+             /Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home; do
+        if [ -x "$d/bin/jfr" ]; then JAVA_HOME="$d"; break; fi
+    done
+fi
+[ -n "$JAVA_HOME" ] || { echo "schema-scale-post: no JDK 21+ with bin/jfr found; set JAVA_HOME" >&2; exit 2; }
+JFR="$JAVA_HOME/bin/jfr"
+
+# jfrconv for the node profiles
+NODE_JFRCONV="${JFRCONV:-}"
+if [ -z "$NODE_JFRCONV" ]; then
+    NODE_JFRCONV="$(command -v jfrconv 2>/dev/null || true)"
+fi
+if [ -z "$NODE_JFRCONV" ] && [ -d "$CASSANDRA_HOME/tmp/ap-dist" ]; then
+    NODE_JFRCONV="$(find "$CASSANDRA_HOME/tmp/ap-dist" -name jfrconv -type f -perm -u+x 2>/dev/null | sort | head -n 1)"
+fi
+
+VIEWS="$RUN/views"
+mkdir -p "$VIEWS"
+echo "schema-scale-post: run=$RUN JAVA_HOME=$JAVA_HOME"
+
+found=0
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    found=$((found + 1))
+    rel="${f#"$RUN"/}"
+    base="$(echo "${rel%.jfr}" | tr '/' '_')"
+    echo "schema-scale-post: $f"
+    "$JFR" summary "$f" > "$VIEWS/$base.summary.txt" 2>&1 \
+        || echo "schema-scale-post: note: jfr summary failed for $f"
+    for view in hot-methods allocation-by-class allocation-by-site gc-pauses; do
+        out="$VIEWS/$base.$view.txt"
+        if ! "$JFR" view --width 200 "$view" "$f" > "$out" 2>&1; then
+            echo "schema-scale-post: note: view '$view' not supported by this JDK or failed for $f"
+        fi
+    done
+    case "$(basename "$f")" in
+        node-cpu.jfr|node-wall.jfr)
+            kind="$(basename "$f" .jfr)"
+            kind="${kind#node-}"
+            out="$VIEWS/$base.$kind.html"
+            if [ -n "$NODE_JFRCONV" ]; then
+                "$NODE_JFRCONV" --"$kind" "$f" "$out" > "$VIEWS/$base.$kind.jfrconv.log" 2>&1 \
+                    && echo "schema-scale-post: flame graph $out" \
+                    || echo "schema-scale-post: note: jfrconv --$kind failed for $f (see $VIEWS/$base.$kind.jfrconv.log)"
+            else
+                echo "schema-scale-post: no jfrconv found (set JFRCONV); run: jfrconv --$kind $f $out"
+            fi
+            continue
+            ;;
+    esac
+    if [ -n "${JFRCONV:-}" ]; then
+        for kind in alloc wall cpu; do
+            "$JFRCONV" --"$kind" "$f" "$VIEWS/$base.$kind.html" > "$VIEWS/$base.$kind.jfrconv.log" 2>&1 \
+                || echo "schema-scale-post: note: jfrconv --$kind failed for $f"
+        done
+    fi
+done < <(find "$RUN" \( -path "$VIEWS" -o -path '*/node/tmp' \) -prune -o -name '*.jfr' -print | sort)
+
+[ "$found" -gt 0 ] || echo "schema-scale-post: no *.jfr files in $RUN"
+
+# NMT output written by the harness
+while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    case "$n" in "$VIEWS"/*) continue ;; esac
+    cp "$n" "$VIEWS/$(basename "$n")"
+    echo "schema-scale-post: copied NMT file $n"
+done < <(find "$RUN" -path "$VIEWS" -prune -o -name 'nmt*' -type f -print | sort)
+
+echo "schema-scale-post: done, $found jfr file(s), output in $VIEWS"
+exit 0

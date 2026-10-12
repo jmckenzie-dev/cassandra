@@ -1,0 +1,47 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# One hit at a fixed table count: start from a saved stair-tables-worstcase schema and add 3k tables at 16 clients.
+#   test/bin/schema-scale --detach --profile hit-tables --variant stock --mode process --spread 1
+# 3k DDL at about 7/s is about 7 minutes, so SizeEstimatesRecorder (30 s after start, then every 300 s) runs at
+# least twice. Another count: --set startFrom=t30000 --set rampTables.max=33000 --set 'captureAt=[31000, 33000]'
+# Not 50k with stock on a 31g heap: a cold 50k-table node holds about 28 GB live and ran out of heap at startup
+# (logs/20261005-160202-hit-tables-50k-stock-ks1).
+# Node config must match stair-tables-worstcase; the stop is harness-side.
+name: hit-tables
+startFrom: t40000
+variants:
+  stock: {}
+node:
+  tables_warn_threshold: -1
+  tables_fail_threshold: -1
+  keyspaces_warn_threshold: -1
+  columns_per_table_warn_threshold: -1
+  columns_per_table_fail_threshold: -1
+  max_mutation_size: 16MiB
+  metadata_snapshot_frequency: 100
+  memtable_heap_space: 2GiB
+  memtable_offheap_space: 4GiB
+
+keyspaceSpread: [1]
+rampTables: {max: 43000, checkpointEvery: 1000, ddlConcurrency: 16, schema: "pk int, c int, v text, PRIMARY KEY (pk, c)"}
+stop: {heapPostGcBytes: 27GiB, ddlP99Ms: 600000, snapshotOverMaxMutation: true, rampTimeout: 2h, abortOnBreak: false}
+captureAt: [41000, 43000]
+captureFinal: true
+# Histogram, NMT and JFR at the end are enough here; heap dumps belong to the break-finding stair runs.
+finalHeapDump: never
+profiling: {asyncProfiler: true, histogramEvery: 1000000, snapshotSizeEvery: 5, gcEvery: 1,
+            nodeProfiler: mbean, nodeProfileEvents: [cpu, wall], nodeProfileSeconds: 10}

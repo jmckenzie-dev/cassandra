@@ -1,0 +1,45 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Step 8 run 2: stair-step tables with 16 DDL clients, from scratch to 10k tables, in process mode:
+#   test/bin/schema-scale --profile stair-tables-parallel --variant stock --mode process --spread 1
+# 16 clients share one driver session and take table indexes from one counter. They pause at each 1000-table
+# checkpoint. At each captureAt count the harness writes steps/t<N>/ (histogram, heap info, NMT, threads,
+# node.jfr slice), then profiles the node for 30 s cpu and 30 s wall while the DDL goes on (node-cpu.jfr,
+# node-wall.jfr), then runs the restart probe. No DDL follows 10000, so that count has no node profile.
+# At 10000 the node stops, its data goes to logs/schema-snapshots/<schema key>/t10000/, and it starts again.
+name: stair-tables-parallel
+variants:
+  stock: {}
+node:
+  tables_warn_threshold: -1
+  tables_fail_threshold: -1
+  keyspaces_warn_threshold: -1
+  columns_per_table_warn_threshold: -1
+  columns_per_table_fail_threshold: -1
+  max_mutation_size: 16MiB
+  metadata_snapshot_frequency: 100
+  memtable_heap_space: 2GiB
+  memtable_offheap_space: 4GiB
+
+keyspaceSpread: [1]
+rampTables: {max: 10000, checkpointEvery: 1000, ddlConcurrency: 16, schema: "pk int, c int, v text, PRIMARY KEY (pk, c)"}
+stop: {heapPostGcBytes: 25GiB, ddlP99Ms: 600000, snapshotOverMaxMutation: false, rampTimeout: 12h, abortOnBreak: false}
+captureAt: [1000, 2000, 5000, 10000]
+snapshotAt: [10000]
+captureFinal: false
+profiling: {asyncProfiler: true, histogramEvery: 1000000, snapshotSizeEvery: 5, gcEvery: 1,
+            nodeProfiler: mbean, nodeProfileEvents: [cpu, wall], nodeProfileSeconds: 30}

@@ -1,0 +1,38 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: smoke
+variants:
+  stock: {}
+node:
+  tables_warn_threshold: -1
+  tables_fail_threshold: -1
+  keyspaces_warn_threshold: -1
+  columns_per_table_warn_threshold: -1
+  columns_per_table_fail_threshold: -1
+  max_mutation_size: 16MiB
+  metadata_snapshot_frequency: 100
+  memtable_heap_space: 2GiB
+  memtable_offheap_space: 4GiB
+
+keyspaceSpread: [1, 10]
+rampTables: {max: 2000, checkpointEvery: 250, schema: "pk int, c int, v text, PRIMARY KEY (pk, c)"}
+rampColumns: {tables: 2, createSizes: [500, 2000], alterAddMax: 250, alterCheckpointEvery: 50, columnType: int}
+grid: {tables: [20], columns: [20], columnBudget: 10000}
+stop: {ddlP99Ms: 5000, heapPostGcFraction: 0.85, snapshotOverMaxMutation: true, rampTimeout: 30m, abortOnBreak: false}
+workload: {sampleTables: 50, rowsPerTable: 5, wideSelectStar: true}
+restart: {graceful: true, kill: true}
+profiling: {asyncProfiler: false, histogramEvery: 10000, snapshotSizeEvery: 2, gcEvery: 2}
