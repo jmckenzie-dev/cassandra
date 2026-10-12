@@ -17,8 +17,10 @@
  */
 package org.apache.cassandra.db;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -68,6 +70,10 @@ public class SizeEstimatesRecorder implements SchemaChangeListener, Runnable
 
     public static final SizeEstimatesRecorder instance = new SizeEstimatesRecorder();
 
+    /** About 100 bytes per row, so each mutation is near 1 MB; see {@link SystemKeyspace.EstimatesBatch}. */
+    @VisibleForTesting
+    static final int ROWS_PER_MUTATION = 10_000;
+
     private SizeEstimatesRecorder()
     {
         Schema.instance.registerListener(this);
@@ -105,21 +111,20 @@ public class SizeEstimatesRecorder implements SchemaChangeListener, Runnable
             Collection<Range<Token>> primaryRanges = StorageService.instance.getPrimaryRanges(keyspace.getName());
             Collection<Range<Token>> localPrimaryRanges = getLocalPrimaryRange();
             boolean rangesAreEqual = primaryRanges.equals(localPrimaryRanges);
-            for (ColumnFamilyStore table : keyspace.getColumnFamilyStores())
+            List<ColumnFamilyStore> tables = new ArrayList<>(keyspace.getColumnFamilyStores());
+            tables.sort(Comparator.comparing(cfs -> cfs.name));
+            SystemKeyspace.EstimatesBatch batch = new SystemKeyspace.EstimatesBatch(keyspace.getName());
+            for (ColumnFamilyStore table : tables)
             {
                 long start = nanoTime();
 
                 // compute estimates for primary ranges for backwards compatability
                 Map<Range<Token>, Pair<Long, Long>> estimates = computeSizeEstimates(table, primaryRanges);
-                SystemKeyspace.updateSizeEstimates(table.metadata.keyspace, table.metadata.name, estimates);
-                SystemKeyspace.updateTableEstimates(table.metadata.keyspace, table.metadata.name, SystemKeyspace.TABLE_ESTIMATES_TYPE_PRIMARY, estimates);
-
-                if (!rangesAreEqual)
-                {
-                    // compute estimate for local primary range
-                    estimates = computeSizeEstimates(table, localPrimaryRanges);
-                }
-                SystemKeyspace.updateTableEstimates(table.metadata.keyspace, table.metadata.name, SystemKeyspace.TABLE_ESTIMATES_TYPE_LOCAL_PRIMARY, estimates);
+                // compute estimate for local primary range
+                Map<Range<Token>, Pair<Long, Long>> localEstimates = rangesAreEqual ? estimates : computeSizeEstimates(table, localPrimaryRanges);
+                batch.add(table.metadata.name, estimates, localEstimates);
+                if (batch.rows() >= ROWS_PER_MUTATION)
+                    batch.apply();
 
                 long passed = nanoTime() - start;
                 if (logger.isTraceEnabled())
@@ -128,6 +133,7 @@ public class SizeEstimatesRecorder implements SchemaChangeListener, Runnable
                                  table.metadata.keyspace,
                                  table.metadata.name);
             }
+            batch.apply();
         }
     }
 

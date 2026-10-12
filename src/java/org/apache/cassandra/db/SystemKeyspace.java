@@ -1728,8 +1728,24 @@ public final class SystemKeyspace
     public static void updateSizeEstimates(String keyspace, String table, Map<Range<Token>, Pair<Long, Long>> estimates)
     {
         long timestamp = FBUtilities.timestampMicros();
-        long nowInSec = FBUtilities.nowInSeconds();
         PartitionUpdate.Builder update = new PartitionUpdate.Builder(LegacySizeEstimates, UTF8Type.instance.decompose(keyspace), LegacySizeEstimates.regularAndStaticColumns(), estimates.size());
+        addSizeEstimates(update, table, estimates, timestamp, FBUtilities.nowInSeconds());
+        new Mutation(update.build()).apply();
+    }
+
+    /**
+     * Writes the current partition count and size estimates into table_estimates
+     */
+    public static void updateTableEstimates(String keyspace, String table, String type, Map<Range<Token>, Pair<Long, Long>> estimates)
+    {
+        long timestamp = FBUtilities.timestampMicros();
+        PartitionUpdate.Builder update = new PartitionUpdate.Builder(TableEstimates, UTF8Type.instance.decompose(keyspace), TableEstimates.regularAndStaticColumns(), estimates.size());
+        addTableEstimates(update, table, type, estimates, timestamp, FBUtilities.nowInSeconds());
+        new Mutation(update.build()).apply();
+    }
+
+    private static void addSizeEstimates(PartitionUpdate.Builder update, String table, Map<Range<Token>, Pair<Long, Long>> estimates, long timestamp, long nowInSec)
+    {
         // delete all previous values with a single range tombstone.
         update.add(new RangeTombstone(Slice.make(LegacySizeEstimates.comparator, table), DeletionTime.build(timestamp - 1, nowInSec)));
 
@@ -1744,18 +1760,10 @@ public final class SystemKeyspace
                            .add("mean_partition_size", values.right)
                            .build());
         }
-        new Mutation(update.build()).apply();
     }
 
-    /**
-     * Writes the current partition count and size estimates into table_estimates
-     */
-    public static void updateTableEstimates(String keyspace, String table, String type, Map<Range<Token>, Pair<Long, Long>> estimates)
+    private static void addTableEstimates(PartitionUpdate.Builder update, String table, String type, Map<Range<Token>, Pair<Long, Long>> estimates, long timestamp, long nowInSec)
     {
-        long timestamp = FBUtilities.timestampMicros();
-        long nowInSec = FBUtilities.nowInSeconds();
-        PartitionUpdate.Builder update = new PartitionUpdate.Builder(TableEstimates, UTF8Type.instance.decompose(keyspace), TableEstimates.regularAndStaticColumns(), estimates.size());
-
         // delete all previous values with a single range tombstone.
         update.add(new RangeTombstone(Slice.make(TableEstimates.comparator, table, type), DeletionTime.build(timestamp - 1, nowInSec)));
 
@@ -1770,8 +1778,61 @@ public final class SystemKeyspace
                            .add("mean_partition_size", values.right)
                            .build());
         }
+    }
 
-        new Mutation(update.build()).apply();
+    /**
+     * Size and table estimates for many tables of one keyspace, written as one update per estimates table.
+     *
+     * <p>All estimates of a keyspace share one partition. Each write merges its range tombstones into that
+     * partition's memtable copy, which copies the partition's whole tombstone list. One write per table made a
+     * full pass O(tables^2): hundreds of GB of allocation at 50k tables. Add tables in name order so the tombstones
+     * append, and {@link #apply} when {@link #rows} reaches a bound, so a mutation stays far below max_mutation_size.
+     */
+    public static final class EstimatesBatch
+    {
+        private final String keyspace;
+        private final long timestamp = FBUtilities.timestampMicros();
+        private final long nowInSec = FBUtilities.nowInSeconds();
+        private PartitionUpdate.Builder sizes;
+        private PartitionUpdate.Builder tables;
+        private int rows;
+
+        public EstimatesBatch(String keyspace)
+        {
+            this.keyspace = keyspace;
+            reset();
+        }
+
+        private void reset()
+        {
+            ByteBuffer key = UTF8Type.instance.decompose(keyspace);
+            sizes = new PartitionUpdate.Builder(LegacySizeEstimates, key, LegacySizeEstimates.regularAndStaticColumns(), 16);
+            tables = new PartitionUpdate.Builder(TableEstimates, key, TableEstimates.regularAndStaticColumns(), 16);
+            rows = 0;
+        }
+
+        /** Adds {@code table}'s estimates; "local_primary" sorts before "primary", so add it first. */
+        public void add(String table, Map<Range<Token>, Pair<Long, Long>> primary, Map<Range<Token>, Pair<Long, Long>> localPrimary)
+        {
+            addSizeEstimates(sizes, table, primary, timestamp, nowInSec);
+            addTableEstimates(tables, table, TABLE_ESTIMATES_TYPE_LOCAL_PRIMARY, localPrimary, timestamp, nowInSec);
+            addTableEstimates(tables, table, TABLE_ESTIMATES_TYPE_PRIMARY, primary, timestamp, nowInSec);
+            rows += 2 * primary.size() + localPrimary.size();
+        }
+
+        public int rows()
+        {
+            return rows;
+        }
+
+        public void apply()
+        {
+            if (rows == 0)
+                return;
+            new Mutation(sizes.build()).apply();
+            new Mutation(tables.build()).apply();
+            reset();
+        }
     }
 
 
