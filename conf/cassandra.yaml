@@ -2398,6 +2398,14 @@ drop_compact_storage_enabled: false
 # scaling test creating 1,000 tables: 118s at 0ms versus 33s at the 1000ms default.
 # schema_flush_coalescing_window: 1000ms
 #
+# How many of the newest cluster metadata snapshots to keep in system.metadata_snapshots. A snapshot
+# is stored every metadata_snapshot_frequency epochs and is as large as the schema (about 30 MB at
+# 43,000 tables); without a limit they accumulate forever. After each store the node deletes all but
+# the newest N. Trade-off: reverting or dumping cluster metadata at an epoch older than the oldest
+# kept snapshot (nodetool cms, offline metadata dump) replays the local log from the start, which is
+# slow, and fails if the local log has gaps. Must be at least 2; -1 keeps every snapshot.
+# metadata_snapshots_retained: 5
+#
 # Guardrail to enable or disable the ability to create uncompressed tables
 # uncompressed_tables_enabled: true
 #

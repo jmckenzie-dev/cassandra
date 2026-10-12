@@ -723,6 +723,8 @@ public class DatabaseDescriptor
         if (conf.concurrent_counter_writes < 2)
             throw new ConfigurationException("concurrent_counter_writes must be at least 2, but was " + conf.concurrent_counter_writes, false);
 
+        validateMetadataSnapshotsRetained(conf.metadata_snapshots_retained);
+
         if (conf.networking_cache_size == null)
             conf.networking_cache_size = new DataStorageSpec.IntMebibytesBound(Math.min(128, (int) (Runtime.getRuntime().maxMemory() / (16 * 1048576))));
 
@@ -6471,6 +6473,23 @@ public class DatabaseDescriptor
     public static void setMetadataSnapshotFrequency(int frequency)
     {
         conf.metadata_snapshot_frequency = frequency;
+    }
+
+    public static int getMetadataSnapshotsRetained()
+    {
+        return conf.metadata_snapshots_retained;
+    }
+
+    public static void setMetadataSnapshotsRetained(int retained)
+    {
+        validateMetadataSnapshotsRetained(retained);
+        conf.metadata_snapshots_retained = retained;
+    }
+
+    private static void validateMetadataSnapshotsRetained(int retained)
+    {
+        if (retained != -1 && retained < 2)
+            throw new ConfigurationException("metadata_snapshots_retained must be -1 or at least 2, but was " + retained, false);
     }
 
     public static ConsistencyLevel getProgressBarrierMinConsistencyLevel()

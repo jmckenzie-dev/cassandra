@@ -70,6 +70,7 @@ public class TCMMetrics
     public final Gauge<Long> epochAwareDebounceTrackerSize;
     public final Meter reconstructLogStateCall;
     public final Counter snapshotStoreFailures;
+    public final Counter snapshotRetentionFailures;
     public final Gauge<Long> lastSnapshotSize;
 
     private final AtomicLong lastSnapshotSizeValue = new AtomicLong(0);
@@ -137,6 +138,7 @@ public class TCMMetrics
         reconstructLogStateCall = Metrics.meter(factory.createMetricName("ReconstructLogStateCall"));
 
         snapshotStoreFailures = Metrics.counter(factory.createMetricName("SnapshotStoreFailures"));
+        snapshotRetentionFailures = Metrics.counter(factory.createMetricName("SnapshotRetentionFailures"));
         lastSnapshotSize = Metrics.register(factory.createMetricName("LastSnapshotSize"), lastSnapshotSizeValue::get);
     }
 

@@ -22,8 +22,14 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -39,6 +45,7 @@ import org.apache.cassandra.tcm.Epoch;
 
 import static org.apache.cassandra.schema.SchemaConstants.SYSTEM_KEYSPACE_NAME;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * {@link SystemKeyspace#listSnapshotsSince} serves from memory once loaded. It must list what the table holds, newest
@@ -60,6 +67,12 @@ public class SystemKeyspaceSnapshotEpochsTest
     {
         ColumnFamilyStore.getIfExists(SYSTEM_KEYSPACE_NAME, SystemKeyspace.SNAPSHOT_TABLE_NAME).truncateBlockingWithoutSnapshot();
         SystemKeyspace.invalidateSnapshotEpochs();
+    }
+
+    @After
+    public void resetHook()
+    {
+        SystemKeyspace.snapshotEpochsReadHook = () -> {};
     }
 
     private static void store(long... epochs)
@@ -137,5 +150,50 @@ public class SystemKeyspaceSnapshotEpochsTest
         SystemKeyspace.invalidateSnapshotEpochs();
         assertMatchesTable(50);
         assertEquals(2, SystemKeyspace.listSnapshotsSince(Epoch.create(50)).size());
+    }
+
+    @Test
+    public void fullLoadDoesNotBlockListingAndKeepsStoresMadeDuringIt() throws Exception
+    {
+        store(2, 3, 4, 5);
+        SystemKeyspace.invalidateSnapshotEpochs();
+
+        CountDownLatch read = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        SystemKeyspace.snapshotEpochsReadHook = () -> {
+            SystemKeyspace.snapshotEpochsReadHook = () -> {}; // only the first read pauses
+            read.countDown();
+            try
+            {
+                assertTrue(release.await(30, TimeUnit.SECONDS));
+            }
+            catch (InterruptedException e)
+            {
+                throw new RuntimeException(e);
+            }
+        };
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try
+        {
+            Future<Integer> deleting = pool.submit(() -> SystemKeyspace.deleteSnapshotsBeyond(2, Epoch.create(5)));
+            assertTrue(read.await(30, TimeUnit.SECONDS));
+
+            // The load holds no lock: the commit path lists while it waits
+            Future<List<Epoch>> listing = pool.submit(() -> SystemKeyspace.listSnapshotsSince(Epoch.create(3)));
+            assertEquals(2, listing.get(30, TimeUnit.SECONDS).size());
+
+            // A store after the table read must survive the install
+            store(6);
+            release.countDown();
+            assertEquals(Integer.valueOf(3), deleting.get(30, TimeUnit.SECONDS));
+        }
+        finally
+        {
+            release.countDown();
+            pool.shutdownNow();
+        }
+        assertEquals(fromTable(0), SystemKeyspace.listSnapshotsSince(Epoch.create(0)));
+        assertEquals(2, fromTable(0).size());
+        assertEquals(6, fromTable(0).get(0).getEpoch());
     }
 }

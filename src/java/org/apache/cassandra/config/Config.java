@@ -264,6 +264,11 @@ public class Config
      */
     public volatile int metadata_snapshot_frequency = 100;
 
+    /**
+     * How many of the newest cluster metadata snapshots to keep in system.metadata_snapshots. -1 keeps all.
+     */
+    public volatile int metadata_snapshots_retained = 5;
+
 
     public volatile double phi_convict_threshold = 8.0;
 

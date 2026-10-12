@@ -22,11 +22,16 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import com.google.common.annotations.VisibleForTesting;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.io.util.DataInputBuffer;
@@ -34,6 +39,7 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.metrics.TCMMetrics;
 import org.apache.cassandra.tcm.serialization.VerboseMetadataSerializer;
 import org.apache.cassandra.tcm.serialization.Version;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.NoSpamLogger;
 
 public interface MetadataSnapshots
@@ -97,6 +103,21 @@ public interface MetadataSnapshots
 
     class SystemKeyspaceMetadataSnapshots implements MetadataSnapshots
     {
+        private final Executor retentionExecutor;
+        private final AtomicBoolean retentionPending = new AtomicBoolean();
+        private volatile Epoch lastStored; // a queued task protects the newest store, not the one that queued it
+
+        public SystemKeyspaceMetadataSnapshots()
+        {
+            this(ScheduledExecutors.optionalTasks);
+        }
+
+        @VisibleForTesting
+        SystemKeyspaceMetadataSnapshots(Executor retentionExecutor)
+        {
+            this.retentionExecutor = retentionExecutor;
+        }
+
         // Once the serialised ClusterMetadata reaches this fraction of max_mutation_size, warn the operator
         // that snapshots are approaching the point where storeSnapshot's single-mutation write will start
         // failing with MutationExceededMaxSizeException.
@@ -165,6 +186,61 @@ public interface MetadataSnapshots
             {
                 throw new RuntimeException(e);
             }
+            lastStored = metadata.epoch;
+            applyRetention();
+        }
+
+        // optionalTasks: housekeeping that need not finish on drain; the next store repeats it.
+        // Off the log follower thread because the first run in a process reads every old snapshot blob.
+        private void applyRetention()
+        {
+            if (DatabaseDescriptor.getMetadataSnapshotsRetained() == -1 || !retentionPending.compareAndSet(false, true))
+                return;
+            try
+            {
+                retentionExecutor.execute(() -> {
+                    try
+                    {
+                        deleteOldSnapshots();
+                    }
+                    finally
+                    {
+                        retentionPending.set(false);
+                    }
+                });
+            }
+            catch (RuntimeException e)
+            {
+                retentionPending.set(false);
+                recordRetentionFailure(lastStored, e);
+            }
+        }
+
+        // The snapshot is stored by now, so a failure here only leaves old rows for the next store to remove.
+        private void deleteOldSnapshots()
+        {
+            Epoch stored = lastStored;
+            int retained = DatabaseDescriptor.getMetadataSnapshotsRetained();
+            if (retained == -1)
+                return;
+            try
+            {
+                int deleted = SystemKeyspace.deleteSnapshotsBeyond(retained, stored);
+                if (deleted > 0)
+                    logger.info("Deleted {} cluster metadata snapshots older than the newest {}", deleted, retained);
+            }
+            catch (Throwable t)
+            {
+                JVMStabilityInspector.inspectThrowable(t);
+                recordRetentionFailure(stored, t);
+            }
+        }
+
+        private static void recordRetentionFailure(Epoch stored, Throwable t)
+        {
+            TCMMetrics.instance.snapshotRetentionFailures.inc();
+            NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 5, TimeUnit.MINUTES,
+                             "Could not delete old cluster metadata snapshots after storing epoch {}", stored, t);
         }
 
         /**
