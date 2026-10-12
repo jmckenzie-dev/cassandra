@@ -54,8 +54,11 @@ import static org.apache.cassandra.utils.ExecutorUtils.shutdownAndWait;
  * A thread-local counter implementation designed to use in metrics as an alternative to LongAdder used by Dropwizard metrics.
  * This implementation has reduced write (increment) CPU usage costs in exchange for a higher read cost.
  * We keep and increment parts of a counter locally for each thread.
- * To reduce memory footprint per counter they are grouped together to a long[] array for each thread.
+ * To reduce memory footprint per counter they are grouped together in fixed-size pages for each thread.
  * A position of a counter value is the same for every thread for the same counter id.
+ * A thread allocates only the pages that hold ids it updates. Ids are given out in order, so a single array
+ * sized to the highest id a thread touched held a slot for every metric on every such thread: with 10M metrics
+ * (80k tables) that was 85 MB per thread.
  * Piggyback volatile visibility is expected for readers who execute getCount method to see recent writes to thread local arrays.
  * If a metric is not used anymore the position in the array is reused. Phantom references are used to track aliveness of metric users.
  * When a thread died the counter values accumulated by it are transfered to a shared summaryValues collection.
@@ -64,6 +67,12 @@ import static org.apache.cassandra.utils.ExecutorUtils.shutdownAndWait;
 public class ThreadLocalMetrics
 {
     private static final int INITIAL_COUNTERS_CAPACITY = 16;
+    @VisibleForTesting
+    static final int PAGE_SHIFT = 8;
+    @VisibleForTesting
+    static final int PAGE_SIZE = 1 << PAGE_SHIFT;
+    private static final int PAGE_MASK = PAGE_SIZE - 1;
+    private static final long[][] NO_PAGES = new long[0][];
 
     static final AtomicInteger idGenerator = new AtomicInteger();
 
@@ -123,9 +132,20 @@ public class ThreadLocalMetrics
         cleaner = executorFactory().infiniteLoop("ThreadLocalMetrics-Cleaner", ThreadLocalMetrics::cleanupOneReference, UNSAFE);
     }
 
-    // we assume that counterValues can be only extended
+    // Page p holds ids [p * PAGE_SIZE, (p + 1) * PAGE_SIZE); a null page has only zero values.
+    // We assume that pages can only be added, never removed or replaced.
     // piggyback volatile visibility is expected for readers who execute getCount method to see recent writes
-    private long[] counterValues = new long[INITIAL_COUNTERS_CAPACITY];
+    private long[][] pages = NO_PAGES;
+
+    // The value of metricId in one thread's pages, 0 when its page does not exist
+    private static long valueOf(long[][] pages, int metricId)
+    {
+        int p = metricId >>> PAGE_SHIFT;
+        if (p >= pages.length)
+            return 0;
+        long[] page = pages[p];
+        return page == null ? 0 : page[metricId & PAGE_MASK];
+    }
 
     private static void cleanupOneReference() throws InterruptedException
     {
@@ -207,11 +227,17 @@ public class ThreadLocalMetrics
             // so this if check is needed to avoid a potential double release
             if (allThreadLocalMetrics.remove(this))
             {
-                for (int metricId = 0; metricId < counterValues.length; metricId++)
+                long[][] current = pages;
+                for (int p = 0; p < current.length; p++)
                 {
-                    long value = counterValues[metricId];
-                    if (value != 0)
-                        updateSummary(metricId, value);
+                    long[] page = current[p];
+                    if (page == null)
+                        continue;
+                    for (int i = 0; i < PAGE_SIZE; i++)
+                    {
+                        if (page[i] != 0)
+                            updateSummary((p << PAGE_SHIFT) + i, page[i]);
+                    }
                 }
             }
         }
@@ -230,12 +256,12 @@ public class ThreadLocalMetrics
      */
     public void addNonStatic(int metricId, long n)
     {
-        getNonStatic(metricId)[metricId] += n;
+        page(metricId)[metricId & PAGE_MASK] += n;
     }
 
     public static void add(int metricId, long n)
     {
-        get(metricId)[metricId] += n;
+        ThreadLocalMetrics.get().page(metricId)[metricId & PAGE_MASK] += n;
     }
 
     private static long getCount(int metricId, boolean resetToZero)
@@ -246,15 +272,9 @@ public class ThreadLocalMetrics
         try
         {
             result = getSummaryValue(metricId);
+            // a thread's page for metricId exists once the thread reported a value for it
             for (ThreadLocalMetrics threadLocalMetrics : allThreadLocalMetrics)
-            {
-                long count = 0;
-                long[] currentCounterValues = threadLocalMetrics.counterValues;
-                // currentCounterValues is extended for a thread when a value for metricId is reported in the thread
-                if (metricId < currentCounterValues.length)
-                    count = currentCounterValues[metricId];
-                result += count;
-            }
+                result += valueOf(threadLocalMetrics.pages, metricId);
             if (resetToZero)
                 updateSummary(metricId, -result); // compensative reset without writing to thread local values
         }
@@ -295,25 +315,36 @@ public class ThreadLocalMetrics
         return threadLocalMetricsCurrent.get();
     }
 
-    private static long[] get(int metricId)
+    // The page holding metricId, allocated on first use. Only the owning thread calls this.
+    private long[] page(int metricId)
     {
-        ThreadLocalMetrics threadLocalMetrics = ThreadLocalMetrics.get();
-        return threadLocalMetrics.getNonStatic(metricId);
+        long[][] current = pages;
+        int p = metricId >>> PAGE_SHIFT;
+        if (p < current.length)
+        {
+            long[] page = current[p];
+            if (page != null)
+                return page;
+        }
+        return addPage(p);
     }
 
-    private long[] getNonStatic(int metricId)
+    private long[] addPage(int p)
     {
-        long[] currentCounterValues = counterValues;
-        if (metricId < currentCounterValues.length)
-            return currentCounterValues;
-
-        long[] newCounterValues = new long[calculateNewCapacity(metricId)];
         // to avoid a race condition with a metric value reset within recycleMetricId logic
         synchronized (this)
         {
-            System.arraycopy(currentCounterValues, 0, newCounterValues, 0, currentCounterValues.length);
-            counterValues = newCounterValues;
-            return newCounterValues;
+            long[][] current = pages;
+            if (p >= current.length)
+            {
+                long[][] grown = new long[calculateNewCapacity(p)][];
+                System.arraycopy(current, 0, grown, 0, current.length);
+                current = grown;
+            }
+            long[] page = new long[PAGE_SIZE];
+            current[p] = page;
+            pages = current;
+            return page;
         }
     }
 
@@ -360,12 +391,13 @@ public class ThreadLocalMetrics
         {
             for (ThreadLocalMetrics threadLocalMetrics : allThreadLocalMetrics)
             {
-                // to avoid a race condition with counterValues array extension by a metric updating thread within getNonStatic
+                // to avoid a race condition with a page addition by a metric updating thread within addPage
                 synchronized (threadLocalMetrics)
                 {
-                    long[] currentCounterValues = threadLocalMetrics.counterValues;
-                    if (metricId < currentCounterValues.length)
-                        currentCounterValues[metricId] = 0;
+                    long[][] current = threadLocalMetrics.pages;
+                    int p = metricId >>> PAGE_SHIFT;
+                    if (p < current.length && current[p] != null)
+                        current[p][metricId & PAGE_MASK] = 0;
                 }
             }
             summaryValues.set(metricId, 0);
@@ -468,5 +500,21 @@ public class ThreadLocalMetrics
     static int getThreadLocalMetricsObjectsCount()
     {
         return allThreadLocalMetrics.size();
+    }
+
+    @VisibleForTesting
+    int getCounterCapacity()
+    {
+        return pages.length * PAGE_SIZE;
+    }
+
+    @VisibleForTesting
+    int getAllocatedPageCount()
+    {
+        int count = 0;
+        for (long[] page : pages)
+            if (page != null)
+                count++;
+        return count;
     }
 }

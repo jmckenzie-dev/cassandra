@@ -82,6 +82,7 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Locator;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.metrics.DefaultNameFactory;
+import org.apache.cassandra.metrics.MeterTickerMetrics;
 import org.apache.cassandra.net.StartupClusterConnectivityChecker;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
@@ -327,6 +328,7 @@ public class CassandraDaemon
         Thread.setDefaultUncaughtExceptionHandler(JVMStabilityInspector::uncaughtException);
 
         SystemKeyspaceMigrator41.migrate();
+        MeterTickerMetrics.register();
         setupVirtualKeyspaces();
 
         try
